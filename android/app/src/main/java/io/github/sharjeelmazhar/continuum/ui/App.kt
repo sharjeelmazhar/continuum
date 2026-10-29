@@ -88,7 +88,7 @@ fun App(externalLink: MutableState<String?>, resumeTick: Int) {
         ScannerScreen(onCode = ::pair, onClose = { scanning = false })
     } else {
         val exempt = remember(resumeTick) { isIgnoringBatteryOptimizations(context) }
-        HomeScreen(state, exempt, onScan = { scanning = true }, onRemove = { ContinuumService.unpair(context) })
+        HomeScreen(state, exempt, resumeTick, onScan = { scanning = true }, onRemove = { ContinuumService.unpair(context) })
     }
 
     if (localNetworkDenied) {
@@ -119,7 +119,7 @@ fun App(externalLink: MutableState<String?>, resumeTick: Int) {
 }
 
 @Composable
-private fun HomeScreen(state: LinkState, exempt: Boolean, onScan: () -> Unit, onRemove: () -> Unit) {
+private fun HomeScreen(state: LinkState, exempt: Boolean, resumeTick: Int, onScan: () -> Unit, onRemove: () -> Unit) {
     Scaffold { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
@@ -135,7 +135,7 @@ private fun HomeScreen(state: LinkState, exempt: Boolean, onScan: () -> Unit, on
             }
             if (state is LinkState.Connected || state is LinkState.Connecting || state is LinkState.Offline) {
                 Spacer(Modifier.height(16.dp))
-                KeepConnectedCard(exempt)
+                KeepConnectedCard(exempt, resumeTick)
             }
         }
     }

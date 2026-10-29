@@ -1,14 +1,17 @@
 package io.github.sharjeelmazhar.continuum.ui
 
 import android.annotation.SuppressLint
+import android.app.AppOpsManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import androidx.core.net.toUri
 import android.os.Build
 import android.os.PowerManager
+import android.os.Process
 import android.provider.Settings
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,6 +23,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.core.content.edit
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -36,10 +44,32 @@ fun isIgnoringBatteryOptimizations(context: Context): Boolean =
  * Asks to be exempt from battery optimization so the connection survives with the app closed.
  * Allowed for companion/connectivity apps; the user confirms in a system dialog.
  */
+/**
+ * MIUI keeps its Autostart switch in a private app-op (10008; 0 = allowed). There's no public
+ * API, so this uses the same reflection call other apps use. Null if it can't be read.
+ */
+private fun xiaomiAutostartAllowed(context: Context): Boolean? = runCatching {
+    val ops = context.getSystemService(AppOpsManager::class.java)
+    val check = AppOpsManager::class.java.getMethod(
+        "checkOpNoThrow", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, String::class.java,
+    )
+    check.invoke(ops, 10008, Process.myUid(), context.packageName) as Int == AppOpsManager.MODE_ALLOWED
+}.getOrNull()
+
+private fun prefs(context: Context) = context.getSharedPreferences("ui", Context.MODE_PRIVATE)
+
+/**
+ * Shown until background running is allowed: the battery exemption (checked by Android), and on
+ * Xiaomi phones Autostart (read from MIUI, or confirmed by the user with "Done" if unreadable).
+ * [refreshKey] changes on every resume, so coming back from Settings re-checks.
+ */
 @Composable
-fun KeepConnectedCard(exempt: Boolean) {
+fun KeepConnectedCard(exempt: Boolean, refreshKey: Int) {
     val context = LocalContext.current
-    if (exempt && !isXiaomi) return
+    var dismissed by remember { mutableStateOf(prefs(context).getBoolean("autostart_done", false)) }
+    val autostart = remember(refreshKey) { if (isXiaomi) xiaomiAutostartAllowed(context) else true }
+    val autostartOk = autostart == true || (autostart == null && dismissed)
+    if (exempt && autostartOk) return
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
@@ -50,7 +80,17 @@ fun KeepConnectedCard(exempt: Boolean) {
             Text(stringResource(if (isXiaomi) R.string.keep_connected_body_xiaomi else R.string.keep_connected_body), style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(12.dp))
             if (!exempt) Button(onClick = { requestExemption(context) }) { Text(stringResource(R.string.allow_background)) }
-            if (isXiaomi) TextButton(onClick = { openXiaomiAutostart(context) }) { Text(stringResource(R.string.open_autostart)) }
+            if (!autostartOk) {
+                Row {
+                    TextButton(onClick = { openXiaomiAutostart(context) }) { Text(stringResource(R.string.open_autostart)) }
+                    if (autostart == null) {
+                        TextButton(onClick = {
+                            prefs(context).edit { putBoolean("autostart_done", true) }
+                            dismissed = true
+                        }) { Text(stringResource(R.string.done)) }
+                    }
+                }
+            }
         }
     }
 }

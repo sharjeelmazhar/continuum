@@ -42,4 +42,5 @@
     <string name="local_network_body">Continuum needs this to find and talk to your computer on your Wi-Fi. Nothing leaves your home network. Scan the code again and tap Allow.</string>
     <string name="local_network_missing">Continuum isn\'t allowed to use your local network. Open Settings › Apps › Continuum › Permissions and allow “Nearby devices”.</string>
     <string name="ok">OK</string>
+    <string name="done">Done</string>
 </resources>
