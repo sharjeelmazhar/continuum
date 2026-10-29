@@ -29,6 +29,8 @@
 | M11 | Hardening and release | ☐ |
 
 ## Log (newest first)
+- 29 October 2026: v0.1.0 developer preview published on GitHub Releases (signed APK, built by
+  `release.yml` on tag push; process in `docs/design/07-build-test-ci.md`).
 - 29 October 2026: published to GitHub (public, CI green on both jobs). App ID fixed as
   `io.github.sharjeelmazhar.Continuum` (ADR-0013). Commits use the GitHub noreply email.
 - 29 October 2026: M0 done. setup-dev.sh run with apt (JDK 21 is needed for Gradle). Desktop
