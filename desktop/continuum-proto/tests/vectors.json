@@ -1,0 +1,19 @@
+{
+  "comment": "Shared by the Rust and Kotlin tests. proof = HMAC-SHA256(secret, fp_desktop || fp_phone), computed independently with Python's hmac module.",
+  "pairing": {
+    "secret_b64url": "AAECAwQFBgcICQoLDA0ODw",
+    "fp_desktop": "bac87f9c62b9bc925c4e188e9fd2ae1cfb48130bf266987596e11e34aba692a6",
+    "fp_phone": "903bf36480e61603b9792da8041d6eb49eb61db0df4caa1b9f0dc0f23c400ec5",
+    "proof": "f8168b13d71edf4c03228c6c41d6604307a6d786c4996509af4bd6cb873735b6"
+  },
+  "uri": {
+    "text": "continuum://pair?v=1&h=192.0.2.10,198.51.100.7&p=47820&fp=bac87f9c62b9bc925c4e188e9fd2ae1cfb48130bf266987596e11e34aba692a6&s=AAECAwQFBgcICQoLDA0ODw&n=My%20Desktop%20%26%20Co",
+    "hosts": ["192.0.2.10", "198.51.100.7"],
+    "port": 47820,
+    "name": "My Desktop & Co"
+  },
+  "frame": {
+    "json": "{\"type\":\"ping\",\"body\":{}}",
+    "hex": "000000197b2274797065223a2270696e67222c22626f6479223a7b7d7d"
+  }
+}

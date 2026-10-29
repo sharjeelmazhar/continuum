@@ -1,4 +1,9 @@
-//! Continuum desktop app (GTK4 + libadwaita).
+//! Continuum desktop app (GTK4 + libadwaita). Holds no connection state: everything comes from
+//! the daemon over D-Bus, so the window can be closed at any time.
+
+mod daemon;
+mod qr;
+mod window;
 
 use adw::prelude::*;
 
@@ -7,22 +12,11 @@ const APP_ID: &str = "io.github.sharjeelmazhar.Continuum";
 fn main() -> glib::ExitCode {
     let app = adw::Application::builder().application_id(APP_ID).build();
     app.connect_activate(|app| {
-        let page = adw::StatusPage::builder()
-            .icon_name("phone-symbolic")
-            .title("Continuum")
-            .description("No devices paired yet")
-            .build();
-        let view = adw::ToolbarView::new();
-        view.add_top_bar(&adw::HeaderBar::new());
-        view.set_content(Some(&page));
-        adw::ApplicationWindow::builder()
-            .application(app)
-            .title("Continuum")
-            .default_width(480)
-            .default_height(560)
-            .content(&view)
-            .build()
-            .present();
+        if let Some(win) = app.active_window() {
+            win.present();
+            return;
+        }
+        window::build(app).present();
     });
     app.run()
 }

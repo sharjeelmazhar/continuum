@@ -1,48 +1,79 @@
-# Continuum protocol (draft v1)
+# Continuum protocol (v1)
 
-This is a draft. M1 finalizes it, and anything that changes must be updated here first.
+Both apps must follow this document exactly. Change it here first, in the same commit as the code.
+Shared test vectors: `desktop/continuum-proto/tests/vectors.json` (used by the Rust and Kotlin tests).
+
+## Identity
+- Each device has one long-lived **ECDSA P-256** key pair and a **self-signed X.509 v3
+  certificate** (ADR-0015). Desktop: generated on first run, stored `0600`. Android: generated
+  inside the Android Keystore (the private key never leaves it).
+- **Fingerprint** `fp` = SHA-256 of the certificate DER. Written as 64 lowercase hex characters.
+- **Device id** = the first 32 hex characters of `fp` (16 bytes). Certificates are never
+  reissued (a new certificate means a new device that must pair again), so the id is stable.
 
 ## Discovery
-- mDNS service `_continuum._tcp.local.` on TCP port **47820** (it falls back to any free port,
-  which the TXT record advertises).
-- TXT: `v=1`, `id=<device id>`, `name=<display name>`, `type=phone|tablet|laptop|desktop`, `fp=<first 16 hex of cert SHA-256>`.
-- `id` = base32 of the first 16 bytes of SHA-256(public key). It's stable and not personal.
+- mDNS service `_continuum._tcp.local.`, instance name = device id, TCP port **47820** (any free
+  port if that one is taken). TXT: `v=1`, `id`, `name`, `type`.
+- The pairing QR code carries the desktop's addresses too, so pairing works without mDNS.
 
-## Transport and security
-- TCP + **TLS 1.3 only**, mutual authentication. Each device has a long-lived Ed25519 key and a
-  self-signed cert.
-- Before pairing, the server only accepts the `pair.*` messages. After pairing, both sides
-  **pin the peer cert's SHA-256**. Any mismatch closes the connection and raises a UI warning.
-  No trust-on-first-use without user confirmation.
-- Pairing:
-  - **QR**: the desktop shows `continuum://pair?h=<host>&p=<port>&fp=<cert sha256>&s=<128-bit secret>`.
-    The phone verifies `fp` during the TLS handshake, then sends `pair.request` with
-    `HMAC-SHA256(secret, fp_desktop ‖ fp_phone)`. The secret is single-use and expires after 2 min.
-  - **SAS**: both screens show a 6-digit code, `SHA-256(fp_a ‖ fp_b ‖ nonce) mod 10^6`, and both
-    users confirm it.
-- Rate limits: 5 failed pairings per minute per IP. Unknown peers can't send anything except pairing.
+## Transport
+- TCP + **TLS 1.3 only**, and both sides present their certificate (mutual TLS).
+- The desktop is the server, the phone is the client.
+- The phone accepts the server only if `SHA-256(server cert) == fp` from the QR code (or the
+  pinned fp, after pairing). The desktop accepts any client certificate at the TLS layer (the
+  TLS handshake still proves the client owns the key), then decides by fingerprint:
+  - pinned (paired) fingerprint → normal session;
+  - unknown fingerprint → only `pair.request` is allowed. Anything else closes the connection.
 
-## Framing (control connection)
-`u32 big-endian length` + UTF-8 JSON body. The body must be ≤ 1 MiB. Anything larger is a
-protocol error, and the connection closes.
+## Framing
+`u32 big-endian length` + UTF-8 JSON object. Length ≤ **1 MiB** (1,048,576 bytes); a larger
+length is a protocol error and the connection closes without reading the body.
+
 ```json
-{ "id": 42, "type": "clipboard.text", "body": { "text": "hello" } }
+{ "type": "battery.status", "body": { "level": 82, "charging": false } }
 ```
-- `type` is `<plugin>.<action>`. Unknown types are ignored, with an `error.unsupported` reply
-  so that clients can be newer than the server.
-- First message on both sides: `hello { v, id, name, type, caps: ["share","clip",...] }`.
-  Each side uses only the features that appear in both lists.
-- Keepalive: `ping`/`pong` every 20 s. If 60 s pass without a reply, the peer is treated as
-  disconnected and reconnects.
+`type` is `<namespace>.<action>`. `body` is an object (may be `{}`). Unknown fields are
+ignored. Unknown types get `error {code:"unsupported"}` back and are otherwise ignored.
 
-## Data connections (files, video)
+## Pairing (QR)
+The desktop shows:
+```
+continuum://pair?v=1&h=<ip>[,<ip>…]&p=<port>&fp=<64 hex>&s=<secret>&n=<desktop name, URL-encoded>
+```
+`s` = 16 random bytes, base64url without padding. Single use, expires after 2 minutes.
+
+1. Phone connects to one of the `h` addresses (tries them in parallel) and checks `fp`.
+2. Phone → `pair.request { "name", "type", "proof" }`
+   - `proof` = hex(HMAC-SHA256(key = secret bytes, message = fp_desktop_raw ‖ fp_phone_raw)),
+     where `fp_*_raw` are the 32-byte digests.
+3. Desktop checks the proof (constant time) and that the secret is active, then pins `fp_phone`
+   and burns the secret → `pair.accept { "id", "name", "type" }`.
+   On failure → `pair.reject { "reason" }` and close.
+4. Phone pins `fp_desktop`. The connection continues as a normal session (next: `hello`).
+
+`type` is one of `phone`, `tablet`, `laptop`, `desktop`.
+
+## Session
+- Both sides send `hello { "v": 1, "id", "name", "type", "caps": [ … ] }` first (the phone
+  right after connecting or after `pair.accept`; the desktop in reply). Features are used only
+  if both `caps` lists contain them.
+- Keepalive: the phone sends `ping {}` every 20 s; the desktop answers `pong {}`. 60 s without
+  any frame = connection dead; the phone reconnects with backoff (1, 2, 4 … 30 s).
+- `unpair {}`: the sender has removed this pairing. The receiver deletes its pin and closes.
+- `error { "code", "msg" }`: informational.
+
+## Messages by plugin
+| Type | Direction | Body |
+|---|---|---|
+| `battery.status` | phone → desktop | `level` 0–100, `charging` bool. Sent after `hello` and on every change. |
+
+Later plugins (`share`, `clip`, `notif`, `call`, `mirror`, `find`, `media`) add their rows here
+when they're built.
+
+## Data connections (files, video), planned for M4
 The sender sends `share.offer { transfer_id, files: [{name, size, sha256?, mime}] }`.
 The receiver replies `share.accept { transfer_id, port, token }`. Then the sender opens a new
 TLS connection (same pinned certs) and sends the token and `file_index` + `offset`, so a
 transfer resumes from the last verified byte. The receiver writes to `.part` and renames the
 file once the hash matches. File names are sanitized: base name only, with no control
 characters, no `..`, and at most 255 bytes.
-
-## Plugins (namespaces)
-`share` · `clip` · `notif` · `call` · `mirror` · `battery` · `find` · `media`. Each plugin's
-messages are documented in that plugin's milestone section when it's built.
