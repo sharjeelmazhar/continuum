@@ -1,5 +1,7 @@
 # Continuum
 
+<p align="center"><img src="docs/assets/logo.png" width="160" alt="Continuum logo"></p>
+
 **An Apple-Continuity-style ecosystem for Android phones and Linux desktops.**
 It's fast, private (everything stays on your LAN, end-to-end encrypted) and designed to feel modern.
 

@@ -33,6 +33,7 @@ object MessageType {
     const val SHARE_REJECT = "share.reject"
     const val SHARE_RESULT = "share.result"
     const val DATA_HELLO = "data.hello"
+    const val CLIPBOARD = "clipboard"
 }
 
 /** Peers may be newer than us: ignore unknown fields, always write `body`. */
@@ -84,3 +85,6 @@ data class ShareResult(
 
 @Serializable
 data class DataHello(val token: String)
+
+@Serializable
+data class ClipboardPart(val id: String, val mime: String, val size: Long, val part: Int, val parts: Int, val data: String)

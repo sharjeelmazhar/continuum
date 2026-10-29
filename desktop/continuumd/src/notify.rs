@@ -130,6 +130,14 @@ impl Notifier {
             .ok()
     }
 
+    fn take_in_progress(&self, key: &str) -> u32 {
+        self.in_progress
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(key)
+            .unwrap_or(0)
+    }
+
     pub async fn on_transfer(&self, p: &Progress) {
         match p {
             Progress::Started {
@@ -178,6 +186,53 @@ impl Notifier {
                         .unwrap_or_else(|e| e.into_inner())
                         .insert(id, saved.clone());
                 }
+            }
+            Progress::SendQueued { device } => {
+                self.show(
+                    0,
+                    &format!("Will send to {device} when it connects"),
+                    "Files go out automatically as soon as the phone is back on this network.",
+                    &[],
+                )
+                .await;
+            }
+            Progress::Sending { device, files } => {
+                let summary = if *files == 1 {
+                    format!("Sending a file to {device}")
+                } else {
+                    format!("Sending {files} files to {device}")
+                };
+                let replaces = self.take_in_progress(&format!("send:{device}"));
+                if let Some(id) = self.show(replaces, &summary, "", &[]).await {
+                    self.in_progress
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(format!("send:{device}"), id);
+                }
+            }
+            Progress::Sent { device, names } => {
+                let replaces = self.take_in_progress(&format!("send:{device}"));
+                let summary = match names.as_slice() {
+                    [one] => format!("Sent {one}"),
+                    many => format!("Sent {} files", many.len()),
+                };
+                self.show(
+                    replaces,
+                    &summary,
+                    &format!("To {device} · in Downloads/Continuum"),
+                    &[],
+                )
+                .await;
+            }
+            Progress::SendFailed { device, reason } => {
+                let replaces = self.take_in_progress(&format!("send:{device}"));
+                self.show(
+                    replaces,
+                    &format!("Couldn't send files to {device}"),
+                    reason,
+                    &[],
+                )
+                .await;
             }
             Progress::Failed { device, reason } => {
                 let replaces = self

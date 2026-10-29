@@ -1,6 +1,7 @@
 //! Continuum wire protocol: messages, framing, identity, pairing and certificate pinning.
 //! No network I/O here, so everything can be tested without sockets. Spec: `docs/PROTOCOL.md`.
 
+pub mod clipboard;
 pub mod filename;
 pub mod frame;
 pub mod identity;

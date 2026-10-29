@@ -14,6 +14,7 @@ use crate::sysinfo;
 
 pub const BUS_NAME: &str = "io.github.sharjeelmazhar.Continuum.Daemon";
 pub const PATH: &str = "/io/github/sharjeelmazhar/Continuum/Daemon";
+pub const IFACE: &str = "io.github.sharjeelmazhar.Continuum.Daemon1";
 
 /// (id, name, type, connected, battery level or -1, charging)
 pub type DeviceRow = (String, String, String, bool, i32, bool);
@@ -61,6 +62,16 @@ impl Api {
             live.kill.notify_one();
         }
         Ok(())
+    }
+
+    /// Sends files (absolute paths) to a paired device; queued if it isn't connected.
+    /// Returns the transfer id.
+    async fn send_files(&self, id: &str, paths: Vec<String>) -> zbus::fdo::Result<String> {
+        let paths = paths.into_iter().map(Into::into).collect();
+        self.daemon
+            .send_files(id, paths)
+            .await
+            .map_err(zbus::fdo::Error::Failed)
     }
 
     #[zbus(property)]

@@ -20,9 +20,14 @@ pub const SHARE_ACCEPT: &str = "share.accept";
 pub const SHARE_REJECT: &str = "share.reject";
 pub const SHARE_RESULT: &str = "share.result";
 pub const DATA_HELLO: &str = "data.hello";
+pub const CLIPBOARD: &str = "clipboard";
 
 /// Capabilities this build understands.
-pub const CAPS: &[&str] = &["battery", "share"];
+pub const CAPS: &[&str] = &["battery", "share", "share.receive", "clipboard"];
+
+/// Capability of a peer that accepts `share.offer` (files sent to it).
+pub const CAP_SHARE_RECEIVE: &str = "share.receive";
+pub const CAP_CLIPBOARD: &str = "clipboard";
 
 /// One control message: `{"type": "...", "body": {...}}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -165,6 +170,18 @@ pub struct ShareResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DataHello {
     pub token: String,
+}
+
+/// One part of a copied text or image; see [`crate::clipboard`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClipboardPart {
+    pub id: String,
+    pub mime: String,
+    pub size: u64,
+    pub part: u32,
+    pub parts: u32,
+    /// Standard base64 of this part's bytes.
+    pub data: String,
 }
 
 /// Peer-supplied display names: trimmed, control characters removed, at most 64 characters.

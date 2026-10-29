@@ -174,6 +174,24 @@ async fn refresh(ui: &Rc<Ui>) {
     ui.stack.set_visible_child_name("list");
 }
 
+/// AirDrop-style picture of the device (rendered by scripts/render-device-icons.py).
+fn device_picture(ty: &str) -> gtk::Image {
+    let png: &'static [u8] = match ty {
+        "tablet" => include_bytes!("../data/device-tablet.png"),
+        "laptop" => include_bytes!("../data/device-laptop.png"),
+        "desktop" => include_bytes!("../data/device-desktop.png"),
+        _ => include_bytes!("../data/device-phone.png"),
+    };
+    let image = match gtk::gdk::Texture::from_bytes(&glib::Bytes::from_static(png)) {
+        Ok(t) => gtk::Image::from_paintable(Some(&t)),
+        Err(_) => gtk::Image::from_icon_name("phone-symbolic"),
+    };
+    image.set_pixel_size(48);
+    image.set_margin_top(6);
+    image.set_margin_bottom(6);
+    image
+}
+
 fn status_text(connected: bool, battery: i32, charging: bool) -> String {
     match (connected, battery) {
         (false, _) => "Not connected".to_owned(),
@@ -192,11 +210,7 @@ fn device_row(
         .use_markup(false)
         .subtitle(status_text(*connected, *battery, *charging))
         .build();
-    let icon = match ty.as_str() {
-        "laptop" | "desktop" => "computer-symbolic",
-        _ => "phone-symbolic",
-    };
-    row.add_prefix(&gtk::Image::from_icon_name(icon));
+    row.add_prefix(&device_picture(ty));
     let dot = gtk::Image::from_icon_name(if *connected {
         "object-select-symbolic"
     } else {
@@ -204,6 +218,20 @@ fn device_row(
     });
     dot.add_css_class(if *connected { "success" } else { "dim-label" });
     row.add_suffix(&dot);
+    let send = gtk::Button::builder()
+        .icon_name("document-send-symbolic")
+        .tooltip_text(format!("Send files to {name}"))
+        .valign(gtk::Align::Center)
+        .css_classes(["flat"])
+        .build();
+    {
+        let (ui, id, name) = (ui.clone(), id.clone(), name.clone());
+        send.connect_clicked(move |_| {
+            let (ui, id, name) = (ui.clone(), id.clone(), name.clone());
+            glib::spawn_future_local(async move { pick_and_send(&ui, &id, &name).await });
+        });
+    }
+    row.add_suffix(&send);
     let remove = gtk::Button::builder()
         .icon_name("user-trash-symbolic")
         .tooltip_text("Remove this device")
@@ -214,6 +242,31 @@ fn device_row(
     remove.connect_clicked(move |_| confirm_unpair(&ui, &id, &name));
     row.add_suffix(&remove);
     row
+}
+
+async fn pick_and_send(ui: &Rc<Ui>, id: &str, name: &str) {
+    let dialog = gtk::FileDialog::builder()
+        .title(format!("Send to {name}"))
+        .accept_label("Send")
+        .build();
+    let Ok(files) = dialog.open_multiple_future(Some(&ui.window)).await else {
+        return; // cancelled
+    };
+    let paths: Vec<String> = (0..files.n_items())
+        .filter_map(|i| files.item(i)?.downcast::<gtk::gio::File>().ok()?.path())
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    if paths.is_empty() {
+        return;
+    }
+    let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+    let Some(proxy) = proxy(ui) else { return };
+    let text = match proxy.send_files(id, &refs).await {
+        Ok(_) => format!("Sending to {name}…"),
+        Err(zbus::Error::MethodError(_, Some(msg), _)) => format!("Couldn't send: {msg}"),
+        Err(e) => format!("Couldn't send: {e}"),
+    };
+    ui.toasts.add_toast(adw::Toast::new(&text));
 }
 
 fn confirm_unpair(ui: &Rc<Ui>, id: &str, name: &str) {

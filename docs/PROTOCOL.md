@@ -73,13 +73,16 @@ continuum://pair?v=1&h=<ip>[,<ip>…]&p=<port>&fp=<64 hex>&s=<secret>&n=<desktop
 | Type | Direction | Body |
 |---|---|---|
 | `battery.status` | phone → desktop | `level` 0–100, `charging` bool. Sent after `hello` and on every change. |
+| `clipboard` | both ways | A copied text or image; see "Clipboard". Needs the `clipboard` cap on both sides. |
 
 Later plugins (`share`, `clip`, `notif`, `call`, `mirror`, `find`, `media`) add their rows here
 when they're built.
 
 ## File transfer (share)
 Paired devices accept files automatically (they're your own devices, like AirDrop between
-devices on the same Apple ID). Phone → desktop first; the other direction uses the same messages.
+devices on the same Apple ID). Both directions use the same messages. The **phone always opens
+the data connection** (it can't accept incoming connections): when it sends, it writes the bytes;
+when the desktop sends (the phone has the `share.receive` cap), the phone opens it to read them.
 
 1. Sender → `share.offer { "transfer_id", "files": [{ "name", "size", "mime" }] }`
    - `transfer_id`: 32 hex chars (random). Reused when retrying, so the receiver can resume.
@@ -97,6 +100,22 @@ devices on the same Apple ID). Phone → desktop first; the other direction uses
    It reports on the control connection:
    `share.result { "transfer_id", "ok", "saved": [names], "error"? }`.
    If the data connection breaks, the sender offers the same `transfer_id` again and resumes.
+5. `transfer_id` is derived from the files (SHA-256 of name, size and modification time, first
+   16 bytes as hex), so sharing the same files again later resumes too. A receiver refuses an
+   offer whose `transfer_id` is already receiving. Unfinished transfers are kept for **24 hours**
+   (partial files on the receiver, queued jobs on the desktop), then deleted.
+
+## Clipboard
+`clipboard { "id", "mime", "size", "part", "parts", "data" }`: a copied text (`text/plain`,
+UTF-8) or image (`image/png|jpeg|webp|gif`), at most 12 MiB, split into parts of 512 KiB raw
+bytes; `data` is standard base64 of one part, so every frame stays under 1 MiB. Parts are sent
+in order; `id` is the first 16 hex chars of SHA-256(mime ‖ 0x00 ‖ data). The receiver checks
+`parts` = ⌈size / 512 KiB⌉, each part's exact length, and the total, and drops anything
+inconsistent. A device never sends back content it just received (same SHA-256).
+Desktop copies are read through the X11/XWayland clipboard (works on GNOME, KDE and X11);
+password-manager copies (`x-kde-passwordManagerHint`) and copied files are not sent.
+Android 10+ only lets the focused app read the clipboard, so the phone sends when the user taps
+"Send clipboard" (notification, Quick Settings tile) or shares text to Continuum.
 
 File names from the peer are sanitized: base name only, no control characters, no leading
 dots, at most 255 bytes, never `.` or `..`.

@@ -10,6 +10,16 @@ import io.github.sharjeelmazhar.continuum.proto.ShareResult
 import io.github.sharjeelmazhar.continuum.share.FileSender
 import io.github.sharjeelmazhar.continuum.share.Outgoing
 import io.github.sharjeelmazhar.continuum.share.Shortcuts
+import io.github.sharjeelmazhar.continuum.share.ClipSync
+import io.github.sharjeelmazhar.continuum.share.FileReceiver
+import io.github.sharjeelmazhar.continuum.share.Received
+import io.github.sharjeelmazhar.continuum.clip.SendClipboardActivity
+import io.github.sharjeelmazhar.continuum.proto.ClipAssembler
+import io.github.sharjeelmazhar.continuum.proto.ClipContent
+import io.github.sharjeelmazhar.continuum.proto.Clip
+import io.github.sharjeelmazhar.continuum.proto.ClipboardPart
+import android.content.ClipboardManager
+import android.text.format.Formatter
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
@@ -92,6 +102,11 @@ class ContinuumService : Service() {
     private val outgoing = Channel<Outgoing>(Channel.UNLIMITED)
     private val offerReplies = ConcurrentHashMap<String, CompletableDeferred<Envelope>>()
     private val shareResults = ConcurrentHashMap<String, CompletableDeferred<ShareResult>>()
+    /** Incoming transfers in progress, so a repeated offer doesn't start a second copy. */
+    private val receiving = ConcurrentHashMap.newKeySet<String>()
+    private val queued = ConcurrentHashMap.newKeySet<String>()
+    private lateinit var receiver: FileReceiver
+    @Volatile private var peerCaps: List<String> = emptyList()
 
     private class PairRejected(reason: String) : Exception(reason)
     private class UnpairedByComputer : Exception()
@@ -114,7 +129,27 @@ class ContinuumService : Service() {
         ContextCompat.registerReceiver(this, batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
         getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkCallback)
         scope.launch { listenForWake() }
-        scope.launch { for (job in outgoing) send(job) }
+        scope.launch {
+            for (job in outgoing) {
+                try {
+                    send(job)
+                } finally {
+                    queued.remove(job.transferId)
+                }
+            }
+        }
+        receiver = FileReceiver(this)
+        scope.launch { for (c in ClipSync.outgoing) sendClipboard(c) }
+        // Android 9 and older let background apps read the clipboard, so copies go out by
+        // themselves. Newer versions only report our own changes here (and reading would show a
+        // "pasted" notice), so there "Send clipboard" does it.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            getSystemService(ClipboardManager::class.java).addPrimaryClipChangedListener(clipListener)
+        }
+    }
+
+    private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
+        scope.launch { ClipSync.read(this@ContinuumService)?.let { ClipSync.send(it) } }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -123,7 +158,10 @@ class ContinuumService : Service() {
             ACTION_UNPAIR -> unpair()
             ACTION_SEND -> {
                 val uris = IntentCompat.getParcelableArrayListExtra(intent, EXTRA_URIS, Uri::class.java).orEmpty()
-                scope.launch { Outgoing.resolve(this@ContinuumService, uris)?.let { outgoing.send(it) } }
+                scope.launch {
+                    // Sharing the same files again while they're still going is a no-op.
+                    Outgoing.resolve(this@ContinuumService, uris)?.takeIf { queued.add(it.transferId) }?.let { outgoing.send(it) }
+                }
                 if (loop?.isActive != true) restart(null) else wake.trySend(Unit)
             }
             // A plain start (app opened, boot) also means "try now" if we're waiting.
@@ -134,6 +172,7 @@ class ContinuumService : Service() {
 
     override fun onDestroy() {
         unregisterReceiver(batteryReceiver)
+        getSystemService(ClipboardManager::class.java).removePrimaryClipChangedListener(clipListener)
         runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkCallback) }
         session?.close()
         wakeSocket?.close()
@@ -302,6 +341,7 @@ class ContinuumService : Service() {
             // The computer answers hello with pair.reject when it no longer knows this phone.
             if (reply.type == MessageType.PAIR_REJECT && !justPaired) throw UnpairedByComputer()
             if (reply.type != MessageType.HELLO) throw IOException("expected hello, got ${reply.type}")
+            peerCaps = reply.body(Hello.serializer()).caps
             session.socket.soTimeout = Protocol.IDLE_TIMEOUT_MS
             this.session = session
             computer = pc
@@ -316,6 +356,7 @@ class ContinuumService : Service() {
                     runCatching { session.send(Envelope(MessageType.PING)) }.onFailure { session.close() }
                 }
             }
+            val clip = ClipAssembler()
             try {
                 while (true) {
                     val msg = session.receive()
@@ -328,6 +369,21 @@ class ContinuumService : Service() {
                             val r = msg.body(ShareResult.serializer())
                             shareResults.remove(r.transferId)?.complete(r)
                         }
+                        MessageType.SHARE_OFFER -> {
+                            val offer = msg.body(ShareOffer.serializer())
+                            if (receiving.add(offer.transferId)) {
+                                scope.launch {
+                                    try {
+                                        receive(session, pc, offer)
+                                    } finally {
+                                        receiving.remove(offer.transferId)
+                                    }
+                                }
+                            }
+                        }
+                        MessageType.CLIPBOARD -> runCatching { msg.body(ClipboardPart.serializer()) }.getOrNull()
+                            ?.let { clip.push(it) }
+                            ?.let { ClipSync.apply(this, it) }
                         else -> {}
                     }
                 }
@@ -363,13 +419,11 @@ class ContinuumService : Service() {
                     return
                 }
                 val ok = reply.body(ShareAccept.serializer())
-                var lastUpdate = 0L
+                val meter = Meter(job.totalBytes, ok.offsets.sum())
+                val title = if (job.files.size == 1) getString(R.string.sending_one, job.files[0].name, pc.name)
+                else resources.getQuantityString(R.plurals.sending_many, job.files.size, job.files.size, pc.name)
                 FileSender.stream(this, s.socket.inetAddress.hostAddress!!, s.socket.port, Crypto.unhex(pc.fingerprint)!!, job, ok.token, ok.offsets) { sent ->
-                    val now = System.currentTimeMillis()
-                    if (now - lastUpdate > 400) {
-                        lastUpdate = now
-                        nm.notify(notifId, progressNotification(pc.name, job, sent))
-                    }
+                    if (meter.due()) nm.notify(notifId, progressNotification(title, meter, sent, upload = true))
                 }
                 val r = withTimeout(120_000) { result.await() }
                 if (r.ok) {
@@ -391,34 +445,136 @@ class ContinuumService : Service() {
                 notifyDone(nm, notifId, getString(R.string.send_failed, pc.name), failure)
                 return
             }
-            nm.notify(notifId, progressNotification(pc.name, job, null))
+            nm.notify(notifId, waitingNotification(pc.name, job))
             delay(2_000L * job.attempts)
         }
     }
 
-    private fun progressNotification(computer: String, job: Outgoing, sent: Long?): Notification {
-        val title = if (job.files.size == 1) getString(R.string.sending_one, job.files[0].name, computer)
-        else resources.getQuantityString(R.plurals.sending_many, job.files.size, job.files.size, computer)
-        val b = NotificationCompat.Builder(this, TRANSFER_CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_upload)
+    /** Tracks speed for progress notifications and limits updates to a few per second. */
+    private class Meter(val total: Long, private val startBytes: Long) {
+        private val started = System.nanoTime()
+        private var last = 0L
+
+        fun due(): Boolean {
+            val now = System.nanoTime()
+            if (now - last < 300_000_000L) return false
+            last = now
+            return true
+        }
+
+        fun bytesPerSecond(done: Long): Long {
+            val secs = (System.nanoTime() - started) / 1e9
+            return if (secs < 0.2) 0 else ((done - startBytes) / secs).toLong()
+        }
+    }
+
+    /** "35 MB of 120 MB · 11 MB/s" with a real progress bar. */
+    private fun progressNotification(title: String, meter: Meter, done: Long, upload: Boolean): Notification {
+        val pct = if (meter.total > 0) (done * 1000 / meter.total).toInt() else 0
+        val speed = meter.bytesPerSecond(done)
+        var text = getString(R.string.progress_of, Formatter.formatShortFileSize(this, done), Formatter.formatShortFileSize(this, meter.total))
+        if (speed > 0) text += " · " + getString(R.string.per_second, Formatter.formatShortFileSize(this, speed))
+        return NotificationCompat.Builder(this, TRANSFER_CHANNEL)
+            .setSmallIcon(if (upload) android.R.drawable.stat_sys_upload else android.R.drawable.stat_sys_download)
             .setContentTitle(title)
+            .setContentText(text)
+            .setProgress(1000, pct, false)
             .setOngoing(true)
             .setSilent(true)
             .setOnlyAlertOnce(true)
-        if (sent == null || job.totalBytes == 0L) {
-            b.setProgress(0, 0, true).setContentText(getString(R.string.waiting_for, computer))
-        } else {
-            val pct = (sent * 100 / job.totalBytes).toInt()
-            b.setProgress(100, pct, false).setContentText("$pct%")
-        }
-        return b.build()
+            .build()
     }
 
-    private fun notifyDone(nm: NotificationManager, id: Int, title: String, text: String) {
+    private fun waitingNotification(computer: String, job: Outgoing): Notification {
+        val title = if (job.files.size == 1) getString(R.string.sending_one, job.files[0].name, computer)
+        else resources.getQuantityString(R.plurals.sending_many, job.files.size, job.files.size, computer)
+        return NotificationCompat.Builder(this, TRANSFER_CHANNEL)
+            .setSmallIcon(android.R.drawable.stat_sys_upload)
+            .setContentTitle(title)
+            .setContentText(getString(R.string.waiting_for, computer))
+            .setProgress(0, 0, true)
+            .setOngoing(true)
+            .setSilent(true)
+            .build()
+    }
+
+    /** Receives files the computer offers (docs/PROTOCOL.md, "File transfer"). */
+    private suspend fun receive(s: Session, pc: PairedComputer, offer: ShareOffer) {
+        val nm = getSystemService(NotificationManager::class.java)
+        val notifId = offer.transferId.hashCode()
+        val offsets = receiver.prepare(offer).getOrElse { e ->
+            runCatching {
+                s.send(Envelope.of(MessageType.SHARE_REJECT, ShareReject.serializer(), ShareReject(offer.transferId, e.message ?: "refused")))
+            }
+            notifyDone(nm, notifId, getString(R.string.receive_failed, pc.name), e.message.orEmpty(), download = true)
+            return
+        }
+        val token = Crypto.hex(ByteArray(16).also { java.security.SecureRandom().nextBytes(it) })
+        s.send(Envelope.of(MessageType.SHARE_ACCEPT, ShareAccept.serializer(), ShareAccept(offer.transferId, token, offsets)))
+        val total = offer.files.sumOf { it.size }
+        val meter = Meter(total, offsets.sum())
+        val title = if (offer.files.size == 1) getString(R.string.receiving_one, offer.files[0].name, pc.name)
+        else resources.getQuantityString(R.plurals.receiving_many, offer.files.size, offer.files.size, pc.name)
+        nm.notify(notifId, progressNotification(title, meter, offsets.sum(), upload = false))
+        val result = runCatching {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) throw IOException("needs Android 10")
+            receiver.receive(s.socket.inetAddress.hostAddress!!, s.socket.port, Crypto.unhex(pc.fingerprint)!!, offer, token, offsets) { done ->
+                if (meter.due()) nm.notify(notifId, progressNotification(title, meter, done, upload = false))
+            }
+        }
+        val report = result.fold(
+            { saved -> ShareResult(offer.transferId, true, saved.map { it.name }) },
+            { e -> ShareResult(offer.transferId, false, error = e.message ?: e.toString()) },
+        )
+        runCatching { s.send(Envelope.of(MessageType.SHARE_RESULT, ShareResult.serializer(), report)) }
+        result.onSuccess { saved -> notifyReceived(nm, notifId, pc.name, saved) }
+            .onFailure { e ->
+                Log.i(TAG, "receiving failed: $e")
+                // The computer retries (and we resume) unless it gives up; show it as waiting.
+                nm.cancel(notifId)
+            }
+    }
+
+    private fun notifyReceived(nm: NotificationManager, id: Int, computer: String, saved: List<Received>) {
+        val open = if (saved.size == 1) {
+            Intent(Intent.ACTION_VIEW).setDataAndType(saved[0].uri, saved[0].mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } else {
+            Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS)
+        }.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val pi = PendingIntent.getActivity(this, id, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val title = if (saved.size == 1) getString(R.string.received_one, saved[0].name)
+        else resources.getQuantityString(R.plurals.received_many, saved.size, saved.size)
         nm.notify(
             id,
             NotificationCompat.Builder(this, TRANSFER_CHANNEL)
-                .setSmallIcon(android.R.drawable.stat_sys_upload_done)
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle(title)
+                .setContentText(getString(R.string.received_from, computer))
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .build(),
+        )
+    }
+
+    /** Sends a copied text or image to the computer, unless it just came from there. */
+    private suspend fun sendClipboard(c: ClipContent) {
+        if (c.digest == ClipSync.lastDigest) return
+        val s = session ?: withTimeoutOrNull(15_000) {
+            Link.state.first { it is LinkState.Connected }
+            session
+        } ?: return
+        if (Protocol.CAP_CLIPBOARD !in peerCaps) return
+        val parts = Clip.split(c) ?: return
+        ClipSync.lastDigest = c.digest
+        runCatching { parts.forEach { s.send(Envelope.of(MessageType.CLIPBOARD, ClipboardPart.serializer(), it)) } }
+            .onFailure { Log.i(TAG, "clipboard not sent: $it") }
+    }
+
+    private fun notifyDone(nm: NotificationManager, id: Int, title: String, text: String, download: Boolean = false) {
+        nm.notify(
+            id,
+            NotificationCompat.Builder(this, TRANSFER_CHANNEL)
+                .setSmallIcon(if (download) android.R.drawable.stat_sys_download_done else android.R.drawable.stat_sys_upload_done)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setAutoCancel(true)
@@ -496,10 +652,27 @@ class ContinuumService : Service() {
             is LinkState.Unpaired -> getString(R.string.no_devices)
         }
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val sendClip = PendingIntent.getActivity(
+            this, 1,
+            Intent(this, SendClipboardActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
+        // Android requires this notification while connected; users can hide it in one tap.
+        val hide = PendingIntent.getActivity(
+            this, 2,
+            Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                .putExtra(Settings.EXTRA_CHANNEL_ID, CHANNEL)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_continuum)
             .setContentTitle(text)
+            .setContentText(getString(R.string.notif_hint))
             .setContentIntent(open)
+            .addAction(0, getString(R.string.send_clipboard), sendClip)
+            .addAction(0, getString(R.string.hide_notification), hide)
             .setOngoing(true)
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)

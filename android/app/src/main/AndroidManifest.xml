@@ -63,6 +63,37 @@
             </intent-filter>
         </activity>
 
+        <!-- "Send clipboard": reads the clipboard during the moment it has focus (Android 10+ rule). -->
+        <activity
+            android:name=".clip.SendClipboardActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <service
+            android:name=".clip.ClipTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_continuum"
+            android:label="@string/send_clipboard"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- Shares images the computer copied with the app you paste into. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <service
             android:name=".service.ContinuumService"
             android:exported="false"

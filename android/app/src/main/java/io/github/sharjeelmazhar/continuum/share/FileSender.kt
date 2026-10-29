@@ -23,6 +23,7 @@ class Outgoing(val transferId: String, val uris: List<Uri>, val files: List<File
         /** Reads name, size and type of each shared item. Items without a known size are skipped. */
         fun resolve(context: Context, uris: List<Uri>): Outgoing? {
             val cr = context.contentResolver
+            val stamps = mutableMapOf<Uri, String>()
             val pairs = uris.mapNotNull { uri ->
                 var name: String? = null
                 var size = -1L
@@ -34,12 +35,21 @@ class Outgoing(val transferId: String, val uris: List<Uri>, val files: List<File
                         }
                     }
                 }
+                val modified = runCatching {
+                    cr.query(uri, arrayOf(android.provider.MediaStore.MediaColumns.DATE_MODIFIED), null, null, null)?.use { c ->
+                        if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else null
+                    }
+                }.getOrNull()
+                stamps[uri] = "$uri|${modified ?: ""}"
                 if (size < 0) size = runCatching { cr.openAssetFileDescriptor(uri, "r")?.use { it.length } }.getOrNull() ?: -1
                 if (size < 0) return@mapNotNull null
                 uri to FileMeta(name ?: uri.lastPathSegment ?: "file", size, cr.getType(uri).orEmpty())
             }
             if (pairs.isEmpty()) return null
-            val id = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
+            // Same files shared again → same id, so the computer resumes what it already has.
+            val md = MessageDigest.getInstance("SHA-256")
+            pairs.forEach { (uri, meta) -> md.update("${meta.name}\u0000${meta.size}\u0000${stamps[uri]}\n".toByteArray()) }
+            val id = md.digest().take(16).joinToString("") { "%02x".format(it) }
             return Outgoing(id, pairs.map { it.first }, pairs.map { it.second })
         }
     }

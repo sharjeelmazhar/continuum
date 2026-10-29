@@ -13,7 +13,7 @@ hex = "0.4.3"
 if-addrs = "0.15.0"
 mdns-sd = "0.21.6"
 ring = "0.17.14"
-rustix = { version = "1.1.6", features = ["fs"] }
+rustix = { version = "1.1.6", features = ["event", "fs"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -21,6 +21,8 @@ tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net", "i
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+x11rb = { version = "0.14.0", features = ["xfixes"] }
+x11rb-protocol = "0.14.0"
 zbus = "6.1.0"
 
 [lints]

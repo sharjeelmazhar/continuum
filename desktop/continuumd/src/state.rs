@@ -8,10 +8,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use continuum_proto::identity::{Fingerprint, Identity};
-use continuum_proto::message::{BatteryStatus, DeviceType, Message};
+use continuum_proto::message::{
+    BatteryStatus, CAP_SHARE_RECEIVE, DeviceType, Message, SHARE_OFFER,
+};
 use continuum_proto::pairing::{PairUri, Secret, random_secret};
 use tokio::sync::{Notify, broadcast, mpsc};
 
+use crate::clipboard::ClipHub;
+use crate::outbox::Outbox;
 use crate::store::{PairedDevice, Store};
 use crate::transfer::{Progress, Transfers};
 
@@ -26,12 +30,16 @@ pub enum Event {
     Transfer(Progress),
 }
 
+/// Sender and capabilities of a connected peer.
+pub type LiveLink = (mpsc::Sender<Message>, Vec<String>);
+
 /// A connected, paired peer.
 pub struct Live {
     pub conn: u64,
     pub battery: Option<BatteryStatus>,
     pub tx: mpsc::Sender<Message>,
     pub kill: Arc<Notify>,
+    pub caps: Vec<String>,
 }
 
 struct Inner {
@@ -51,6 +59,8 @@ pub struct DeviceStatus {
 
 pub struct Daemon {
     pub transfers: Transfers,
+    pub outbox: Outbox,
+    pub clip: ClipHub,
     pub identity: Identity,
     pub name: String,
     pub device_type: DeviceType,
@@ -74,6 +84,8 @@ impl Daemon {
         transfers.clean_old_partials();
         Arc::new(Self {
             transfers,
+            outbox: Outbox::default(),
+            clip: ClipHub::default(),
             identity,
             name,
             device_type,
@@ -206,6 +218,7 @@ impl Daemon {
             self.store.save_devices(&g.devices)?;
             g.live.remove(id)
         };
+        self.outbox.forget_device(id);
         self.emit(Event::DevicesChanged);
         Ok(live)
     }
@@ -246,6 +259,45 @@ impl Daemon {
             drop(g);
             self.emit(Event::DevicesChanged);
         }
+    }
+
+    /// Name, sender and capabilities of a paired device; the sender is `None` when offline.
+    pub fn peer(&self, id: &str) -> Option<(String, Option<LiveLink>)> {
+        let g = self.lock();
+        let d = g.devices.iter().find(|d| d.id == id)?;
+        let live = g.live.get(id).map(|l| (l.tx.clone(), l.caps.clone()));
+        Some((d.name.clone(), live))
+    }
+
+    /// Senders of connected devices that have a capability.
+    pub fn live_with(&self, cap: &str) -> Vec<mpsc::Sender<Message>> {
+        self.lock()
+            .live
+            .values()
+            .filter(|l| l.caps.iter().any(|c| c == cap))
+            .map(|l| l.tx.clone())
+            .collect()
+    }
+
+    /// Queues files for a device and offers them now if it's connected.
+    pub async fn send_files(&self, id: &str, paths: Vec<PathBuf>) -> Result<String, String> {
+        let (name, live) = self.peer(id).ok_or("that device isn't paired")?;
+        if let Some((_, caps)) = &live
+            && !caps.iter().any(|c| c == CAP_SHARE_RECEIVE)
+        {
+            return Err(format!("update Continuum on {name} to send files to it"));
+        }
+        let offer = self.outbox.add(id, paths)?;
+        let tid = offer.transfer_id.clone();
+        match live {
+            Some((tx, _)) => {
+                let msg = Message::with_body(SHARE_OFFER, &offer).map_err(|e| e.to_string())?;
+                // If the connection just dropped, the offer is repeated on reconnect.
+                let _ = tx.send(msg).await;
+            }
+            None => self.emit(Event::Transfer(Progress::SendQueued { device: name })),
+        }
+        Ok(tid)
     }
 
     pub fn set_battery(&self, id: &str, b: BatteryStatus) {

@@ -4,11 +4,12 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
+use continuum_proto::clipboard::Assembler;
 use continuum_proto::frame::{FrameDecoder, encode};
 use continuum_proto::identity::{Fingerprint, fingerprint};
 use continuum_proto::message::{
-    self as m, BatteryStatus, DataHello, ErrorBody, Hello, Message, PairAccept, PairReject,
-    PairRequest, ShareOffer, ShareReject,
+    self as m, BatteryStatus, ClipboardPart, DataHello, ErrorBody, Hello, Message, PairAccept,
+    PairReject, PairRequest, ShareAccept, ShareOffer, ShareReject, ShareResult,
 };
 use continuum_proto::pairing::verify_proof;
 use continuum_proto::{PROTOCOL_VERSION, tls};
@@ -21,6 +22,7 @@ use tracing::{debug, info, warn};
 
 use crate::state::{Daemon, Event, Live};
 use crate::store::PairedDevice;
+use crate::transfer::Progress;
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const PAIR_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -49,6 +51,14 @@ struct Reader<R> {
 }
 
 impl<R: AsyncRead + Unpin> Reader<R> {
+    fn new(rd: R) -> Self {
+        Self {
+            rd,
+            dec: FrameDecoder::new(),
+            buf: vec![0; 16 * 1024],
+        }
+    }
+
     async fn next(&mut self, wait: Duration) -> Result<Message, String> {
         loop {
             if let Some(msg) = self.dec.next_message().map_err(|e| e.to_string())? {
@@ -91,41 +101,39 @@ async fn handle(
         Some([cert, ..]) => fingerprint(cert),
         _ => return Err("no client certificate".into()),
     };
-    let (rd, wr) = tokio::io::split(stream);
-    let mut reader = Reader {
-        rd,
-        dec: FrameDecoder::new(),
-        buf: vec![0; 16 * 1024],
-    };
-    let (tx, rx) = mpsc::channel(64);
-    tokio::spawn(write_loop(wr, rx));
 
-    let device = match daemon.paired_by_fp(&fp) {
-        Some(d) => d,
-        None => pair(&daemon, &mut reader, &tx, fp, addr.ip()).await?,
-    };
-
-    let first = reader.next(HANDSHAKE_TIMEOUT).await?;
-    if first.kind == m::DATA_HELLO {
-        // A data connection for a file transfer: raw bytes follow the frame.
-        let token = first.body::<DataHello>().map_err(|e| e.to_string())?.token;
-        let leftover = std::io::Cursor::new(reader.dec.take_remaining());
-        let mut stream = leftover.chain(reader.rd);
-        let events = daemon.clone();
-        let result = daemon
-            .transfers
-            .receive(&device.id, &token, &mut stream, |p| {
-                events.emit(Event::Transfer(p))
-            })
-            .await;
-        match &result {
-            Ok(()) => info!("received files from {}", device.name),
-            Err(e) => warn!("transfer from {} failed: {e}", device.name),
+    let (device, mut reader, tx, first) = match daemon.paired_by_fp(&fp) {
+        Some(device) => {
+            // Read the first frame on the whole stream: a data connection needs both directions.
+            let mut whole = Reader::new(stream);
+            let first = whole.next(HANDSHAKE_TIMEOUT).await?;
+            if first.kind == m::DATA_HELLO {
+                return data_connection(&daemon, &device, first, whole).await;
+            }
+            let (rd, wr) = tokio::io::split(whole.rd);
+            let reader = Reader {
+                rd,
+                dec: whole.dec,
+                buf: whole.buf,
+            };
+            let (tx, rx) = mpsc::channel(64);
+            tokio::spawn(write_loop(wr, rx));
+            (device, reader, tx, Some(first))
         }
-        // Closing our side (close_notify) tells the sender everything was read.
-        drop(tx);
-        return result;
-    }
+        None => {
+            let (rd, wr) = tokio::io::split(stream);
+            let mut reader = Reader::new(rd);
+            let (tx, rx) = mpsc::channel(64);
+            tokio::spawn(write_loop(wr, rx));
+            let device = pair(&daemon, &mut reader, &tx, fp, addr.ip()).await?;
+            (device, reader, tx, None)
+        }
+    };
+
+    let first = match first {
+        Some(m) => m,
+        None => reader.next(HANDSHAKE_TIMEOUT).await?,
+    };
     if first.kind != m::HELLO {
         return Err(format!("expected hello, got {}", first.kind));
     }
@@ -141,6 +149,7 @@ async fn handle(
 
     let conn = daemon.next_conn_id();
     let kill = Arc::new(Notify::new());
+    let can_receive = hello.caps.iter().any(|c| c == m::CAP_SHARE_RECEIVE);
     daemon.connected(
         &device.id,
         Live {
@@ -148,6 +157,7 @@ async fn handle(
             battery: None,
             tx: tx.clone(),
             kill: kill.clone(),
+            caps: hello.caps,
         },
         addr.ip(),
     );
@@ -157,10 +167,69 @@ async fn handle(
         addr.ip(),
         hello.v
     );
+    // Files queued while it was away (or interrupted) go out now.
+    for offer in daemon.outbox.pending(&device.id) {
+        if !can_receive {
+            daemon.outbox.finish(&device.id, &offer.transfer_id, true);
+            daemon.emit(Event::Transfer(Progress::SendFailed {
+                device: device.name.clone(),
+                reason: format!("update Continuum on {} to send files to it", device.name),
+            }));
+            continue;
+        }
+        send(&tx, Message::with_body(m::SHARE_OFFER, &offer)).await?;
+    }
 
     let result = session(&daemon, &device, &mut reader, &tx, &kill).await;
     daemon.disconnected(&device.id, conn);
     info!("{} disconnected", device.name);
+    result
+}
+
+/// A data connection for a file transfer: raw bytes follow the `data.hello` frame, towards
+/// us (the phone is sending) or from us (we are sending; the phone opened it to receive).
+async fn data_connection<S: AsyncRead + AsyncWrite + Unpin>(
+    daemon: &Arc<Daemon>,
+    device: &PairedDevice,
+    first: Message,
+    mut reader: Reader<S>,
+) -> Result<(), String> {
+    let token = first.body::<DataHello>().map_err(|e| e.to_string())?.token;
+    if let Some(result) = daemon
+        .outbox
+        .stream(&device.id, &token, &mut reader.rd)
+        .await
+    {
+        match &result {
+            Ok(n) => {
+                info!("sent {n} bytes to {}", device.name);
+                // Wait for the phone to close first, so the last bytes can't be lost to a reset.
+                let mut sink = [0u8; 512];
+                let _ = timeout(Duration::from_secs(120), async {
+                    while matches!(reader.rd.read(&mut sink).await, Ok(n) if n > 0) {}
+                })
+                .await;
+            }
+            Err(e) => warn!("sending to {} failed: {e}", device.name),
+        }
+        let _ = reader.rd.shutdown().await;
+        return result.map(|_| ());
+    }
+    let leftover = std::io::Cursor::new(reader.dec.take_remaining());
+    let mut stream = leftover.chain(&mut reader.rd);
+    let events = daemon.clone();
+    let result = daemon
+        .transfers
+        .receive(&device.id, &token, &mut stream, |p| {
+            events.emit(Event::Transfer(p))
+        })
+        .await;
+    match &result {
+        Ok(()) => info!("received files from {}", device.name),
+        Err(e) => warn!("transfer from {} failed: {e}", device.name),
+    }
+    // Closing our side (close_notify) tells the sender everything was read.
+    let _ = reader.rd.shutdown().await;
     result
 }
 
@@ -226,6 +295,7 @@ async fn session<R: AsyncRead + Unpin>(
     tx: &mpsc::Sender<Message>,
     kill: &Notify,
 ) -> Result<(), String> {
+    let mut clip = Assembler::default();
     loop {
         let msg = tokio::select! {
             msg = reader.next(IDLE_TIMEOUT) => msg?,
@@ -275,6 +345,65 @@ async fn session<R: AsyncRead + Unpin>(
                 };
                 send(tx, reply).await?;
             }
+            m::SHARE_ACCEPT => match msg.body::<ShareAccept>() {
+                Ok(a) => match daemon.outbox.accepted(&device.id, a) {
+                    Ok(files) => daemon.emit(Event::Transfer(Progress::Sending {
+                        device: device.name.clone(),
+                        files,
+                    })),
+                    Err(e) => warn!("{}: {e}", device.name),
+                },
+                Err(e) => warn!("{} sent an invalid share.accept: {e}", device.name),
+            },
+            m::SHARE_REJECT => {
+                if let Ok(r) = msg.body::<ShareReject>()
+                    && daemon
+                        .outbox
+                        .finish(&device.id, &r.transfer_id, true)
+                        .is_some()
+                {
+                    daemon.emit(Event::Transfer(Progress::SendFailed {
+                        device: device.name.clone(),
+                        reason: r.reason,
+                    }));
+                }
+            }
+            m::SHARE_RESULT => {
+                let Ok(r) = msg.body::<ShareResult>() else {
+                    continue;
+                };
+                let Some(done) = daemon.outbox.finish(&device.id, &r.transfer_id, r.ok) else {
+                    continue;
+                };
+                if r.ok {
+                    daemon.emit(Event::Transfer(Progress::Sent {
+                        device: device.name.clone(),
+                        names: done.names,
+                    }));
+                } else if let Some(offer) = done.retry {
+                    // The phone keeps what it verified, so the next attempt resumes.
+                    info!("sending to {} failed, retrying: {:?}", device.name, r.error);
+                    let tx = tx.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        let _ = send(&tx, Message::with_body(m::SHARE_OFFER, &offer)).await;
+                    });
+                } else {
+                    daemon.emit(Event::Transfer(Progress::SendFailed {
+                        device: device.name.clone(),
+                        reason: r.error.unwrap_or_else(|| "unknown error".into()),
+                    }));
+                }
+            }
+            m::CLIPBOARD => match msg.body::<ClipboardPart>() {
+                Ok(p) => {
+                    if let Some(c) = clip.push(p) {
+                        debug!("{} copied {} ({} bytes)", device.name, c.mime, c.data.len());
+                        daemon.clip.from_device(c);
+                    }
+                }
+                Err(e) => warn!("{} sent an invalid clipboard part: {e}", device.name),
+            },
             m::UNPAIR => {
                 info!("{} removed the pairing", device.name);
                 daemon.unpair(&device.id).map_err(|e| e.to_string())?;

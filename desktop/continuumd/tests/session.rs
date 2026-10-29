@@ -11,8 +11,9 @@ use continuum_proto::message::{
 };
 use continuum_proto::pairing::{PairUri, proof};
 use continuum_proto::tls;
-use continuumd::state::Daemon;
+use continuumd::state::{Daemon, Event};
 use continuumd::store::Store;
+use continuumd::transfer::Progress;
 use rustls::pki_types::ServerName;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -100,12 +101,16 @@ impl Phone {
     }
 
     async fn hello(&mut self, id: &Identity) -> Hello {
+        self.hello_caps(id, &["battery"]).await
+    }
+
+    async fn hello_caps(&mut self, id: &Identity, caps: &[&str]) -> Hello {
         let h = Hello {
             v: 1,
             id: id.device_id(),
             name: "Pixel 8".into(),
             device_type: DeviceType::Phone,
-            caps: vec!["battery".into()],
+            caps: caps.iter().map(|c| (*c).to_owned()).collect(),
         };
         self.send(Message::with_body(m::HELLO, &h).unwrap()).await;
         let reply = self.recv().await.expect("hello reply");
@@ -317,7 +322,9 @@ async fn startup_nudge_reaches_disconnected_phone_at_last_address() {
 
 // ---------- file transfer ----------
 
-use continuum_proto::message::{DataHello, FileMeta, ShareAccept, ShareOffer, ShareResult};
+use continuum_proto::message::{
+    DataHello, FileMeta, ShareAccept, ShareOffer, ShareReject, ShareResult,
+};
 
 fn sha(data: &[u8]) -> Vec<u8> {
     ring::digest::digest(&ring::digest::SHA256, data)
@@ -529,4 +536,122 @@ async fn sender_closing_right_after_last_byte_loses_nothing() {
     drop(tcp);
     let r = result(&mut p).await;
     assert!(r.ok, "{r:?}");
+}
+
+async fn next_progress(rx: &mut tokio::sync::broadcast::Receiver<Event>) -> Progress {
+    loop {
+        let ev = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("no transfer event")
+            .unwrap();
+        if let Event::Transfer(p) = ev {
+            return p;
+        }
+    }
+}
+
+#[tokio::test]
+async fn desktop_sends_files_to_phone_resuming_and_queueing() {
+    let d = desktop().await;
+    let mut events = d.daemon.events.subscribe();
+    let uri = d.daemon.start_pairing(vec![]);
+    let id = Identity::generate().unwrap();
+    let dev = id.device_id();
+    let mut p = Phone::connect(&id, &d).await;
+    p.pair(&id, &uri).await;
+    p.hello_caps(&id, &["battery", m::CAP_SHARE_RECEIVE]).await;
+
+    let data = data_of(700_000, 9);
+    let src = d._dir.path().join("report.pdf");
+    std::fs::write(&src, &data).unwrap();
+    assert!(
+        d.daemon
+            .send_files(&dev, vec![d._dir.path().into()])
+            .await
+            .is_err()
+    );
+    assert!(
+        d.daemon
+            .send_files("nope", vec![src.clone()])
+            .await
+            .is_err()
+    );
+
+    let tid = d.daemon.send_files(&dev, vec![src.clone()]).await.unwrap();
+    let msg = p.recv().await.unwrap();
+    assert_eq!(msg.kind, m::SHARE_OFFER);
+    let offer: ShareOffer = msg.body().unwrap();
+    assert_eq!(offer.transfer_id, tid);
+    assert_eq!(offer.files[0].name, "report.pdf");
+    assert_eq!(offer.files[0].size, data.len() as u64);
+
+    // The phone already has the first 100 bytes from an earlier attempt.
+    let token = "ab".repeat(16);
+    let accept = ShareAccept {
+        transfer_id: tid.clone(),
+        token: token.clone(),
+        offsets: vec![100],
+    };
+    p.send(Message::with_body(m::SHARE_ACCEPT, &accept).unwrap())
+        .await;
+    assert!(matches!(
+        next_progress(&mut events).await,
+        Progress::Sending { files: 1, .. }
+    ));
+    let mut c = data_conn(&id, &d, &token).await;
+    let mut got = vec![0u8; data.len() - 100 + 32];
+    c.stream.read_exact(&mut got).await.unwrap();
+    assert_eq!(&got[..data.len() - 100], &data[100..]);
+    assert_eq!(&got[data.len() - 100..], sha(&data));
+    drop(c);
+    let ok = ShareResult {
+        transfer_id: tid.clone(),
+        ok: true,
+        saved: vec!["report.pdf".into()],
+        error: None,
+    };
+    p.send(Message::with_body(m::SHARE_RESULT, &ok).unwrap())
+        .await;
+    assert_eq!(
+        next_progress(&mut events).await,
+        Progress::Sent {
+            device: "Pixel 8".into(),
+            names: vec!["report.pdf".into()]
+        }
+    );
+
+    // Phone away: the job waits and is offered when it connects again.
+    drop(p);
+    eventually(|| !d.daemon.list()[0].connected).await;
+    let tid2 = d.daemon.send_files(&dev, vec![src]).await.unwrap();
+    assert!(matches!(
+        next_progress(&mut events).await,
+        Progress::SendQueued { .. }
+    ));
+    let mut p = Phone::connect(&id, &d).await;
+    p.hello_caps(&id, &[m::CAP_SHARE_RECEIVE]).await;
+    let offer: ShareOffer = p.recv().await.unwrap().body().unwrap();
+    assert_eq!(offer.transfer_id, tid2);
+    // A phone that can't receive is told so instead of getting offers.
+    let reject = ShareReject {
+        transfer_id: tid2,
+        reason: "storage full".into(),
+    };
+    p.send(Message::with_body(m::SHARE_REJECT, &reject).unwrap())
+        .await;
+    assert!(
+        matches!(next_progress(&mut events).await, Progress::SendFailed { reason, .. } if reason == "storage full")
+    );
+}
+
+#[tokio::test]
+async fn old_phone_without_receive_capability_is_refused() {
+    let d = desktop().await;
+    let (id, _p) = paired_phone(&d).await;
+    let err = d
+        .daemon
+        .send_files(&id.device_id(), vec![d._dir.path().join("x")])
+        .await
+        .unwrap_err();
+    assert!(err.contains("update Continuum"), "{err}");
 }

@@ -26,7 +26,9 @@ if [ "${1:-}" = "--uninstall" ]; then
   systemctl --user disable --now continuumd.service 2>/dev/null || true
   rm -f "$BIN/continuumd" "$BIN/continuum-ui" "$UNITS/continuumd.service" \
     "$SHARE/applications/$APP_ID.desktop" "$SHARE/icons/hicolor/scalable/apps/$APP_ID.svg" \
-    "$SHARE/dbus-1/services/$APP_ID.Daemon.service"
+    "$SHARE"/icons/hicolor/*/apps/$APP_ID.png \
+    "$SHARE/dbus-1/services/$APP_ID.Daemon.service" \
+    "$SHARE/nautilus-python/extensions/continuum-nautilus.py" "$SHARE/kio/servicemenus/continuum-send.desktop"
   systemctl --user daemon-reload
   echo "Continuum removed. Your pairing data is still in $SHARE/continuum (delete it to forget all devices)."
   exit 0
@@ -41,9 +43,26 @@ echo "==> Installing"
 put "$ROOT/desktop/target/release/continuumd" "$BIN/continuumd" 755
 put "$ROOT/desktop/target/release/continuum-ui" "$BIN/continuum-ui" 755
 put "$DATA/$APP_ID.desktop" "$SHARE/applications/$APP_ID.desktop"
-put "$DATA/$APP_ID.svg" "$SHARE/icons/hicolor/scalable/apps/$APP_ID.svg"
+rm -f "$SHARE/icons/hicolor/scalable/apps/$APP_ID.svg" # old icon (before v0.4)
+for png in "$DATA"/icons/hicolor/*/apps/$APP_ID.png; do
+  size="$(basename "$(dirname "$(dirname "$png")")")"
+  put "$png" "$SHARE/icons/hicolor/$size/apps/$APP_ID.png"
+done
 put "$DATA/$APP_ID.Daemon.service" "$SHARE/dbus-1/services/$APP_ID.Daemon.service"
 put "$DATA/continuumd.service" "$UNITS/continuumd.service"
+# "Send to <phone>" in the file manager's right-click menu.
+put "$DATA/nautilus/continuum-nautilus.py" "$SHARE/nautilus-python/extensions/continuum-nautilus.py"
+sed "s|@BIN@|$BIN|" "$DATA/kde/continuum-send.desktop" > "$DATA/kde/.send.tmp"
+put "$DATA/kde/.send.tmp" "$SHARE/kio/servicemenus/continuum-send.desktop" 755
+rm -f "$DATA/kde/.send.tmp"
+if command -v nautilus >/dev/null \
+   && ! find /usr/lib /usr/lib64 -name libnautilus-python.so 2>/dev/null | grep -q .; then
+  echo "==> Adding Python support to Files (for the Send to phone menu)"
+  if command -v apt-get >/dev/null; then sudo -n apt-get install -y -qq python3-nautilus >/dev/null 2>&1 || true
+  elif command -v dnf >/dev/null; then sudo -n dnf install -y -q nautilus-python >/dev/null 2>&1 || true
+  elif command -v pacman >/dev/null; then sudo -n pacman -S --noconfirm --needed python-nautilus >/dev/null 2>&1 || true
+  fi
+fi
 update-desktop-database "$SHARE/applications" 2>/dev/null || true
 gtk-update-icon-cache -q -t "$SHARE/icons/hicolor" 2>/dev/null || true
 
@@ -62,3 +81,4 @@ fi
 
 case ":$PATH:" in *":$BIN:"*) ;; *) echo "note: $BIN is not on your PATH; the app menu entry works anyway." ;; esac
 echo "Done. Open “Continuum” from your apps and click “Pair a Phone”."
+echo "The Files right-click “Send to …” entry appears after Files is restarted (close all its windows)."

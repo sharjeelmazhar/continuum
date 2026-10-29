@@ -2,7 +2,7 @@
 //! automatically; bytes arrive on a separate data connection so they never delay control
 //! messages (ADR-0007). Partial files survive crashes and power cuts and are resumed.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -26,7 +26,8 @@ pub const CHECKPOINT_BYTES: u64 = 8 << 20;
 const CHUNK: usize = 256 << 10;
 /// Keep this much disk free after a transfer.
 const DISK_RESERVE: u64 = 256 << 20;
-const PARTIAL_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 3600);
+/// Unfinished transfers can be resumed for a day, then their partial files are deleted.
+const PARTIAL_MAX_AGE: Duration = Duration::from_secs(24 * 3600);
 
 /// Progress note for the UI/notifications.
 #[derive(Debug, Clone, PartialEq)]
@@ -41,6 +42,22 @@ pub enum Progress {
         saved: Vec<PathBuf>,
     },
     Failed {
+        device: String,
+        reason: String,
+    },
+    /// Files for a device that isn't connected; they go out when it connects.
+    SendQueued {
+        device: String,
+    },
+    Sending {
+        device: String,
+        files: usize,
+    },
+    Sent {
+        device: String,
+        names: Vec<String>,
+    },
+    SendFailed {
         device: String,
         reason: String,
     },
@@ -64,6 +81,8 @@ struct PartMeta {
 pub struct Transfers {
     dir: PathBuf,
     pending: Mutex<HashMap<String, Pending>>,
+    /// Transfers whose bytes are arriving right now.
+    active: Mutex<HashSet<String>>,
 }
 
 impl Transfers {
@@ -72,6 +91,7 @@ impl Transfers {
         Self {
             dir,
             pending: Mutex::new(HashMap::new()),
+            active: Mutex::new(HashSet::new()),
         }
     }
 
@@ -106,6 +126,15 @@ impl Transfers {
                 "between 1 and {MAX_FILES} files can be sent at once"
             ));
         }
+        if self
+            .active
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(&offer.transfer_id)
+        {
+            return Err("these files are already being received".into());
+        }
+        self.clean_old_partials();
         let partial = self.partial_dir();
         fs::create_dir_all(&partial)
             .map_err(|e| format!("cannot create {}: {e}", partial.display()))?;
@@ -130,7 +159,8 @@ impl Transfers {
             offsets: offsets.clone(),
         };
         let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
-        pending.retain(|_, p| p.expires > Instant::now());
+        pending
+            .retain(|_, p| p.expires > Instant::now() && p.offer.transfer_id != offer.transfer_id);
         pending.insert(
             token,
             Pending {
@@ -182,6 +212,25 @@ impl Transfers {
                 _ => return Err("unknown or expired token".into()),
             }
         };
+        if !self
+            .active
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(p.offer.transfer_id.clone())
+        {
+            return Err("these files are already being received".into());
+        }
+        self.receive_active(p, stream, progress).await
+    }
+
+    async fn receive_active<R: AsyncRead + Unpin>(
+        &self,
+        p: Pending,
+        stream: &mut R,
+        progress: impl Fn(Progress),
+    ) -> Result<(), String> {
+        let tid = p.offer.transfer_id.clone();
+        let _done = ActiveGuard(&self.active, tid);
         let bytes = p.offer.files.iter().map(|f| f.size).sum();
         progress(Progress::Started {
             device: p.device_name.clone(),
@@ -320,7 +369,7 @@ impl Transfers {
         Ok(final_path)
     }
 
-    /// Deletes partial files nobody resumed for a week.
+    /// Deletes partial files nobody resumed within a day.
     pub fn clean_old_partials(&self) {
         let Ok(entries) = fs::read_dir(self.partial_dir()) else {
             return;
@@ -336,6 +385,18 @@ impl Transfers {
                 let _ = fs::remove_file(e.path());
             }
         }
+    }
+}
+
+/// Clears a transfer's "active" mark however receiving ends.
+struct ActiveGuard<'a>(&'a Mutex<HashSet<String>>, String);
+
+impl Drop for ActiveGuard<'_> {
+    fn drop(&mut self) {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.1);
     }
 }
 

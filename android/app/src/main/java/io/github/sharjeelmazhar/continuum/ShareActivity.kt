@@ -10,7 +10,9 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.core.content.IntentCompat
 import io.github.sharjeelmazhar.continuum.data.PairedStore
+import io.github.sharjeelmazhar.continuum.proto.ClipContent
 import io.github.sharjeelmazhar.continuum.service.ContinuumService
+import io.github.sharjeelmazhar.continuum.share.ClipSync
 
 /** Invisible target of the Android share sheet: hands the shared files to the service and closes. */
 class ShareActivity : ComponentActivity() {
@@ -27,7 +29,14 @@ class ShareActivity : ComponentActivity() {
         // Only items the sharing app actually let us read can be passed on to the service.
         val uris = shared.filter(::canRead)
         val pc = PairedStore(this).load()
+        // Shared text (e.g. from the clipboard pop-up's Share button) goes to the computer's clipboard.
+        val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
         when {
+            pc != null && shared.isEmpty() && !text.isNullOrEmpty() -> {
+                val sent = ClipSync.send(ClipContent.text(text))
+                if (sent) runCatching { ContinuumService.start(this) }
+                Toast.makeText(this, if (sent) getString(R.string.share_text_sent, pc.name) else getString(R.string.clip_empty), Toast.LENGTH_SHORT).show()
+            }
             pc == null -> {
                 Toast.makeText(this, R.string.share_pair_first, Toast.LENGTH_LONG).show()
                 startActivity(Intent(this, MainActivity::class.java))

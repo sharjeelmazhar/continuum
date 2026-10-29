@@ -57,7 +57,7 @@ Plugins add their own interfaces (e.g. `io.github.sharjeelmazhar.Continuum.Clipb
   offset, written after fsync every 8 MiB). On resume the part is truncated to the checkpoint
   and re-hashed, so a power cut never produces a corrupt file.
 - Finished files are hash-checked, given a safe unique name (`filename.rs`) and only then moved
-  into place. Partials untouched for 7 days are deleted at startup.
+  into place. Partials untouched for 24 hours are deleted (at startup and before each new offer).
 - GNOME notification on start and finish, with **Open** and **Show in Files**
   (`org.freedesktop.FileManager1`).
 - TLS session tickets are disabled: they're useless between two pinned devices, and unread
@@ -67,7 +67,7 @@ Plugins add their own interfaces (e.g. `io.github.sharjeelmazhar.Continuum.Clipb
 - **Atomic writes** for config and identity: write `*.tmp`, `fsync`, rename, `fsync` the directory.
 - **Transfers:** data goes to `.name.part`. A sidecar `.name.part.json` records the verified
   offset every 8 MiB. On resume the sender is asked to continue from that offset. The final
-  hash is checked before the rename. Sidecars without a matching offer older than 7 days are
+  hash is checked before the rename. Sidecars without a matching offer older than 24 hours are
   cleaned up.
 - **Reconnect:** exponential backoff 1 → 30 s, reset when mDNS sees the peer again.
 - **Startup:** systemd user unit with `Restart=on-failure`. D-Bus activation as a fallback.

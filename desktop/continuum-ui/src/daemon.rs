@@ -17,6 +17,7 @@ pub trait Daemon {
     fn start_pairing(&self) -> zbus::Result<(String, u32)>;
     fn cancel_pairing(&self) -> zbus::Result<()>;
     fn unpair(&self, id: &str) -> zbus::Result<()>;
+    fn send_files(&self, id: &str, paths: &[&str]) -> zbus::Result<String>;
     #[zbus(property)]
     fn name(&self) -> zbus::Result<String>;
     #[zbus(signal)]

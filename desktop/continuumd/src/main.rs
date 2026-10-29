@@ -7,12 +7,12 @@ use std::sync::atomic::Ordering;
 use continuum_proto::DEFAULT_PORT;
 use continuumd::state::Daemon;
 use continuumd::store::Store;
-use continuumd::{dbus, mdns, server, sysinfo, wake};
+use continuumd::{clipboard, dbus, mdns, server, sysinfo, wake};
 use tokio::net::TcpListener;
 use tokio::signal::unix::{SignalKind, signal};
 use tracing::{error, info, warn};
 
-const USAGE: &str = "usage: continuumd [--data-dir DIR] [--port N] [--no-dbus] [--no-mdns] [--print-pair-uri] [--download-dir DIR]";
+const USAGE: &str = "usage: continuumd [--data-dir DIR] [--port N] [--no-dbus] [--no-mdns] [--print-pair-uri] [--download-dir DIR]\n       continuumd send [--to DEVICE-ID] FILE...";
 
 struct Args {
     data_dir: PathBuf,
@@ -63,6 +63,19 @@ async fn main() -> ExitCode {
         )
         .with_target(false)
         .init();
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.first().map(String::as_str) == Some("send") {
+        return match send_cli(&argv[1..]).await {
+            Ok(msg) => {
+                println!("{msg}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("continuumd send: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
@@ -77,6 +90,84 @@ async fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// `continuumd send`: asks the running daemon to send files (used by file manager menus).
+async fn send_cli(argv: &[String]) -> Result<String, String> {
+    let mut to = None;
+    let mut paths = Vec::new();
+    let mut it = argv.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--to" => to = Some(it.next().ok_or(USAGE)?.clone()),
+            p => paths.push(
+                std::fs::canonicalize(p)
+                    .map_err(|e| format!("{p}: {e}"))?
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+        }
+    }
+    if paths.is_empty() {
+        return Err(USAGE.into());
+    }
+    let conn = zbus::Connection::session()
+        .await
+        .map_err(|e| e.to_string())?;
+    let call = |method: &'static str, body: Option<(String, Vec<String>)>| {
+        let conn = conn.clone();
+        async move {
+            let reply = match body {
+                Some(b) => {
+                    conn.call_method(
+                        Some(dbus::BUS_NAME),
+                        dbus::PATH,
+                        Some(dbus::IFACE),
+                        method,
+                        &b,
+                    )
+                    .await
+                }
+                None => {
+                    conn.call_method(
+                        Some(dbus::BUS_NAME),
+                        dbus::PATH,
+                        Some(dbus::IFACE),
+                        method,
+                        &(),
+                    )
+                    .await
+                }
+            };
+            reply.map_err(|e| match e {
+                zbus::Error::MethodError(_, Some(msg), _) => msg,
+                e => e.to_string(),
+            })
+        }
+    };
+    let id = match to {
+        Some(id) => id,
+        None => {
+            let rows: Vec<dbus::DeviceRow> = call("ListDevices", None)
+                .await?
+                .body()
+                .deserialize()
+                .map_err(|e| e.to_string())?;
+            // The only paired device, or the only connected one.
+            let pick = match rows.as_slice() {
+                [one] => Some(one),
+                many => {
+                    let live: Vec<_> = many.iter().filter(|r| r.3).collect();
+                    (live.len() == 1).then(|| live[0])
+                }
+            };
+            pick.ok_or("pass --to DEVICE-ID (several or no phones paired)")?
+                .0
+                .clone()
+        }
+    };
+    call("SendFiles", Some((id, paths))).await?;
+    Ok("sending".into())
 }
 
 async fn run(args: Args) -> Result<(), String> {
@@ -137,6 +228,10 @@ async fn run(args: Args) -> Result<(), String> {
     }
 
     tokio::spawn(wake::announce(daemon.clone()));
+    if args.dbus {
+        // Only a real desktop session syncs the clipboard (tests run with --no-dbus).
+        clipboard::start(daemon.clone());
+    }
 
     let mut term = signal(SignalKind::terminate()).map_err(|e| e.to_string())?;
     tokio::select! {
