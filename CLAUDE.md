@@ -16,7 +16,7 @@ fast, secure and polished experience.
 - **The repo is public. Never commit private info**: names, emails, locations, personal
   circumstances, phone numbers, IPs, device serials, keys or certificates. Personal notes go in
   `CLAUDE.local.md` (gitignored). Use generic examples ("Pixel 8", "my-desktop") in docs and tests.
-- **The owner is careful with tokens.** Don't re-read whole files you don't need. No speculative
+- **Side project on a limited usage budget** (the owner needs usage for their job). Keep each session small and efficient. Don't re-read whole files you don't need. No speculative
   refactors. Keep replies short.
 - **Security first.** Every connection is TLS 1.3 with a pinned peer certificate after pairing.
   Nothing plaintext on the LAN. Treat every incoming frame as hostile: size limits, strict

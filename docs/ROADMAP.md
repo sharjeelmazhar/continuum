@@ -1,12 +1,12 @@
 # Roadmap
 
-Each milestone is sized for **one or two chat sessions** and ends with working, tested,
-committed code. Milestones are ordered so that something useful ships early (M4: files from
-the phone to the PC), with everything else built on top.
+This is a long-term project with no deadline. Work happens in short sessions whenever usage allows,
+and new features get added over time. Each milestone is small enough for one or two chat sessions,
+and each one ends with working, tested, committed code. The order puts something useful first (M4: files from the phone to the PC), and everything else builds on top. Nothing here is a schedule.
 
 Legend: `D` = desktop (Rust/GTK), `A` = Android (Kotlin/Compose).
 
-## Week 1: foundation and the first useful feature
+## Foundation and the first useful feature
 
 ### M0. Toolchains and skeletons
 - Install rustup (stable), the GTK4/libadwaita dev packages, the Android SDK command-line tools
@@ -48,7 +48,7 @@ Legend: `D` = desktop (Rust/GTK), `A` = Android (Kotlin/Compose).
   "Open" and "Show in folder" actions.
 - Tests: resume after a killed connection, hostile file names (`../`, NUL, very long names), and 4 GB files.
 
-## Week 2: daily-driver features
+## Daily-driver features
 
 ### M5. Send files: PC → phone
 - D: a Nautilus extension with a right-click entry "Send to ⟨Phone name⟩" (one per paired device,
@@ -78,7 +78,7 @@ Legend: `D` = desktop (Rust/GTK), `A` = Android (Kotlin/Compose).
 - Note: call **audio** stays on the phone (or a Bluetooth headset). Routing call audio to the PC
   is a stretch goal (see M12).
 
-## Week 3: wow features and polish
+## Wow features and polish
 
 ### M9. Phone mirroring (like iPhone Mirroring)
 - A: screen capture with MediaProjection, or a scrcpy-style privileged capture via Shizuku
@@ -104,7 +104,7 @@ Legend: `D` = desktop (Rust/GTK), `A` = Android (Kotlin/Compose).
 - Packaging: `.deb`, Flatpak, a signed APK on GitHub Releases, and later F-Droid.
 - README screenshots and a demo GIF.
 
-## Later (M12+)
+## Later ideas (M12+, open-ended: add new ideas here)
 - **Continuity Camera and mic**: use the phone as the PC's webcam and microphone (v4l2loopback
   and a PipeWire virtual source).
 - SMS from the PC (read and reply).
