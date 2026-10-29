@@ -13,6 +13,14 @@ fast, secure and polished experience.
    next task) and commit.
 
 ## Hard rules
+- **Motto: minimum tokens, maximum output, never at the cost of quality.** Saving tokens never
+  justifies untested or buggy code. Be efficient in *how* you work, not in how well you test.
+- **Test on real devices and the emulator.** Use the Android emulator (AVD) for connection and
+  UI tests when the physical phone isn't connected. Check `adb devices` first and prefer the
+  real phone when it's there. Interop tests run the desktop daemon against the app on the emulator.
+- **Setup must be effortless for non-technical users.** Install, open, scan the QR code, done.
+  No terminal, no IP addresses, no config files. Any optional power-user step (e.g. Shizuku)
+  gets a guided in-app flow with plain-language text and a clear fallback.
 - **The repo is public. Never commit private info**: names, emails, locations, personal
   circumstances, phone numbers, IPs, device serials, keys or certificates. Personal notes go in
   `CLAUDE.local.md` (gitignored). Use generic examples ("Pixel 8", "my-desktop") in docs and tests.

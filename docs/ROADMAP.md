@@ -11,6 +11,8 @@ Legend: `D` = desktop (Rust/GTK), `A` = Android (Kotlin/Compose).
 ### M0. Toolchains and skeletons
 - Install rustup (stable), the GTK4/libadwaita dev packages, the Android SDK command-line tools
   and a Gradle wrapper. Write `scripts/setup-dev.sh` so anyone can repeat it.
+- Create an Android emulator (AVD, latest system image) for automated connection and UI tests,
+  with a `scripts/emulator.sh` that starts it headless and sets up networking to the host.
 - D: Cargo workspace with `continuum-proto` (lib), `continuumd` (daemon) and `continuum-ui` (GTK app).
 - A: Gradle project `app/` (Compose, Material 3, minSdk 26), with a debug build that installs over adb.
 - GitHub Actions CI: cargo fmt/clippy/test, and Android assembleDebug plus unit tests.
