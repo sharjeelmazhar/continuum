@@ -25,6 +25,7 @@
 | M8 | Calls (iOS-style banner, accept/decline) | ☐ |
 | M9 | Phone mirroring (borderless rounded window) | ☐ |
 | M10 | Settings, shell tile, find phone, media | ☐ |
+| M10b | KDE Plasma support (Dolphin menu, tray widget) | ☐ |
 | M11 | Hardening and release | ☐ |
 
 ## Log (newest first)

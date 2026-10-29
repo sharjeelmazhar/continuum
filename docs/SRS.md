@@ -66,8 +66,9 @@ flowchart LR
 | Contributor | Developer. | Clear docs, modular code, tests that run with one command. |
 
 ### 2.3 Operating environment
-- Desktop: Linux with GNOME 46 or newer, Wayland first (X11 should work but is not a priority).
-  Ubuntu/Debian and Fedora are the reference distros.
+- Desktop: any modern Linux distro (installed through Flatpak). GNOME 46+ is the primary
+  desktop, and KDE Plasma 6 is supported through small add-ons (ADR-0014). Wayland first (X11
+  should work but is not a priority). Ubuntu and Fedora are the reference test distros.
 - Phone: Android 8.0 (API 26) or newer. Some features need newer versions (noted per requirement).
 - Network: both devices on the same LAN or Wi-Fi with multicast (mDNS) allowed. If mDNS is
   blocked, the QR code still carries the address, so pairing and connecting keep working.

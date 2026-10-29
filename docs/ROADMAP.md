@@ -100,10 +100,17 @@ Legend: `D` = desktop (Rust/GTK), `A` = Android (Kotlin/Compose).
   low alerts.
 - Autostart via a systemd user service.
 
+### M10b. KDE Plasma support (see ADR-0014)
+- Daemon: background clipboard through the Wayland data-control protocol (KWin supports it), so
+  no extension is needed on Plasma.
+- Dolphin service menu "Send to ⟨device⟩", and a Plasma system-tray widget (battery, send
+  clipboard, mirror).
+- Test the whole app on a Plasma session (VM or live USB).
+
 ### M11. Hardening and release
 - Security pass: cargo-audit, fuzzing the frame parser (cargo-fuzz), and a threat-model write-up.
 - Battery: a guide for MIUI/HyperOS/Samsung autostart and battery settings, with in-app deep links.
-- Packaging: `.deb`, Flatpak, a signed APK on GitHub Releases, and later F-Droid.
+- Packaging: Flatpak on Flathub first (runs on every distro), then `.deb`, `.rpm`, AUR, a signed APK on GitHub Releases, and later F-Droid.
 - README screenshots and a demo GIF.
 
 ## Later ideas (M12+, open-ended: add new ideas here)
