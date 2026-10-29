@@ -23,7 +23,7 @@ desktop/                 Cargo workspace
   shell-extension/       GNOME Shell extension (clipboard bridge, quick settings tile)
 android/                 Gradle project (Kotlin, Compose, Material 3)
   app/                   UI + ContinuumService + plugins
-docs/                    ROADMAP, ARCHITECTURE, PROTOCOL
+docs/                    SRS, ROADMAP, ARCHITECTURE, PROTOCOL, design/, adr/
 scripts/                 setup-dev.sh, run helpers
 ```
 

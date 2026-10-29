@@ -17,7 +17,7 @@ This is a draft. M1 finalizes it, and anything that changes must be updated here
 - Pairing:
   - **QR**: the desktop shows `continuum://pair?h=<host>&p=<port>&fp=<cert sha256>&s=<128-bit secret>`.
     The phone verifies `fp` during the TLS handshake, then sends `pair.request` with
-    `HMAC-SHA256(secret, transcript)`. The secret is single-use and expires after 2 min.
+    `HMAC-SHA256(secret, fp_desktop ‖ fp_phone)`. The secret is single-use and expires after 2 min.
   - **SAS**: both screens show a 6-digit code, `SHA-256(fp_a ‖ fp_b ‖ nonce) mod 10^6`, and both
     users confirm it.
 - Rate limits: 5 failed pairings per minute per IP. Unknown peers can't send anything except pairing.
