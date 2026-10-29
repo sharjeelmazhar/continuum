@@ -1,4 +1,4 @@
-package org.continuum.android.proto
+package io.github.sharjeelmazhar.continuum.proto
 
 /** Wire protocol constants. Must match `continuum-proto` on the desktop (docs/PROTOCOL.md). */
 object Protocol {

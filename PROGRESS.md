@@ -11,7 +11,6 @@
 - **Known issues:** Android placeholder window theme gives white status-bar icons on a light
   background (fix with the real theme in M2). CI workflow is written but untested on GitHub
   (no remote yet).
-- **Open owner questions:** final app ID / package name (SRS Q-1), needed before M11.
 
 ## Milestones
 | # | Milestone | Status |

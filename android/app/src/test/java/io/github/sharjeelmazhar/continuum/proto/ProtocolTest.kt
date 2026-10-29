@@ -1,4 +1,4 @@
-package org.continuum.android.proto
+package io.github.sharjeelmazhar.continuum.proto
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

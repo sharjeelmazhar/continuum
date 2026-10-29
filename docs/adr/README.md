@@ -25,3 +25,4 @@ is the way it is, and nobody reverses a decision without knowing the reasons.
 | [0010](0010-gnome-shell-extension-for-clipboard.md) | GNOME Shell extension for desktop clipboard on Wayland | Accepted |
 | [0011](0011-own-port-and-mdns-service.md) | Own port and mDNS service, coexist with KDE Connect | Accepted |
 | [0012](0012-gpl3-license.md) | GPL-3.0-or-later | Accepted |
+| [0013](0013-app-id-github-namespace.md) | App ID under the GitHub namespace | Accepted |

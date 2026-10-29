@@ -223,5 +223,5 @@ proves it passes.
 ## 6. Open questions
 | # | Question | Owner decision needed? |
 |---|---|---|
-| Q-1 | Final app ID / package name (`org.continuum.*` is a placeholder; Flathub needs a domain we control, e.g. `io.github.<account>.Continuum`). Must be fixed before the first public release. | Yes, before M11 |
+| Q-1 | Final app ID / package name. **Resolved:** `io.github.sharjeelmazhar.Continuum`, see ADR-0013. | Done |
 | Q-2 | Support more than one phone per desktop in v1, or later? (Design allows it; UI assumes one for now.) | Later |

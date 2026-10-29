@@ -2,7 +2,7 @@
 
 use adw::prelude::*;
 
-const APP_ID: &str = "org.continuum.Continuum";
+const APP_ID: &str = "io.github.sharjeelmazhar.Continuum";
 
 fn main() -> glib::ExitCode {
     let app = adw::Application::builder().application_id(APP_ID).build();

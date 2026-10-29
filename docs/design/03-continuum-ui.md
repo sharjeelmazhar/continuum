@@ -23,7 +23,7 @@ flowchart LR
 
 ## Structure
 - `app.rs`: `adw::Application`, single instance. Activation opens or raises the window.
-- `daemon.rs`: zbus proxy for `org.continuum.Daemon1`. Turns D-Bus signals into GLib main-loop
+- `daemon.rs`: zbus proxy for `io.github.sharjeelmazhar.Continuum.Daemon1`. Turns D-Bus signals into GLib main-loop
   events, so widgets are only touched on the GTK thread.
 - `pages/`: one module per screen above. Each page is a GObject subclass with a Blueprint or
   builder UI and reads only from a view-model struct, so screens can be tested and changed

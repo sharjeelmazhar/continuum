@@ -1,4 +1,4 @@
-package org.continuum.android.ui.theme
+package io.github.sharjeelmazhar.continuum.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme

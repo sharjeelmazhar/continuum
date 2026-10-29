@@ -30,7 +30,7 @@ scripts/                 setup-dev.sh, run helpers
 ## Principles
 - **Plugin per feature** on both sides (share, clipboard, notifications, calls, mirror, battery...).
   A plugin owns its message types (`ns.action`) and can be disabled per device.
-- **The daemon is headless.** Every UI talks to it over D-Bus (`org.continuum.Daemon`), so the
+- **The daemon is headless.** Every UI talks to it over D-Bus (`io.github.sharjeelmazhar.Continuum.Daemon`), so the
   daemon keeps running when the UI is closed, and any UI is optional.
 - **Separate channels**: one control connection per peer. Bulk data (files, video) opens extra
   TLS connections that authenticate with the same pinned certs, so a large transfer never blocks

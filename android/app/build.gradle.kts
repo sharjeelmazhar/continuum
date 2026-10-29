@@ -4,12 +4,11 @@ plugins {
 }
 
 android {
-    // Placeholder ID until the final name is chosen (docs/SRS.md, Q-1).
-    namespace = "org.continuum.android"
+    namespace = "io.github.sharjeelmazhar.continuum"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "org.continuum.android"
+        applicationId = "io.github.sharjeelmazhar.continuum"
         minSdk = 26
         targetSdk = 37
         versionCode = 1

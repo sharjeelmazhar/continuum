@@ -11,7 +11,7 @@ window. Connections must stay up when the app window is closed.
 ## Decision
 One background program, **`continuumd`**, owns all connections, keys and transfers. It has no UI.
 Everything else is a client that talks to it over the **D-Bus session bus**
-(`org.continuum.Daemon`). systemd starts it at login.
+(`io.github.sharjeelmazhar.Continuum.Daemon`). systemd starts it at login.
 
 ## Alternatives considered
 - **Everything in the GTK app**: closing the window would drop the phone. Nautilus and the Shell

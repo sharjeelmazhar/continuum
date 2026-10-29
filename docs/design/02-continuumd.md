@@ -17,7 +17,7 @@ flowchart TB
   router --> p1[share] & p2[clip] & p3[notif] & p4[call] & p5[…]
   p1 --> xfer[TransferManager<br/>data conns, .part files, resume]
   mgr --> store[Store: identity, devices.toml]
-  dbus[D-Bus service org.continuum.Daemon] <--> mgr
+  dbus[D-Bus service io.github.sharjeelmazhar.Continuum.Daemon] <--> mgr
   dbus <--> router
 ```
 
@@ -36,7 +36,7 @@ runs behind its own channel and task. An error is logged and reported as `error.
 but never closes the control connection unless it's a protocol violation.
 
 ## D-Bus API (first version)
-Object `/org/continuum/Daemon`, interface `org.continuum.Daemon1`:
+Object `/io/github/sharjeelmazhar/Continuum/Daemon`, interface `io.github.sharjeelmazhar.Continuum.Daemon1`:
 
 | Member | Kind | Purpose |
 |---|---|---|
@@ -47,8 +47,8 @@ Object `/org/continuum/Daemon`, interface `org.continuum.Daemon1`:
 | `SendFiles(s id, as paths)` | method | used by Nautilus and drag-and-drop |
 | `DeviceChanged(s id)`, `PairingRequest(s id, s sas)`, `TransferProgress(s, t, t)` | signal | UI updates |
 
-Plugins add their own interfaces (e.g. `org.continuum.Clipboard1`) on per-device objects
-`/org/continuum/Device/<id>`. The interface name carries a version number so it can evolve.
+Plugins add their own interfaces (e.g. `io.github.sharjeelmazhar.Continuum.Clipboard1`) on per-device objects
+`/io/github/sharjeelmazhar/Continuum/Device/<id>`. The interface name carries a version number so it can evolve.
 
 ## Reliability
 - **Atomic writes** for config and identity: write `*.tmp`, `fsync`, rename, `fsync` the directory.

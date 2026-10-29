@@ -6,7 +6,7 @@ Covers: FR-CON-1…5, FR-PAIR-*, FR-FILE-1, 8, FR-CLIP-*, FR-NOTIF-*, FR-CALL-*,
 The phone side: a background service that keeps the connection to paired desktops, plus a
 Compose UI for pairing, settings and guided setup.
 
-## Package structure (`org.continuum.android`, placeholder: see SRS Q-1)
+## Package structure (`io.github.sharjeelmazhar.continuum`, see ADR-0013)
 ```mermaid
 flowchart TB
   ui[ui/<br/>Compose screens + ViewModels] --> repo[data/<br/>DeviceRepository, Settings DataStore]
