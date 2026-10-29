@@ -11,12 +11,27 @@ android {
         applicationId = "io.github.sharjeelmazhar.continuum"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        // The release workflow passes these from the git tag (v1.2.3 -> 1.2.3 / 10203).
+        versionCode = providers.gradleProperty("versionCode").orNull?.toInt() ?: 1
+        versionName = providers.gradleProperty("versionName").orNull ?: "0.1.0"
+    }
+
+    // Release signing key comes from the environment (GitHub secrets in CI), never from the repo.
+    val keystore = providers.environmentVariable("CONTINUUM_KEYSTORE").orNull
+    signingConfigs {
+        if (keystore != null) {
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = providers.environmentVariable("CONTINUUM_KEYSTORE_PASSWORD").get()
+                keyAlias = providers.environmentVariable("CONTINUUM_KEY_ALIAS").get()
+                keyPassword = providers.environmentVariable("CONTINUUM_KEY_PASSWORD").get()
+            }
+        }
     }
 
     buildTypes {
         release {
+            if (keystore != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))

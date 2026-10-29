@@ -1,0 +1,60 @@
+# Push a tag like v0.2.0 to build a signed APK and publish it as a GitHub Release.
+# Versions below 1.0.0, or with a suffix (v1.0.0-beta.1), are marked as pre-releases.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Version from tag
+        id: ver
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          [[ "$v" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-.+)?$ ]] || { echo "bad tag: $GITHUB_REF_NAME"; exit 1; }
+          code=$(( BASH_REMATCH[1] * 10000 + BASH_REMATCH[2] * 100 + BASH_REMATCH[3] ))
+          pre=false; { [ "${BASH_REMATCH[1]}" = 0 ] || [ -n "${BASH_REMATCH[4]}" ]; } && pre=true
+          echo "name=$v" >> "$GITHUB_OUTPUT"; echo "code=$code" >> "$GITHUB_OUTPUT"; echo "pre=$pre" >> "$GITHUB_OUTPUT"
+
+      - name: Test, then build signed release APK
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          CONTINUUM_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          CONTINUUM_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          CONTINUUM_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          export CONTINUUM_KEYSTORE="$RUNNER_TEMP/release.jks"
+          echo "$KEYSTORE_B64" | base64 -d > "$CONTINUUM_KEYSTORE"
+          ./gradlew testDebugUnitTest assembleRelease --console=plain \
+            -PversionName=${{ steps.ver.outputs.name }} -PversionCode=${{ steps.ver.outputs.code }}
+          rm -f "$CONTINUUM_KEYSTORE"
+          out="Continuum-${{ steps.ver.outputs.name }}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/$out"
+          "$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner" verify "$RUNNER_TEMP/$out"
+          (cd "$RUNNER_TEMP" && sha256sum "$out" > "$out.sha256")
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=""; [ "${{ steps.ver.outputs.pre }}" = true ] && pre="--prerelease"
+          gh release create "$GITHUB_REF_NAME" $pre --verify-tag --title "Continuum ${{ steps.ver.outputs.name }}" \
+            --notes-file "$GITHUB_WORKSPACE/.github/release-notes/$GITHUB_REF_NAME.md" \
+            "$RUNNER_TEMP/Continuum-${{ steps.ver.outputs.name }}.apk" \
+            "$RUNNER_TEMP/Continuum-${{ steps.ver.outputs.name }}.apk.sha256"

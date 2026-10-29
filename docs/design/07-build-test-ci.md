@@ -40,3 +40,19 @@ flowchart TB
 | `android` | ubuntu-latest | JDK 21, Gradle cache, `assembleDebug`, `testDebugUnitTest`, `lint` |
 
 Emulator tests run locally for now (CI emulators are slow and flaky). They may move to CI later.
+
+## Releases (GitHub Releases)
+`.github/workflows/release.yml` runs when a tag like `v0.2.0` is pushed. It runs the unit tests,
+builds a **signed, shrunk release APK**, and publishes it with a SHA-256 checksum as a GitHub
+Release. Versions below 1.0.0 (or with a suffix like `-beta.1`) are marked as pre-releases.
+Version code = `major·10000 + minor·100 + patch`, so each release upgrades the previous one.
+
+To release:
+1. Write `.github/release-notes/vX.Y.Z.md` (plain language: what's new, how to install).
+2. `git tag vX.Y.Z && git push origin vX.Y.Z`
+
+**Signing key.** Android only installs an update if it's signed with the same key as the installed
+app, so **losing the key means users must uninstall and reinstall** (and lose pairings). The key
+is never in the repo. It's stored in the repo's encrypted GitHub Actions secrets
+(`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
+`ANDROID_KEY_PASSWORD`), and the owner keeps an offline backup of the keystore and its password.
