@@ -9,8 +9,7 @@
   proptest. Part 2: `identity` + pinned `verify` (rustls). Part 3: TLS + mDNS in `continuumd`
   with an in-process two-peer test.
 - **Known issues:** Android placeholder window theme gives white status-bar icons on a light
-  background (fix with the real theme in M2). CI workflow is written but untested on GitHub
-  (no remote yet).
+  background (fix with the real theme in M2).
 
 ## Milestones
 | # | Milestone | Status |
@@ -29,6 +28,8 @@
 | M11 | Hardening and release | ☐ |
 
 ## Log (newest first)
+- 29 October 2026: published to GitHub (public, CI green on both jobs). App ID fixed as
+  `io.github.sharjeelmazhar.Continuum` (ADR-0013). Commits use the GitHub noreply email.
 - 29 October 2026: M0 done. setup-dev.sh run with apt (JDK 21 is needed for Gradle). Desktop
   workspace builds (ui launches). Docs: SRS, design docs 00-07 with Mermaid diagrams, ADRs
   0001-0012. Android skeleton (AGP 9.5, Kotlin 2.4, Compose BOM 2026.09, compile/target 37,
