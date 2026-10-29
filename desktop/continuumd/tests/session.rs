@@ -202,6 +202,7 @@ async fn unknown_device_cannot_skip_pairing() {
         caps: vec![],
     };
     p.send(Message::with_body(m::HELLO, &h).unwrap()).await;
+    assert_eq!(p.recv().await.unwrap().kind, m::PAIR_REJECT);
     assert!(p.recv().await.is_none(), "connection must be closed");
     assert!(d.daemon.list().is_empty());
 }
@@ -269,4 +270,41 @@ async fn oversized_frame_closes_connection() {
     p.stream.write_all(&u32::MAX.to_be_bytes()).await.unwrap();
     assert!(p.recv().await.is_none());
     eventually(|| !d.daemon.list()[0].connected).await;
+}
+
+#[tokio::test]
+async fn startup_nudge_reaches_disconnected_phone_at_last_address() {
+    let d = desktop().await;
+    let uri = d.daemon.start_pairing(vec![]);
+    let id = Identity::generate().unwrap();
+    let mut p = Phone::connect(&id, &d).await;
+    p.pair(&id, &uri).await;
+    p.hello(&id).await;
+    eventually(|| d.daemon.list()[0].connected).await;
+    assert!(
+        d.daemon.wake_targets().is_empty(),
+        "connected phones need no nudge"
+    );
+    assert_eq!(
+        d.daemon.list()[0].device.last_ip.as_deref(),
+        Some("127.0.0.1")
+    );
+    drop(p);
+    eventually(|| !d.daemon.list()[0].connected).await;
+
+    let phone_udp = tokio::net::UdpSocket::bind(("127.0.0.1", continuum_proto::DEFAULT_PORT))
+        .await
+        .unwrap();
+    tokio::spawn(continuumd::wake::announce(d.daemon.clone()));
+    let mut buf = [0u8; 128];
+    let (n, _) = tokio::time::timeout(Duration::from_secs(3), phone_udp.recv_from(&mut buf))
+        .await
+        .unwrap()
+        .unwrap();
+    let expected = format!(
+        "{}{}",
+        continuumd::wake::PREFIX,
+        d.daemon.identity.device_id()
+    );
+    assert_eq!(&buf[..n], expected.as_bytes());
 }

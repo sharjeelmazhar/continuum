@@ -169,6 +169,7 @@ impl Daemon {
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0),
+            last_ip: None,
         };
         {
             let mut g = self.lock();
@@ -202,11 +203,32 @@ impl Daemon {
     }
 
     /// Registers a live connection; an older connection from the same device is closed.
-    pub fn connected(&self, id: &str, live: Live) {
-        if let Some(old) = self.lock().live.insert(id.to_owned(), live) {
+    pub fn connected(&self, id: &str, live: Live, ip: IpAddr) {
+        let mut g = self.lock();
+        if let Some(old) = g.live.insert(id.to_owned(), live) {
             old.kill.notify_one();
         }
+        let ip = ip.to_string();
+        if let Some(d) = g.devices.iter_mut().find(|d| d.id == id)
+            && d.last_ip.as_deref() != Some(ip.as_str())
+        {
+            d.last_ip = Some(ip);
+            if let Err(e) = self.store.save_devices(&g.devices) {
+                tracing::warn!("could not save last address: {e}");
+            }
+        }
+        drop(g);
         self.emit(Event::DevicesChanged);
+    }
+
+    /// Last known addresses of paired devices that aren't connected right now.
+    pub fn wake_targets(&self) -> Vec<IpAddr> {
+        let g = self.lock();
+        g.devices
+            .iter()
+            .filter(|d| !g.live.contains_key(&d.id))
+            .filter_map(|d| d.last_ip.as_deref()?.parse().ok())
+            .collect()
     }
 
     pub fn disconnected(&self, id: &str, conn: u64) {

@@ -198,7 +198,7 @@ fn device_row(
     };
     row.add_prefix(&gtk::Image::from_icon_name(icon));
     let dot = gtk::Image::from_icon_name(if *connected {
-        "emblem-ok-symbolic"
+        "object-select-symbolic"
     } else {
         "network-offline-symbolic"
     });

@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=io.github.sharjeelmazhar.Continuum.Daemon
+Exec=/bin/false
+SystemdService=continuumd.service

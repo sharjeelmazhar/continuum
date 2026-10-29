@@ -1,4 +1,45 @@
 <resources>
     <string name="app_name">Continuum</string>
     <string name="no_devices">No computers paired yet</string>
+
+    <string name="welcome_title">Connect to your computer</string>
+    <string name="welcome_body">On your computer, open Continuum and click “Pair a Phone”. Then scan the code it shows.</string>
+    <string name="scan_qr">Scan QR Code</string>
+    <string name="pairing_with">Pairing with %1$s…</string>
+    <string name="connected">Connected</string>
+    <string name="connecting">Connecting…</string>
+    <string name="not_connected">Not connected</string>
+    <string name="remove_computer">Remove this computer</string>
+    <string name="remove_title">Remove %1$s?</string>
+    <string name="remove_body">This phone will stop connecting to it. You can pair again at any time.</string>
+    <string name="remove">Remove</string>
+    <string name="cancel">Cancel</string>
+    <string name="pair">Pair</string>
+
+    <string name="confirm_pair_title">Pair with %1$s?</string>
+    <string name="confirm_pair_body">Only continue if this code is shown by Continuum on your own computer, right now.</string>
+    <string name="bad_link_title">This link can\'t be used</string>
+    <string name="bad_link_body">It isn\'t a valid Continuum pairing code. Click “Pair a Phone” on your computer to get a new one.</string>
+
+    <string name="camera_needed">Continuum needs the camera to scan the pairing code on your computer. Nothing is recorded or saved.</string>
+    <string name="allow_camera">Allow camera</string>
+    <string name="point_camera">Point the camera at the code on your computer</string>
+    <string name="not_a_continuum_code">That isn\'t a Continuum code. Click “Pair a Phone” on your computer.</string>
+
+    <string name="channel_connection">Connection status</string>
+    <string name="notif_connected">Connected to %1$s</string>
+    <string name="notif_connecting">Connecting to %1$s…</string>
+    <string name="notif_pairing">Pairing with %1$s…</string>
+    <string name="notif_offline">%1$s is out of reach</string>
+
+    <string name="keep_connected_title">Stay connected in the background</string>
+    <string name="keep_connected_body">Allow Continuum to keep running when the app is closed, so your phone and computer stay connected.</string>
+    <string name="keep_connected_body_xiaomi">Xiaomi phones close background apps. Allow Continuum to run in the background, and turn on “Autostart” for it, so it stays connected.</string>
+    <string name="allow_background">Allow</string>
+    <string name="open_autostart">Open Autostart settings</string>
+    <string name="no_network">Waiting for Wi-Fi. It reconnects by itself when you\'re back on the same network.</string>
+    <string name="local_network_title">Allow “Nearby devices”</string>
+    <string name="local_network_body">Continuum needs this to find and talk to your computer on your Wi-Fi. Nothing leaves your home network. Scan the code again and tap Allow.</string>
+    <string name="local_network_missing">Continuum isn\'t allowed to use your local network. Open Settings › Apps › Continuum › Permissions and allow “Nearby devices”.</string>
+    <string name="ok">OK</string>
 </resources>

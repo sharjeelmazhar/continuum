@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Continuum
+Comment=Connect your Android phone to this computer
+Exec=continuum-ui
+Icon=io.github.sharjeelmazhar.Continuum
+Terminal=false
+Type=Application
+Categories=Utility;Network;GTK;
+Keywords=phone;android;pair;continuity;kdeconnect;
+StartupNotify=true

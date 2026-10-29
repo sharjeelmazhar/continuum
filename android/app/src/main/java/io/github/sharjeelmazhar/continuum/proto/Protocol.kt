@@ -7,4 +7,14 @@ object Protocol {
 
     /** Largest control frame body we accept, in bytes. */
     const val MAX_FRAME_BYTES = 1 shl 20
+
+    const val DEFAULT_PORT = 47820
+
+    /** Capabilities this build understands. */
+    val CAPS = listOf("battery")
+
+    const val PING_INTERVAL_MS = 20_000L
+
+    /** No frame for this long means the connection is dead. */
+    const val IDLE_TIMEOUT_MS = 60_000
 }

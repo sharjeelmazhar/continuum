@@ -27,6 +27,20 @@ flowchart TB
 | `plugins` | One class per feature implementing a `Plugin` interface (same shape as the desktop's). |
 | `ui` | Compose + Material 3 (dynamic colour). Screens: Welcome/Scan QR, Devices, Device detail, Setup guides (battery, Shizuku, notification access). |
 
+## Permissions (asked when pairing, each with a plain-language reason)
+| Permission | Why | If denied |
+|---|---|---|
+| Camera | Scan the pairing QR code | Use the system camera (opens the link, confirmed in-app) |
+| Nearby devices (`ACCESS_LOCAL_NETWORK`, Android 17+) | Talk to the computer on the same Wi-Fi | Clear message; retries when the app is opened |
+| Notifications (Android 13+) | Show the quiet connection-status notification | Works anyway, status only in the app |
+| Battery optimization exemption | Stay connected with the app closed | Works, but the system may pause it |
+
+## Reconnect strategy (seamless, battery-friendly)
+- No network: no attempts at all; the network callback wakes the loop when one appears.
+- On a network: retry with backoff 1 → 60 s. Saved addresses first, then mDNS lookup by device
+  id (address changed); a new address is saved only after the pinned TLS handshake succeeds.
+- The desktop's UDP "wake" nudge on startup, opening the app, and boot/app-update all retry at once.
+
 ## Background survival
 - Foreground service with a quiet, low-priority persistent notification (Android requires one).
 - Battery-optimization exemption requested with a plain-language explanation.

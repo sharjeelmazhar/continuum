@@ -6,3 +6,4 @@ pub mod server;
 pub mod state;
 pub mod store;
 pub mod sysinfo;
+pub mod wake;

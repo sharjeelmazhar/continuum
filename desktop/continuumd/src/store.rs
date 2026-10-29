@@ -19,6 +19,9 @@ pub struct PairedDevice {
     /// Pinned certificate fingerprint, lowercase hex.
     pub fp: String,
     pub paired_at: u64,
+    /// Address it last connected from, for the startup wake-up nudge (`wake.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_ip: Option<String>,
 }
 
 pub struct Store {
@@ -122,6 +125,7 @@ mod tests {
             device_type: DeviceType::Phone,
             fp: "00".into(),
             paired_at: 1,
+            last_ip: None,
         };
         store.save_devices(std::slice::from_ref(&d)).unwrap();
         assert_eq!(store.load_devices(), vec![d]);

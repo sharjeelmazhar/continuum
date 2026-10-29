@@ -128,6 +128,7 @@ async fn handle(
             tx: tx.clone(),
             kill: kill.clone(),
         },
+        addr.ip(),
     );
     info!(
         "{} connected from {} (protocol v{})",
@@ -150,10 +151,6 @@ async fn pair<R: AsyncRead + Unpin>(
     ip: IpAddr,
 ) -> Result<PairedDevice, String> {
     let msg = reader.next(PAIR_REQUEST_TIMEOUT).await?;
-    if msg.kind != m::PAIR_REQUEST {
-        return Err(format!("unpaired device sent {}", msg.kind));
-    }
-    let req: PairRequest = msg.body().map_err(|e| e.to_string())?;
     let reject = |reason: &str| {
         Message::with_body(
             m::PAIR_REJECT,
@@ -162,6 +159,15 @@ async fn pair<R: AsyncRead + Unpin>(
             },
         )
     };
+    if msg.kind == m::HELLO {
+        // A phone that still thinks it's paired (we removed it): tell it, so it can forget us.
+        send(tx, reject("this phone is not paired with this computer")).await?;
+        return Err("unpaired device sent hello".into());
+    }
+    if msg.kind != m::PAIR_REQUEST {
+        return Err(format!("unpaired device sent {}", msg.kind));
+    }
+    let req: PairRequest = msg.body().map_err(|e| e.to_string())?;
     let secret = match daemon.pairing_secret(ip) {
         Ok(s) => s,
         Err(reason) => {

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar icon: a laptop and a phone (white silhouette, as Android requires). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M3,5h11a1,1 0,0 1,1 1v8h-13v-8a1,1 0,0 1,1 -1zM4,7v6h9v-6zM1,15h15v2h-15zM18,8h4a1,1 0,0 1,1 1v9a1,1 0,0 1,-1 1h-4a1,1 0,0 1,-1 -1v-9a1,1 0,0 1,1 -1zM18,10v7h4v-7z" />
+</vector>

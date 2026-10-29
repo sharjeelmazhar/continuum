@@ -23,7 +23,9 @@ Shared test vectors: `desktop/continuum-proto/tests/vectors.json` (used by the R
   pinned fp, after pairing). The desktop accepts any client certificate at the TLS layer (the
   TLS handshake still proves the client owns the key), then decides by fingerprint:
   - pinned (paired) fingerprint → normal session;
-  - unknown fingerprint → only `pair.request` is allowed. Anything else closes the connection.
+  - unknown fingerprint → only `pair.request` is allowed. A `hello` gets
+    `pair.reject { reason }` (so a phone that was removed while away can forget the computer);
+    anything else closes the connection.
 
 ## Framing
 `u32 big-endian length` + UTF-8 JSON object. Length ≤ **1 MiB** (1,048,576 bytes); a larger
@@ -59,6 +61,11 @@ continuum://pair?v=1&h=<ip>[,<ip>…]&p=<port>&fp=<64 hex>&s=<secret>&n=<desktop
   if both `caps` lists contain them.
 - Keepalive: the phone sends `ping {}` every 20 s; the desktop answers `pong {}`. 60 s without
   any frame = connection dead; the phone reconnects with backoff (1, 2, 4 … 30 s).
+- **Wake nudge (UDP):** when the desktop daemon starts, it sends the UTF-8 datagram
+  `continuum-wake 1 <desktop id>` to UDP port 47820 at the last address of each paired phone
+  that isn't connected (at 0, 2, 5, 10, 20 and 40 s). A phone that's paired with that id and
+  not connected retries immediately. It carries no secret and only triggers a normal pinned
+  connection attempt.
 - `unpair {}`: the sender has removed this pairing. The receiver deletes its pin and closes.
 - `error { "code", "msg" }`: informational.
 

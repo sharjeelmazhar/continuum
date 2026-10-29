@@ -7,7 +7,7 @@ use std::sync::atomic::Ordering;
 use continuum_proto::DEFAULT_PORT;
 use continuumd::state::Daemon;
 use continuumd::store::Store;
-use continuumd::{dbus, mdns, server, sysinfo};
+use continuumd::{dbus, mdns, server, sysinfo, wake};
 use tokio::net::TcpListener;
 use tokio::signal::unix::{SignalKind, signal};
 use tracing::{error, info, warn};
@@ -132,6 +132,8 @@ async fn run(args: Args) -> Result<(), String> {
             daemon.start_pairing(sysinfo::lan_addresses()).to_uri()
         );
     }
+
+    tokio::spawn(wake::announce(daemon.clone()));
 
     let mut term = signal(SignalKind::terminate()).map_err(|e| e.to_string())?;
     tokio::select! {

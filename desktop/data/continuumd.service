@@ -1,0 +1,13 @@
+[Unit]
+Description=Continuum (phone connection service)
+After=network-online.target
+
+[Service]
+Type=dbus
+BusName=io.github.sharjeelmazhar.Continuum.Daemon
+ExecStart=%h/.local/bin/continuumd
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
