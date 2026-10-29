@@ -80,8 +80,16 @@
     <string name="receive_failed">Couldn\'t receive files from %1$s</string>
     <string name="send_clipboard">Send clipboard</string>
     <string name="hide_notification">Hide</string>
-    <string name="notif_hint">Copy on your computer, paste here. Tap “Send clipboard” for the other way.</string>
+    <string name="notif_hint">Copy on one device, paste on the other.</string>
     <string name="clip_sent">Clipboard sent to %1$s</string>
     <string name="clip_empty">Nothing to send. Copy some text or an image first.</string>
     <string name="share_text_sent">Copied to %1$s\'s clipboard</string>
+    <string name="copy_watcher_label">Continuum: send copies to your computer</string>
+    <string name="copy_watcher_summary">Whatever you copy on this phone appears on your computer\'s clipboard.</string>
+    <string name="copy_watcher_description">Android lets only the app on screen read the clipboard. With this on, Continuum notices when you copy (a tap on “Copy” or the “Copied” message), reads the clipboard for a split second, and sends it to your paired computer over your Wi-Fi. It doesn\'t read or store anything on your screen, and nothing leaves your home network.</string>
+    <string name="auto_clip_title">Copy on phone, paste on computer</string>
+    <string name="auto_clip_body">Turn on “Continuum: send copies to your computer” in Accessibility, and everything you copy is on your computer instantly. No buttons.</string>
+    <string name="auto_clip_restricted">If it\'s greyed out: open App info › ⋮ (top right) › “Allow restricted settings”, then try again.</string>
+    <string name="turn_on">Turn on</string>
+    <string name="open_app_info">App info</string>
 </resources>

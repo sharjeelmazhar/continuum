@@ -25,6 +25,11 @@ object ClipSync {
     /** Last content seen in either direction, so nothing echoes back. */
     @Volatile var lastDigest: String? = null
 
+    @Volatile private var appliedAt = 0L
+
+    /** True right after we put the computer's copy on the clipboard (not a copy by the user). */
+    fun justApplied() = android.os.SystemClock.elapsedRealtime() - appliedAt < 2_000
+
     fun send(c: ClipContent): Boolean {
         if (!c.valid) return false
         outgoing.trySend(c)
@@ -35,6 +40,7 @@ object ClipSync {
     fun apply(context: Context, c: ClipContent) {
         Log.i("Continuum", "clipboard from computer: ${c.mime}, ${c.data.size} bytes")
         lastDigest = c.digest
+        appliedAt = android.os.SystemClock.elapsedRealtime()
         val clip = if (c.mime == Clip.TEXT) {
             ClipData.newPlainText("Continuum", String(c.data, Charsets.UTF_8))
         } else {

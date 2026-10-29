@@ -136,6 +136,8 @@ private fun HomeScreen(state: LinkState, exempt: Boolean, resumeTick: Int, onSca
             if (state is LinkState.Connected || state is LinkState.Connecting || state is LinkState.Offline) {
                 Spacer(Modifier.height(16.dp))
                 KeepConnectedCard(exempt, resumeTick)
+                Spacer(Modifier.height(16.dp))
+                AutoClipboardCard(resumeTick)
             }
         }
     }

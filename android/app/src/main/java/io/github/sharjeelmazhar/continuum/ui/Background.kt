@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.sharjeelmazhar.continuum.R
+import io.github.sharjeelmazhar.continuum.clip.CopyWatcher
 
 /** Phones that kill background apps unless "Autostart" is turned on for them. */
 private val isXiaomi = listOf(Build.MANUFACTURER, Build.BRAND).any { it.lowercase() in setOf("xiaomi", "redmi", "poco") }
@@ -109,5 +110,36 @@ private fun openXiaomiAutostart(context: Context) {
     )
     runCatching { context.startActivity(autostart) }.onFailure {
         context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
+    }
+}
+
+/** Offers the automatic phone → computer clipboard until it's turned on (see clip/CopyWatcher.kt). */
+@Composable
+fun AutoClipboardCard(refreshKey: Int) {
+    val context = LocalContext.current
+    val on = remember(refreshKey) { CopyWatcher.isEnabled(context) }
+    if (on) return
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text(stringResource(R.string.auto_clip_title), style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Text(stringResource(R.string.auto_clip_body), style = MaterialTheme.typography.bodyMedium)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                Spacer(Modifier.height(8.dp))
+                Text(stringResource(R.string.auto_clip_restricted), style = MaterialTheme.typography.bodySmall)
+            }
+            Spacer(Modifier.height(12.dp))
+            Row {
+                Button(onClick = { CopyWatcher.openSettings(context) }) { Text(stringResource(R.string.turn_on)) }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    TextButton(onClick = {
+                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
+                    }) { Text(stringResource(R.string.open_app_info)) }
+                }
+            }
+        }
     }
 }

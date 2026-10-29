@@ -28,3 +28,4 @@ is the way it is, and nobody reverses a decision without knowing the reasons.
 | [0013](0013-app-id-github-namespace.md) | App ID under the GitHub namespace | Accepted |
 | [0014](0014-any-distro-gnome-and-kde.md) | Any distro; GNOME first, KDE Plasma second | Accepted |
 | [0015](0015-ecdsa-p256-keys.md) | ECDSA P-256 device keys (Android Keystore) | Accepted |
+| [0016](0016-clipboard-accessibility-watcher.md) | Automatic phone clipboard via an accessibility copy watcher | Accepted |

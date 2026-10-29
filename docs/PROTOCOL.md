@@ -114,8 +114,10 @@ in order; `id` is the first 16 hex chars of SHA-256(mime ‖ 0x00 ‖ data). The
 inconsistent. A device never sends back content it just received (same SHA-256).
 Desktop copies are read through the X11/XWayland clipboard (works on GNOME, KDE and X11);
 password-manager copies (`x-kde-passwordManagerHint`) and copied files are not sent.
-Android 10+ only lets the focused app read the clipboard, so the phone sends when the user taps
-"Send clipboard" (notification, Quick Settings tile) or shares text to Continuum.
+Android 10+ only lets the focused app read the clipboard. The phone detects copies with an
+optional accessibility service and reads them through a momentary invisible focusable window
+(ADR-0016); without it, the user taps "Send clipboard" (notification, Quick Settings tile) or
+shares text to Continuum.
 
 File names from the peer are sanitized: base name only, no control characters, no leading
 dots, at most 255 bytes, never `.` or `..`.

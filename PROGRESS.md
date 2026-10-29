@@ -3,10 +3,11 @@
 > Read this first in every session. Update it before ending a session.
 
 ## Current
-- **Milestone:** M5 ✅ (PC → phone) and M6 🟡 (clipboard: automatic PC → phone; phone → PC by
-  one tap). v0.4.0.
-- **Next task:** M6 finish: fully automatic phone → PC clipboard via Shizuku (optional, guided
-  in-app setup; ADR needed). Then M7 notifications. Leftovers, in order of value:
+- **Milestone:** M5 ✅, M6 ✅ (clipboard automatic both ways; phone side via the accessibility
+  copy watcher, ADR-0016). v0.4.1.
+- **Next task:** verify the copy watcher on the real Redmi (MIUI toolbar/toasts may differ:
+  check `adb logcat -s Continuum` with `setprop log.tag.Continuum DEBUG`), including copying an
+  image. Then M7 notifications. Leftovers, in order of value:
   1. MIUI: after a crash or an update, the service isn't restarted until the app is opened
      (MIUI's background broadcast queue was 400+ deep). Consider WorkManager as a watchdog.
   2. Android 8-9: bundle Conscrypt for TLS 1.3 (`net/Tls.kt` TODO); test on an API 26 image.
@@ -27,7 +28,7 @@
 | M3 | Pairing (QR + SAS) | 🟡 QR done; SAS next |
 | M4 | Send files phone → PC (share sheet, device icon) | ✅ |
 | M5 | Send files PC → phone (Nautilus right-click) | ✅ |
-| M6 | Universal clipboard | 🟡 auto phone → PC (Shizuku) next |
+| M6 | Universal clipboard | ✅ (real-phone check of auto copy pending) |
 | M7 | Notifications (allowlist, quick reply) | ☐ |
 | M8 | Calls (iOS-style banner, accept/decline) | ☐ |
 | M9 | Phone mirroring (borderless rounded window) | ☐ |
@@ -36,6 +37,9 @@
 | M11 | Hardening and release | ☐ |
 
 ## Log (newest first)
+- 29 October 2026: automatic phone → PC clipboard (accessibility copy watcher + 1-px focus
+  window, ADR-0016) instead of Shizuku. Emulator (Android 17): 3/3 copies on the PC in < 1 s.
+  v0.4.1.
 - 29 October 2026: M5 + most of M6. PC → phone files (D-Bus SendFiles, `continuumd send`,
   Files/Dolphin right-click, app button; phone saves to Downloads/Continuum, resumable).
   Transfer ids derived from the files, so re-sharing resumes; unfinished transfers kept 24 h.
