@@ -241,10 +241,12 @@ name = "continuumd"
 version = "0.1.0"
 dependencies = [
  "continuum-proto",
+ "futures-util",
  "hex",
  "if-addrs",
  "mdns-sd",
  "ring",
+ "rustix",
  "rustls",
  "serde",
  "serde_json",

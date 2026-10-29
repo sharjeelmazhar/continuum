@@ -77,10 +77,26 @@ continuum://pair?v=1&h=<ip>[,<ip>…]&p=<port>&fp=<64 hex>&s=<secret>&n=<desktop
 Later plugins (`share`, `clip`, `notif`, `call`, `mirror`, `find`, `media`) add their rows here
 when they're built.
 
-## Data connections (files, video), planned for M4
-The sender sends `share.offer { transfer_id, files: [{name, size, sha256?, mime}] }`.
-The receiver replies `share.accept { transfer_id, port, token }`. Then the sender opens a new
-TLS connection (same pinned certs) and sends the token and `file_index` + `offset`, so a
-transfer resumes from the last verified byte. The receiver writes to `.part` and renames the
-file once the hash matches. File names are sanitized: base name only, with no control
-characters, no `..`, and at most 255 bytes.
+## File transfer (share)
+Paired devices accept files automatically (they're your own devices, like AirDrop between
+devices on the same Apple ID). Phone → desktop first; the other direction uses the same messages.
+
+1. Sender → `share.offer { "transfer_id", "files": [{ "name", "size", "mime" }] }`
+   - `transfer_id`: 32 hex chars (random). Reused when retrying, so the receiver can resume.
+   - At most 1000 files; every `size` is known in advance.
+2. Receiver → `share.accept { "transfer_id", "token", "offsets": [u64…] }` or
+   `share.reject { "transfer_id", "reason" }` (e.g. not enough disk space).
+   - `token`: 32 hex chars, single use, valid 60 s.
+   - `offsets[i]`: bytes of file *i* already received and verified earlier (0 for new files).
+3. Sender opens a **data connection**: a new TLS connection to the same host and port, with the
+   same pinned certificates. Its first (and only) frame is `data.hello { "token" }`.
+   Then, raw bytes with no framing: for each file in order, bytes `offsets[i] .. size`,
+   followed by the 32-byte SHA-256 of the **whole** file.
+4. Receiver writes to a partial file, records the verified offset every 8 MiB (fsync first),
+   checks each hash, and only then moves the file into place (unique name, never overwriting).
+   It reports on the control connection:
+   `share.result { "transfer_id", "ok", "saved": [names], "error"? }`.
+   If the data connection breaks, the sender offers the same `transfer_id` again and resumes.
+
+File names from the peer are sanitized: base name only, no control characters, no leading
+dots, at most 255 bytes, never `.` or `..`.

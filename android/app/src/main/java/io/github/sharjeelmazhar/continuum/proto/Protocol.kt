@@ -11,7 +11,7 @@ object Protocol {
     const val DEFAULT_PORT = 47820
 
     /** Capabilities this build understands. */
-    val CAPS = listOf("battery")
+    val CAPS = listOf("battery", "share")
 
     const val PING_INTERVAL_MS = 20_000L
 

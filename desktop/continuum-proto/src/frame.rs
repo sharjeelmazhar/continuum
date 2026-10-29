@@ -49,6 +49,11 @@ impl FrameDecoder {
         Ok(Some(msg))
     }
 
+    /// Hands over bytes received after the last complete frame (for switching to raw data).
+    pub fn take_remaining(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.buf)
+    }
+
     /// Length of the frame being received, once its header is complete.
     pub fn pending_len(&self) -> Result<Option<usize>, ProtoError> {
         if self.buf.len() < 4 {

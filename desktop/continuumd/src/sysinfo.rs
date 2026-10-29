@@ -66,3 +66,26 @@ pub fn lan_addresses() -> Vec<String> {
     out.dedup();
     out.into_iter().take(4).map(|(_, ip)| ip).collect()
 }
+
+/// The user's Downloads folder (from `~/.config/user-dirs.dirs`, so it follows the language).
+pub fn download_dir() -> std::path::PathBuf {
+    let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| home.join(".config"));
+    fs::read_to_string(config.join("user-dirs.dirs"))
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find_map(|l| l.strip_prefix("XDG_DOWNLOAD_DIR="))
+                .map(|v| {
+                    let v = v.trim().trim_matches('"');
+                    match v.strip_prefix("$HOME") {
+                        Some(rest) => home.join(rest.trim_start_matches('/')),
+                        None => std::path::PathBuf::from(v),
+                    }
+                })
+        })
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(|| home.join("Downloads"))
+}

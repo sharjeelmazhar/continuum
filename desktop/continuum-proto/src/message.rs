@@ -15,9 +15,14 @@ pub const PAIR_REQUEST: &str = "pair.request";
 pub const PAIR_ACCEPT: &str = "pair.accept";
 pub const PAIR_REJECT: &str = "pair.reject";
 pub const BATTERY_STATUS: &str = "battery.status";
+pub const SHARE_OFFER: &str = "share.offer";
+pub const SHARE_ACCEPT: &str = "share.accept";
+pub const SHARE_REJECT: &str = "share.reject";
+pub const SHARE_RESULT: &str = "share.result";
+pub const DATA_HELLO: &str = "data.hello";
 
 /// Capabilities this build understands.
-pub const CAPS: &[&str] = &["battery"];
+pub const CAPS: &[&str] = &["battery", "share"];
 
 /// One control message: `{"type": "...", "body": {...}}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -118,6 +123,48 @@ pub struct ErrorBody {
     pub code: String,
     #[serde(default)]
     pub msg: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FileMeta {
+    pub name: String,
+    pub size: u64,
+    #[serde(default)]
+    pub mime: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShareOffer {
+    pub transfer_id: String,
+    pub files: Vec<FileMeta>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShareAccept {
+    pub transfer_id: String,
+    pub token: String,
+    pub offsets: Vec<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShareReject {
+    pub transfer_id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShareResult {
+    pub transfer_id: String,
+    pub ok: bool,
+    #[serde(default)]
+    pub saved: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DataHello {
+    pub token: String,
 }
 
 /// Peer-supplied display names: trimmed, control characters removed, at most 64 characters.

@@ -29,7 +29,13 @@ async fn desktop() -> Desktop {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().to_path_buf()).unwrap();
     let identity = store.identity().unwrap();
-    let daemon = Daemon::new(store, identity, "Test Desktop".into(), DeviceType::Desktop);
+    let daemon = Daemon::new(
+        store,
+        identity,
+        "Test Desktop".into(),
+        DeviceType::Desktop,
+        dir.path().join("Downloads"),
+    );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     daemon.port.store(port, Ordering::Relaxed);
@@ -307,4 +313,220 @@ async fn startup_nudge_reaches_disconnected_phone_at_last_address() {
         d.daemon.identity.device_id()
     );
     assert_eq!(&buf[..n], expected.as_bytes());
+}
+
+// ---------- file transfer ----------
+
+use continuum_proto::message::{DataHello, FileMeta, ShareAccept, ShareOffer, ShareResult};
+
+fn sha(data: &[u8]) -> Vec<u8> {
+    ring::digest::digest(&ring::digest::SHA256, data)
+        .as_ref()
+        .to_vec()
+}
+
+fn data_of(len: usize, seed: u8) -> Vec<u8> {
+    (0..len)
+        .map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed))
+        .collect()
+}
+
+async fn paired_phone(d: &Desktop) -> (Identity, Phone) {
+    let uri = d.daemon.start_pairing(vec![]);
+    let id = Identity::generate().unwrap();
+    let mut p = Phone::connect(&id, d).await;
+    p.pair(&id, &uri).await;
+    p.hello(&id).await;
+    (id, p)
+}
+
+async fn offer(p: &mut Phone, tid: &str, files: &[(&str, usize)]) -> Message {
+    let offer = ShareOffer {
+        transfer_id: tid.into(),
+        files: files
+            .iter()
+            .map(|(n, s)| FileMeta {
+                name: (*n).into(),
+                size: *s as u64,
+                mime: String::new(),
+            })
+            .collect(),
+    };
+    p.send(Message::with_body(m::SHARE_OFFER, &offer).unwrap())
+        .await;
+    p.recv().await.unwrap()
+}
+
+async fn data_conn(id: &Identity, d: &Desktop, token: &str) -> Phone {
+    let mut c = Phone::connect(id, d).await;
+    c.send(
+        Message::with_body(
+            m::DATA_HELLO,
+            &DataHello {
+                token: token.into(),
+            },
+        )
+        .unwrap(),
+    )
+    .await;
+    c
+}
+
+async fn result(p: &mut Phone) -> ShareResult {
+    let msg = p.recv().await.unwrap();
+    assert_eq!(msg.kind, m::SHARE_RESULT);
+    msg.body().unwrap()
+}
+
+fn downloads(d: &Desktop) -> std::path::PathBuf {
+    d.daemon.transfers.dir().to_path_buf()
+}
+
+const TID: &str = "0123456789abcdef0123456789abcdef";
+
+#[tokio::test]
+async fn files_arrive_verified_with_safe_names() {
+    let d = desktop().await;
+    let (id, mut p) = paired_phone(&d).await;
+    let (a, b) = (data_of(300_000, 1), data_of(5, 2));
+    let accept: ShareAccept = offer(
+        &mut p,
+        TID,
+        &[("photo.jpg", a.len()), ("../../.bashrc", b.len())],
+    )
+    .await
+    .body()
+    .unwrap();
+    assert_eq!(accept.offsets, [0, 0]);
+    let mut c = data_conn(&id, &d, &accept.token).await;
+    for f in [&a, &b] {
+        c.stream.write_all(f).await.unwrap();
+        c.stream.write_all(&sha(f)).await.unwrap();
+    }
+    let r = result(&mut p).await;
+    assert!(r.ok, "{r:?}");
+    assert_eq!(r.saved, ["photo.jpg", "bashrc"]);
+    assert_eq!(std::fs::read(downloads(&d).join("photo.jpg")).unwrap(), a);
+    assert_eq!(std::fs::read(downloads(&d).join("bashrc")).unwrap(), b);
+    assert!(!downloads(&d).parent().unwrap().join(".bashrc").exists());
+
+    // Same token again: refused.
+    let mut again = data_conn(&id, &d, &accept.token).await;
+    again.stream.write_all(&a).await.unwrap();
+    assert!(again.recv().await.is_none());
+}
+
+#[tokio::test]
+async fn interrupted_transfer_resumes_from_checkpoint() {
+    let d = desktop().await;
+    let (id, mut p) = paired_phone(&d).await;
+    let big = data_of(20 << 20, 7);
+    let accept: ShareAccept = offer(&mut p, TID, &[("video.mp4", big.len())])
+        .await
+        .body()
+        .unwrap();
+    let mut c = data_conn(&id, &d, &accept.token).await;
+    c.stream.write_all(&big[..10 << 20]).await.unwrap();
+    c.stream.shutdown().await.unwrap();
+    drop(c);
+    assert!(!result(&mut p).await.ok);
+
+    let accept: ShareAccept = offer(&mut p, TID, &[("video.mp4", big.len())])
+        .await
+        .body()
+        .unwrap();
+    let from = accept.offsets[0] as usize;
+    assert!(
+        from >= continuumd::transfer::CHECKPOINT_BYTES as usize && from <= 10 << 20,
+        "resume offset {from}"
+    );
+    let mut c = data_conn(&id, &d, &accept.token).await;
+    c.stream.write_all(&big[from..]).await.unwrap();
+    c.stream.write_all(&sha(&big)).await.unwrap();
+    assert!(result(&mut p).await.ok);
+    assert_eq!(std::fs::read(downloads(&d).join("video.mp4")).unwrap(), big);
+    assert_eq!(
+        std::fs::read_dir(downloads(&d).join(".partial"))
+            .unwrap()
+            .count(),
+        0,
+        "partials cleaned up"
+    );
+}
+
+#[tokio::test]
+async fn damaged_file_is_rejected_and_not_saved() {
+    let d = desktop().await;
+    let (id, mut p) = paired_phone(&d).await;
+    let f = data_of(1000, 3);
+    let accept: ShareAccept = offer(&mut p, TID, &[("doc.pdf", f.len())])
+        .await
+        .body()
+        .unwrap();
+    let mut c = data_conn(&id, &d, &accept.token).await;
+    c.stream.write_all(&f).await.unwrap();
+    c.stream.write_all(&[0u8; 32]).await.unwrap();
+    let r = result(&mut p).await;
+    assert!(!r.ok && r.error.unwrap().contains("damaged"));
+    assert!(!downloads(&d).join("doc.pdf").exists());
+}
+
+#[tokio::test]
+async fn same_name_never_overwrites() {
+    let d = desktop().await;
+    let (id, mut p) = paired_phone(&d).await;
+    for (n, tid) in [(1u8, TID), (2u8, "fedcba9876543210fedcba9876543210")] {
+        let f = data_of(10, n);
+        let accept: ShareAccept = offer(&mut p, tid, &[("a.txt", f.len())])
+            .await
+            .body()
+            .unwrap();
+        let mut c = data_conn(&id, &d, &accept.token).await;
+        c.stream.write_all(&f).await.unwrap();
+        c.stream.write_all(&sha(&f)).await.unwrap();
+        assert!(result(&mut p).await.ok);
+    }
+    assert_eq!(
+        std::fs::read(downloads(&d).join("a.txt")).unwrap(),
+        data_of(10, 1)
+    );
+    assert_eq!(
+        std::fs::read(downloads(&d).join("a (2).txt")).unwrap(),
+        data_of(10, 2)
+    );
+}
+
+#[tokio::test]
+async fn bad_offers_are_rejected() {
+    let d = desktop().await;
+    let (_, mut p) = paired_phone(&d).await;
+    assert_eq!(
+        offer(&mut p, "nothex", &[("a", 1)]).await.kind,
+        m::SHARE_REJECT
+    );
+    assert_eq!(offer(&mut p, TID, &[]).await.kind, m::SHARE_REJECT);
+    let huge = offer(&mut p, TID, &[("a", usize::MAX / 2)]).await;
+    assert_eq!(huge.kind, m::SHARE_REJECT);
+    assert!(huge.body.to_string().contains("space"));
+}
+
+#[tokio::test]
+async fn sender_closing_right_after_last_byte_loses_nothing() {
+    // Regression: unread TLS session tickets made the phone's close() reset the connection.
+    let d = desktop().await;
+    let (id, mut p) = paired_phone(&d).await;
+    let f = data_of(3 << 20, 9);
+    let accept: ShareAccept = offer(&mut p, TID, &[("last.bin", f.len())])
+        .await
+        .body()
+        .unwrap();
+    let mut c = data_conn(&id, &d, &accept.token).await;
+    c.stream.write_all(&f).await.unwrap();
+    c.stream.write_all(&sha(&f)).await.unwrap();
+    c.stream.flush().await.unwrap();
+    // Close the TCP socket at once, without TLS close_notify and without reading anything.
+    let (tcp, _) = c.stream.into_inner();
+    drop(tcp);
+    let r = result(&mut p).await;
+    assert!(r.ok, "{r:?}");
 }

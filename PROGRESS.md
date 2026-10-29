@@ -3,19 +3,17 @@
 > Read this first in every session. Update it before ending a session.
 
 ## Current
-- **Milestones:** M1 ✅, M2 and M3 mostly done (see below). Next is M4 (send files phone → PC).
-- **Next task:** finish M2/M3 leftovers, then M4.
-  1. Android 8–9: bundle Conscrypt for TLS 1.3 (`net/Tls.kt` TODO), and test on an API 26 emulator image.
-  2. Pairing fallback without a camera (6-digit code, SAS) from PROTOCOL/06-security.
-  3. Re-announce after the PC wakes from suspend (logind PrepareForSleep) and on desktop network changes.
-  4. Measure battery on the real phone (ping every 20 s): `adb shell dumpsys batterystats`.
-- **Tested on the emulator** (`continuum-test`, Android 17) against the installed daemon: pairing,
-  confirm dialog for outside links, local-network permission prompt, reconnect after Wi-Fi off/on
-  (0.2 s), PC service restart (1.1 s), PC off then on with wake nudge (0.6 s), app process killed
-  (2.5 s), phone reboot without opening the app, removal from either side.
-  Not testable on the emulator: mDNS discovery and the UDP nudge over real Wi-Fi (emulator NAT);
-  verify on the real phone.
-- **Known issues:** the emulator delivers BOOT_COMPLETED ~25 s late (system queue, not us).
+- **Milestone:** M4 ✅ (send files phone → PC). Next: M5 (PC → phone, Nautilus "Send to") and
+  M6 (universal clipboard).
+- **Next task:** M5. Leftovers from M2/M3, in order of value:
+  1. MIUI: after a crash or an update, the service isn't restarted until the app is opened
+     (MIUI's background broadcast queue was 400+ deep). Consider WorkManager as a watchdog.
+  2. Android 8-9: bundle Conscrypt for TLS 1.3 (`net/Tls.kt` TODO); test on an API 26 image.
+  3. Pairing without a camera (6-digit code), and re-announce after the PC wakes from suspend.
+  4. Battery measurement on the real phone (ping every 20 s).
+- **Verified:** real share sheet on the emulator ("Send to MDPT" is the first Direct Share
+  entry): 103.5 MB in 18 s, byte-identical; PC service restart mid-transfer resumes; real phone
+  (Redmi Note 11) stays connected and reconnects after PC service restarts.
 
 ## Milestones
 | # | Milestone | Status |
@@ -24,7 +22,7 @@
 | M1 | Protocol core (desktop) | ✅ |
 | M2 | Protocol core (Android) | 🟡 Android 10+ done; 8–9 next |
 | M3 | Pairing (QR + SAS) | 🟡 QR done; SAS next |
-| M4 | Send files phone → PC (share sheet, device icon) | ☐ |
+| M4 | Send files phone → PC (share sheet, device icon) | ✅ |
 | M5 | Send files PC → phone (Nautilus right-click) | ☐ |
 | M6 | Universal clipboard | ☐ |
 | M7 | Notifications (allowlist, quick reply) | ☐ |
@@ -35,6 +33,10 @@
 | M11 | Hardening and release | ☐ |
 
 ## Log (newest first)
+- 29 October 2026: M4 done. Direct Share target per PC, resumable verified transfers
+  (8 MiB checkpoints, SHA-256, safe names, disk-space check), GNOME notifications with Open /
+  Show in Files. Fixed: TLS session tickets caused resets on close; crash on unreadable shares;
+  MIUI Autostart card detection. v0.3.0.
 - 29 October 2026: first working connection. Desktop: TLS 1.3 pinned server, QR pairing,
   D-Bus API, GTK device list, mDNS, UDP wake nudge, systemd install. Android: Keystore identity,
   pinned TLS, foreground service, QR scanner, auto-reconnect, LAN discovery fallback, Android 17

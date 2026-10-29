@@ -1,5 +1,21 @@
 package io.github.sharjeelmazhar.continuum.service
 
+import android.content.ClipData
+import android.net.Uri
+import androidx.core.content.IntentCompat
+import io.github.sharjeelmazhar.continuum.proto.ShareAccept
+import io.github.sharjeelmazhar.continuum.proto.ShareOffer
+import io.github.sharjeelmazhar.continuum.proto.ShareReject
+import io.github.sharjeelmazhar.continuum.proto.ShareResult
+import io.github.sharjeelmazhar.continuum.share.FileSender
+import io.github.sharjeelmazhar.continuum.share.Outgoing
+import io.github.sharjeelmazhar.continuum.share.Shortcuts
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -70,6 +86,12 @@ class ContinuumService : Service() {
     @Volatile private var lastBattery: BatteryStatus? = null
     @Volatile private var sentBattery: BatteryStatus? = null
     @Volatile private var wakeSocket: DatagramSocket? = null
+    @Volatile private var computer: PairedComputer? = null
+
+    /** Files waiting to be sent, in order. Survives reconnects (not process death). */
+    private val outgoing = Channel<Outgoing>(Channel.UNLIMITED)
+    private val offerReplies = ConcurrentHashMap<String, CompletableDeferred<Envelope>>()
+    private val shareResults = ConcurrentHashMap<String, CompletableDeferred<ShareResult>>()
 
     private class PairRejected(reason: String) : Exception(reason)
     private class UnpairedByComputer : Exception()
@@ -83,18 +105,27 @@ class ContinuumService : Service() {
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL, getString(R.string.channel_connection), NotificationManager.IMPORTANCE_MIN),
         )
+        nm.createNotificationChannel(
+            NotificationChannel(TRANSFER_CHANNEL, getString(R.string.channel_transfers), NotificationManager.IMPORTANCE_LOW),
+        )
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(Link.state.value), type)
         scope.launch { Link.state.collect { nm.notify(NOTIFICATION_ID, notification(it)) } }
         ContextCompat.registerReceiver(this, batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
         getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkCallback)
         scope.launch { listenForWake() }
+        scope.launch { for (job in outgoing) send(job) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_PAIR -> PairUri.parse(intent.getStringExtra(EXTRA_URI).orEmpty())?.let { restart(it) }
             ACTION_UNPAIR -> unpair()
+            ACTION_SEND -> {
+                val uris = IntentCompat.getParcelableArrayListExtra(intent, EXTRA_URIS, Uri::class.java).orEmpty()
+                scope.launch { Outgoing.resolve(this@ContinuumService, uris)?.let { outgoing.send(it) } }
+                if (loop?.isActive != true) restart(null) else wake.trySend(Unit)
+            }
             // A plain start (app opened, boot) also means "try now" if we're waiting.
             else -> if (loop?.isActive != true) restart(null) else wake.trySend(Unit)
         }
@@ -127,6 +158,7 @@ class ContinuumService : Service() {
             s?.close()
             loop?.cancel()
             store.clear()
+            Shortcuts.remove(this@ContinuumService)
             Link.mutableState.value = LinkState.Unpaired()
             stopSelf()
         }
@@ -179,6 +211,7 @@ class ContinuumService : Service() {
             } catch (_: UnpairedByComputer) {
                 Log.i(TAG, "computer removed the pairing")
                 store.clear()
+                Shortcuts.remove(this)
                 Link.mutableState.value = LinkState.Unpaired("The computer removed this phone. Scan a new code to pair again.")
                 continue
             } catch (e: UnsupportedAndroidException) {
@@ -271,6 +304,8 @@ class ContinuumService : Service() {
             if (reply.type != MessageType.HELLO) throw IOException("expected hello, got ${reply.type}")
             session.socket.soTimeout = Protocol.IDLE_TIMEOUT_MS
             this.session = session
+            computer = pc
+            Shortcuts.publish(this, pc)
             sentBattery = null
             Link.mutableState.value = LinkState.Connected(pc.name)
             Log.i(TAG, "connected to ${pc.name}")
@@ -287,6 +322,12 @@ class ContinuumService : Service() {
                     when (msg.type) {
                         MessageType.UNPAIR -> throw UnpairedByComputer()
                         MessageType.PING -> session.send(Envelope(MessageType.PONG))
+                        MessageType.SHARE_ACCEPT, MessageType.SHARE_REJECT ->
+                            msg.body["transfer_id"]?.jsonPrimitive?.contentOrNull?.let { offerReplies.remove(it)?.complete(msg) }
+                        MessageType.SHARE_RESULT -> {
+                            val r = msg.body(ShareResult.serializer())
+                            shareResults.remove(r.transferId)?.complete(r)
+                        }
                         else -> {}
                     }
                 }
@@ -297,6 +338,92 @@ class ContinuumService : Service() {
             this.session = null
             session.close()
         }
+    }
+
+    /** Sends one queued transfer, waiting for a connection and resuming after drops (up to 5 tries). */
+    private suspend fun send(job: Outgoing) {
+        val nm = getSystemService(NotificationManager::class.java)
+        val notifId = job.transferId.hashCode()
+        while (true) {
+            Link.state.first { it is LinkState.Connected }
+            val s = session
+            val pc = computer
+            if (s == null || pc == null) {
+                delay(200)
+                continue
+            }
+            job.attempts++
+            val failure = try {
+                val accept = CompletableDeferred<Envelope>().also { offerReplies[job.transferId] = it }
+                val result = CompletableDeferred<ShareResult>().also { shareResults[job.transferId] = it }
+                s.send(Envelope.of(MessageType.SHARE_OFFER, ShareOffer.serializer(), ShareOffer(job.transferId, job.files)))
+                val reply = withTimeout(15_000) { accept.await() }
+                if (reply.type == MessageType.SHARE_REJECT) {
+                    notifyDone(nm, notifId, getString(R.string.send_failed, pc.name), reply.body(ShareReject.serializer()).reason)
+                    return
+                }
+                val ok = reply.body(ShareAccept.serializer())
+                var lastUpdate = 0L
+                FileSender.stream(this, s.socket.inetAddress.hostAddress!!, s.socket.port, Crypto.unhex(pc.fingerprint)!!, job, ok.token, ok.offsets) { sent ->
+                    val now = System.currentTimeMillis()
+                    if (now - lastUpdate > 400) {
+                        lastUpdate = now
+                        nm.notify(notifId, progressNotification(pc.name, job, sent))
+                    }
+                }
+                val r = withTimeout(120_000) { result.await() }
+                if (r.ok) {
+                    Shortcuts.reportUsed(this, pc.id)
+                    val title = if (job.files.size == 1) getString(R.string.sent_one, job.files[0].name) else resources.getQuantityString(R.plurals.sent_many, job.files.size, job.files.size)
+                    notifyDone(nm, notifId, title, getString(R.string.sent_to, pc.name))
+                    return
+                }
+                r.error ?: "unknown error"
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException && !scope.isActive) throw e
+                Log.i(TAG, "transfer attempt ${job.attempts} failed: $e")
+                e.message ?: e.toString()
+            } finally {
+                offerReplies.remove(job.transferId)
+                shareResults.remove(job.transferId)
+            }
+            if (job.attempts >= 5) {
+                notifyDone(nm, notifId, getString(R.string.send_failed, pc.name), failure)
+                return
+            }
+            nm.notify(notifId, progressNotification(pc.name, job, null))
+            delay(2_000L * job.attempts)
+        }
+    }
+
+    private fun progressNotification(computer: String, job: Outgoing, sent: Long?): Notification {
+        val title = if (job.files.size == 1) getString(R.string.sending_one, job.files[0].name, computer)
+        else resources.getQuantityString(R.plurals.sending_many, job.files.size, job.files.size, computer)
+        val b = NotificationCompat.Builder(this, TRANSFER_CHANNEL)
+            .setSmallIcon(android.R.drawable.stat_sys_upload)
+            .setContentTitle(title)
+            .setOngoing(true)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
+        if (sent == null || job.totalBytes == 0L) {
+            b.setProgress(0, 0, true).setContentText(getString(R.string.waiting_for, computer))
+        } else {
+            val pct = (sent * 100 / job.totalBytes).toInt()
+            b.setProgress(100, pct, false).setContentText("$pct%")
+        }
+        return b.build()
+    }
+
+    private fun notifyDone(nm: NotificationManager, id: Int, title: String, text: String) {
+        nm.notify(
+            id,
+            NotificationCompat.Builder(this, TRANSFER_CHANNEL)
+                .setSmallIcon(android.R.drawable.stat_sys_upload_done)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setAutoCancel(true)
+                .build(),
+        )
     }
 
     private fun sendBatteryIfChanged() {
@@ -389,6 +516,9 @@ class ContinuumService : Service() {
         const val ACTION_PAIR = "io.github.sharjeelmazhar.continuum.PAIR"
         const val ACTION_UNPAIR = "io.github.sharjeelmazhar.continuum.UNPAIR"
         const val EXTRA_URI = "uri"
+        const val ACTION_SEND = "io.github.sharjeelmazhar.continuum.SEND"
+        const val EXTRA_URIS = "uris"
+        private const val TRANSFER_CHANNEL = "transfers"
         private const val WAKE_PREFIX = "continuum-wake 1 "
 
         fun start(context: Context) =
@@ -398,6 +528,16 @@ class ContinuumService : Service() {
             context,
             Intent(context, ContinuumService::class.java).setAction(ACTION_PAIR).putExtra(EXTRA_URI, uri),
         )
+
+        /** Queues files for the paired computer. The read permission travels with the intent. */
+        fun sendFiles(context: Context, uris: List<Uri>) {
+            val intent = Intent(context, ContinuumService::class.java)
+                .setAction(ACTION_SEND)
+                .putParcelableArrayListExtra(EXTRA_URIS, ArrayList(uris))
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            intent.clipData = ClipData.newRawUri(null, uris.first()).apply { uris.drop(1).forEach { addItem(ClipData.Item(it)) } }
+            ContextCompat.startForegroundService(context, intent)
+        }
 
         fun unpair(context: Context) = ContextCompat.startForegroundService(
             context,

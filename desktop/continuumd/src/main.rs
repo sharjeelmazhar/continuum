@@ -12,8 +12,7 @@ use tokio::net::TcpListener;
 use tokio::signal::unix::{SignalKind, signal};
 use tracing::{error, info, warn};
 
-const USAGE: &str =
-    "usage: continuumd [--data-dir DIR] [--port N] [--no-dbus] [--no-mdns] [--print-pair-uri]";
+const USAGE: &str = "usage: continuumd [--data-dir DIR] [--port N] [--no-dbus] [--no-mdns] [--print-pair-uri] [--download-dir DIR]";
 
 struct Args {
     data_dir: PathBuf,
@@ -21,6 +20,7 @@ struct Args {
     dbus: bool,
     mdns: bool,
     print_pair_uri: bool,
+    download_dir: PathBuf,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -30,6 +30,7 @@ fn parse_args() -> Result<Args, String> {
         dbus: true,
         mdns: true,
         print_pair_uri: false,
+        download_dir: sysinfo::download_dir().join("Continuum"),
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -39,6 +40,7 @@ fn parse_args() -> Result<Args, String> {
             "--no-dbus" => a.dbus = false,
             "--no-mdns" => a.mdns = false,
             "--print-pair-uri" => a.print_pair_uri = true,
+            "--download-dir" => a.download_dir = it.next().ok_or(USAGE)?.into(),
             "--version" => {
                 println!(
                     "continuumd {} (protocol v{})",
@@ -88,6 +90,7 @@ async fn run(args: Args) -> Result<(), String> {
         identity,
         sysinfo::device_name(),
         sysinfo::device_type(),
+        args.download_dir.clone(),
     );
 
     // The D-Bus name doubles as a single-instance lock, so claim it before the port.

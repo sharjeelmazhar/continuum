@@ -7,7 +7,8 @@ use std::time::Duration;
 use continuum_proto::frame::{FrameDecoder, encode};
 use continuum_proto::identity::{Fingerprint, fingerprint};
 use continuum_proto::message::{
-    self as m, BatteryStatus, ErrorBody, Hello, Message, PairAccept, PairReject, PairRequest,
+    self as m, BatteryStatus, DataHello, ErrorBody, Hello, Message, PairAccept, PairReject,
+    PairRequest, ShareOffer, ShareReject,
 };
 use continuum_proto::pairing::verify_proof;
 use continuum_proto::{PROTOCOL_VERSION, tls};
@@ -18,7 +19,7 @@ use tokio::time::timeout;
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, info, warn};
 
-use crate::state::{Daemon, Live};
+use crate::state::{Daemon, Event, Live};
 use crate::store::PairedDevice;
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -105,6 +106,26 @@ async fn handle(
     };
 
     let first = reader.next(HANDSHAKE_TIMEOUT).await?;
+    if first.kind == m::DATA_HELLO {
+        // A data connection for a file transfer: raw bytes follow the frame.
+        let token = first.body::<DataHello>().map_err(|e| e.to_string())?.token;
+        let leftover = std::io::Cursor::new(reader.dec.take_remaining());
+        let mut stream = leftover.chain(reader.rd);
+        let events = daemon.clone();
+        let result = daemon
+            .transfers
+            .receive(&device.id, &token, &mut stream, |p| {
+                events.emit(Event::Transfer(p))
+            })
+            .await;
+        match &result {
+            Ok(()) => info!("received files from {}", device.name),
+            Err(e) => warn!("transfer from {} failed: {e}", device.name),
+        }
+        // Closing our side (close_notify) tells the sender everything was read.
+        drop(tx);
+        return result;
+    }
     if first.kind != m::HELLO {
         return Err(format!("expected hello, got {}", first.kind));
     }
@@ -225,6 +246,35 @@ async fn session<R: AsyncRead + Unpin>(
                 }
                 _ => warn!("{} sent an invalid battery.status", device.name),
             },
+            m::SHARE_OFFER => {
+                let reply = match msg.body::<ShareOffer>() {
+                    Ok(offer) => {
+                        let id = offer.transfer_id.clone();
+                        info!("{} offers {} file(s)", device.name, offer.files.len());
+                        match daemon
+                            .transfers
+                            .prepare(&device.id, &device.name, offer, tx.clone())
+                        {
+                            Ok(accept) => Message::with_body(m::SHARE_ACCEPT, &accept),
+                            Err(reason) => Message::with_body(
+                                m::SHARE_REJECT,
+                                &ShareReject {
+                                    transfer_id: id,
+                                    reason,
+                                },
+                            ),
+                        }
+                    }
+                    Err(e) => Message::with_body(
+                        m::ERROR,
+                        &ErrorBody {
+                            code: "bad_offer".into(),
+                            msg: e.to_string(),
+                        },
+                    ),
+                };
+                send(tx, reply).await?;
+            }
             m::UNPAIR => {
                 info!("{} removed the pairing", device.name);
                 daemon.unpair(&device.id).map_err(|e| e.to_string())?;

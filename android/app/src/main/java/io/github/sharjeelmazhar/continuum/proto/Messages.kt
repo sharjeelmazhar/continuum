@@ -28,6 +28,11 @@ object MessageType {
     const val PAIR_ACCEPT = "pair.accept"
     const val PAIR_REJECT = "pair.reject"
     const val BATTERY_STATUS = "battery.status"
+    const val SHARE_OFFER = "share.offer"
+    const val SHARE_ACCEPT = "share.accept"
+    const val SHARE_REJECT = "share.reject"
+    const val SHARE_RESULT = "share.result"
+    const val DATA_HELLO = "data.hello"
 }
 
 /** Peers may be newer than us: ignore unknown fields, always write `body`. */
@@ -56,3 +61,26 @@ data class PairReject(val reason: String)
 
 @Serializable
 data class BatteryStatus(val level: Int, val charging: Boolean)
+
+@Serializable
+data class FileMeta(val name: String, val size: Long, val mime: String = "")
+
+@Serializable
+data class ShareOffer(@SerialName("transfer_id") val transferId: String, val files: List<FileMeta>)
+
+@Serializable
+data class ShareAccept(@SerialName("transfer_id") val transferId: String, val token: String, val offsets: List<Long>)
+
+@Serializable
+data class ShareReject(@SerialName("transfer_id") val transferId: String, val reason: String)
+
+@Serializable
+data class ShareResult(
+    @SerialName("transfer_id") val transferId: String,
+    val ok: Boolean,
+    val saved: List<String> = emptyList(),
+    val error: String? = null,
+)
+
+@Serializable
+data class DataHello(val token: String)

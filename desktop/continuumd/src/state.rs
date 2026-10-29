@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -12,6 +13,7 @@ use continuum_proto::pairing::{PairUri, Secret, random_secret};
 use tokio::sync::{Notify, broadcast, mpsc};
 
 use crate::store::{PairedDevice, Store};
+use crate::transfer::{Progress, Transfers};
 
 pub const PAIRING_TTL: Duration = Duration::from_secs(120);
 const MAX_PAIR_FAILURES_PER_MINUTE: usize = 5;
@@ -21,6 +23,7 @@ const MAX_PAIR_FAILURES_PER_MINUTE: usize = 5;
 pub enum Event {
     DevicesChanged,
     Paired { id: String, name: String },
+    Transfer(Progress),
 }
 
 /// A connected, paired peer.
@@ -47,6 +50,7 @@ pub struct DeviceStatus {
 }
 
 pub struct Daemon {
+    pub transfers: Transfers,
     pub identity: Identity,
     pub name: String,
     pub device_type: DeviceType,
@@ -63,9 +67,13 @@ impl Daemon {
         identity: Identity,
         name: String,
         device_type: DeviceType,
+        download_dir: PathBuf,
     ) -> Arc<Self> {
         let devices = store.load_devices();
+        let transfers = Transfers::new(download_dir);
+        transfers.clean_old_partials();
         Arc::new(Self {
+            transfers,
             identity,
             name,
             device_type,
@@ -87,7 +95,7 @@ impl Daemon {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn emit(&self, e: Event) {
+    pub fn emit(&self, e: Event) {
         let _ = self.events.send(e);
     }
 

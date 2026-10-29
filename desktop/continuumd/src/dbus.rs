@@ -8,6 +8,7 @@ use zbus::fdo::{RequestNameFlags, RequestNameReply};
 use zbus::object_server::SignalEmitter;
 use zbus::{connection, interface};
 
+use crate::notify::Notifier;
 use crate::state::{Daemon, Event, PAIRING_TTL};
 use crate::sysinfo;
 
@@ -90,6 +91,10 @@ pub async fn run(daemon: Arc<Daemon>) -> zbus::Result<connection::Connection> {
         _ => return Err(zbus::Error::NameTaken),
     }
     let emitter = SignalEmitter::new(&conn, PATH)?.into_owned();
+    let notifier = Notifier::new(&conn)
+        .await
+        .map_err(|e| tracing::warn!("desktop notifications unavailable: {e}"))
+        .ok();
     tokio::spawn(async move {
         loop {
             let res = match events.recv().await {
@@ -97,6 +102,12 @@ pub async fn run(daemon: Arc<Daemon>) -> zbus::Result<connection::Connection> {
                     Api::devices_changed(&emitter).await
                 }
                 Ok(Event::Paired { id, name }) => Api::paired(&emitter, &id, &name).await,
+                Ok(Event::Transfer(p)) => {
+                    if let Some(n) = &notifier {
+                        n.on_transfer(&p).await;
+                    }
+                    Ok(())
+                }
                 Err(RecvError::Closed) => return,
             };
             if let Err(e) = res {

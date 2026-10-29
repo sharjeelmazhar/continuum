@@ -50,6 +50,19 @@ Object `/io/github/sharjeelmazhar/Continuum/Daemon`, interface `io.github.sharje
 Plugins add their own interfaces (e.g. `io.github.sharjeelmazhar.Continuum.Clipboard1`) on per-device objects
 `/io/github/sharjeelmazhar/Continuum/Device/<id>`. The interface name carries a version number so it can evolve.
 
+## File receiving (`transfer.rs`, `notify.rs`)
+- Offers from paired devices are accepted automatically into `~/Downloads/Continuum/`
+  (the XDG Downloads folder, so it follows the system language).
+- Partial data lives in `.partial/<transfer>-<n>.part` with a `.json` checkpoint (verified
+  offset, written after fsync every 8 MiB). On resume the part is truncated to the checkpoint
+  and re-hashed, so a power cut never produces a corrupt file.
+- Finished files are hash-checked, given a safe unique name (`filename.rs`) and only then moved
+  into place. Partials untouched for 7 days are deleted at startup.
+- GNOME notification on start and finish, with **Open** and **Show in Files**
+  (`org.freedesktop.FileManager1`).
+- TLS session tickets are disabled: they're useless between two pinned devices, and unread
+  tickets made the phone's `close()` reset the connection and lose the tail of the data.
+
 ## Reliability
 - **Atomic writes** for config and identity: write `*.tmp`, `fsync`, rename, `fsync` the directory.
 - **Transfers:** data goes to `.name.part`. A sidecar `.name.part.json` records the verified

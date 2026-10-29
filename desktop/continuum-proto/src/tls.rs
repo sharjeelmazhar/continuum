@@ -28,6 +28,14 @@ fn key(id: &Identity) -> PrivateKeyDer<'static> {
 }
 
 pub fn server_config(id: &Identity) -> Result<rustls::ServerConfig, ProtoError> {
+    let mut config = server_builder(id)?;
+    // No session resumption between our two devices, so don't send tickets: unread tickets
+    // in the client's receive buffer make its close() reset the connection and lose data.
+    config.send_tls13_tickets = 0;
+    Ok(config)
+}
+
+fn server_builder(id: &Identity) -> Result<rustls::ServerConfig, ProtoError> {
     rustls::ServerConfig::builder_with_provider(provider())
         .with_protocol_versions(&[&rustls::version::TLS13])
         .and_then(|b| {
