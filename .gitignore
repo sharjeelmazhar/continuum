@@ -1,0 +1,29 @@
+# Private notes (never commit)
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Rust
+desktop/target/
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.keystore
+*.jks
+*.apk
+*.aab
+
+# Secrets / keys
+*.pem
+*.key
+.env
+
+# Editors / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+*.swp
+__pycache__/
