@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Continuum</string>
+    <string name="no_devices">No computers paired yet</string>
+</resources>
