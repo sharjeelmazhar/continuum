@@ -1,0 +1,13 @@
+[package]
+name = "continuumd"
+description = "Continuum daemon: discovery, TLS sessions, plugins and D-Bus API"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+continuum-proto = { path = "../continuum-proto" }
+
+[lints]
+workspace = true
