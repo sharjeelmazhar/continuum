@@ -37,6 +37,9 @@
 | M11 | Hardening and release | ☐ |
 
 ## Log (newest first)
+- 30 October 2026: in-app updater (GitHub release list → SHA-256-checked download →
+  PackageInstaller session; Android 12+ later updates can skip the prompt). Verified on the
+  emulator: 0.4.0 updated itself to 0.4.1. Distribution decided: GitHub only, no Play Store. v0.4.2.
 - 29 October 2026: automatic phone → PC clipboard (accessibility copy watcher + 1-px focus
   window, ADR-0016) instead of Shizuku. Emulator (Android 17): 3/3 copies on the PC in < 1 s.
   v0.4.1.

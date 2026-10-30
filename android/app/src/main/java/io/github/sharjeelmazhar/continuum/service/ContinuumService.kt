@@ -11,6 +11,7 @@ import io.github.sharjeelmazhar.continuum.share.FileSender
 import io.github.sharjeelmazhar.continuum.share.Outgoing
 import io.github.sharjeelmazhar.continuum.share.Shortcuts
 import io.github.sharjeelmazhar.continuum.share.ClipSync
+import io.github.sharjeelmazhar.continuum.update.Updater
 import io.github.sharjeelmazhar.continuum.share.FileReceiver
 import io.github.sharjeelmazhar.continuum.share.Received
 import io.github.sharjeelmazhar.continuum.clip.SendClipboardActivity
@@ -139,6 +140,10 @@ class ContinuumService : Service() {
             }
         }
         receiver = FileReceiver(this)
+        nm.createNotificationChannel(
+            NotificationChannel(UPDATE_CHANNEL, getString(R.string.channel_updates), NotificationManager.IMPORTANCE_DEFAULT),
+        )
+        scope.launch { checkForUpdates() }
         scope.launch { for (c in ClipSync.outgoing) sendClipboard(c) }
         // Android 9 and older let background apps read the clipboard, so copies go out by
         // themselves. Newer versions only report our own changes here (and reading would show a
@@ -556,6 +561,32 @@ class ContinuumService : Service() {
         )
     }
 
+    /** Looks for a new release on GitHub now and then; tells the user once per version. */
+    private suspend fun checkForUpdates() {
+        val prefs = getSharedPreferences("update", MODE_PRIVATE)
+        while (scope.isActive) {
+            if (hasNetwork()) {
+                Updater.check(this)?.let { release ->
+                    if (prefs.getString("notified", null) != release.version) {
+                        prefs.edit().putString("notified", release.version).apply()
+                        val open = PendingIntent.getActivity(this, 3, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+                        getSystemService(NotificationManager::class.java).notify(
+                            UPDATE_NOTIFICATION_ID,
+                            NotificationCompat.Builder(this, UPDATE_CHANNEL)
+                                .setSmallIcon(R.drawable.ic_stat_continuum)
+                                .setContentTitle(getString(R.string.update_title, release.version))
+                                .setContentText(getString(R.string.update_tap))
+                                .setContentIntent(open)
+                                .setAutoCancel(true)
+                                .build(),
+                        )
+                    }
+                }
+            }
+            delay(3_600_000)
+        }
+    }
+
     /** Sends a copied text or image to the computer, unless it just came from there. */
     private suspend fun sendClipboard(c: ClipContent) {
         if (c.digest == ClipSync.lastDigest) return
@@ -692,6 +723,8 @@ class ContinuumService : Service() {
         const val ACTION_SEND = "io.github.sharjeelmazhar.continuum.SEND"
         const val EXTRA_URIS = "uris"
         private const val TRANSFER_CHANNEL = "transfers"
+        private const val UPDATE_CHANNEL = "updates"
+        private const val UPDATE_NOTIFICATION_ID = 2
         private const val WAKE_PREFIX = "continuum-wake 1 "
 
         fun start(context: Context) =

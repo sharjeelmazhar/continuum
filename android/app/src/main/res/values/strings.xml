@@ -88,8 +88,19 @@
     <string name="copy_watcher_summary">Whatever you copy on this phone appears on your computer\'s clipboard.</string>
     <string name="copy_watcher_description">Android lets only the app on screen read the clipboard. With this on, Continuum notices when you copy (a tap on “Copy” or the “Copied” message), reads the clipboard for a split second, and sends it to your paired computer over your Wi-Fi. It doesn\'t read or store anything on your screen, and nothing leaves your home network.</string>
     <string name="auto_clip_title">Copy on phone, paste on computer</string>
-    <string name="auto_clip_body">Turn on “Continuum: send copies to your computer” in Accessibility, and everything you copy is on your computer instantly. No buttons.</string>
-    <string name="auto_clip_restricted">If it\'s greyed out: open App info › ⋮ (top right) › “Allow restricted settings”, then try again.</string>
+    <string name="auto_clip_body">Everything you copy on this phone appears on your computer, no buttons. Set it up once:
+1. Tap Turn on.
+2. Open “Downloaded apps” (or “Installed apps”), tap “Continuum: send copies to your computer” and switch it on.</string>
+    <string name="auto_clip_restricted">3. Switch greyed out? Android does this for apps not from the Play Store. Tap App info below › ⋮ (top right) › “Allow restricted settings”, then repeat step 2.
+Tip: Android then says “Continuum pasted from your clipboard” after each copy. To hide that, search Settings for “clipboard” and turn off “Show clipboard access”.</string>
     <string name="turn_on">Turn on</string>
     <string name="open_app_info">App info</string>
+    <string name="channel_updates">App updates</string>
+    <string name="update_title">Continuum %1$s is available</string>
+    <string name="update_tap">Tap to update.</string>
+    <string name="update_now">Update</string>
+    <string name="update_downloading">Downloading…</string>
+    <string name="update_failed">The update didn\'t finish: %1$s</string>
+    <string name="update_allow">Allow updates</string>
+    <string name="update_allow_body">Android needs your OK once: switch on “Allow from this source” for Continuum, then come back and tap Update.</string>
 </resources>

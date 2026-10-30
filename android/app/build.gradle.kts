@@ -15,6 +15,8 @@ android {
         // The release workflow passes these from the git tag (v1.2.3 -> 1.2.3 / 10203).
         versionCode = providers.gradleProperty("versionCode").orNull?.toInt() ?: 1
         versionName = providers.gradleProperty("versionName").orNull ?: "0.1.0"
+        // Where the in-app updater looks for new releases (update/Updater.kt).
+        buildConfigField("String", "REPO", "\"sharjeelmazhar/continuum\"")
     }
 
     // Release signing key comes from the environment (GitHub secrets in CI), never from the repo.
@@ -46,6 +48,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     lint {

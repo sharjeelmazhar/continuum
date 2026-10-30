@@ -34,6 +34,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.sharjeelmazhar.continuum.R
 import io.github.sharjeelmazhar.continuum.clip.CopyWatcher
+import io.github.sharjeelmazhar.continuum.update.UpdateState
+import io.github.sharjeelmazhar.continuum.update.Updater
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /** Phones that kill background apps unless "Autostart" is turned on for them. */
 private val isXiaomi = listOf(Build.MANUFACTURER, Build.BRAND).any { it.lowercase() in setOf("xiaomi", "redmi", "poco") }
@@ -138,6 +145,56 @@ fun AutoClipboardCard(refreshKey: Int) {
                     TextButton(onClick = {
                         context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
                     }) { Text(stringResource(R.string.open_app_info)) }
+                }
+            }
+        }
+    }
+}
+
+/** "Continuum 0.5.0 is available" with an Update button and download progress. */
+@Composable
+fun UpdateCard(refreshKey: Int) {
+    val context = LocalContext.current
+    val state by Updater.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    val release = when (val st = state) {
+        is UpdateState.Available -> st.release
+        is UpdateState.Downloading -> st.release
+        is UpdateState.Failed -> st.release
+        else -> return
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text(stringResource(R.string.update_title, release.version), style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            when (val st = state) {
+                is UpdateState.Downloading -> {
+                    val total = release.size.coerceAtLeast(1)
+                    LinearProgressIndicator(progress = { (st.done.toFloat() / total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(8.dp))
+                    Text(stringResource(R.string.update_downloading), style = MaterialTheme.typography.bodyMedium)
+                }
+                else -> {
+                    if (st is UpdateState.Failed) {
+                        Text(stringResource(R.string.update_failed, st.reason), style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    // Re-checked on every return to the app (e.g. from the "Allow from this source" screen).
+                    val canInstall = remember(refreshKey) { context.packageManager.canRequestPackageInstalls() }
+                    if (!canInstall) {
+                        Text(stringResource(R.string.update_allow_body), style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    Button(onClick = {
+                        if (!context.packageManager.canRequestPackageInstalls()) {
+                            context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, "package:${context.packageName}".toUri()))
+                        } else {
+                            scope.launch(Dispatchers.IO) { Updater.downloadAndInstall(context.applicationContext, release) }
+                        }
+                    }) { Text(stringResource(if (canInstall) R.string.update_now else R.string.update_allow)) }
                 }
             }
         }

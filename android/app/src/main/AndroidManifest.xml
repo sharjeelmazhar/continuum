@@ -13,6 +13,8 @@
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- In-app updates from GitHub Releases (update/Updater.kt); Android asks the user once. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
@@ -112,6 +114,10 @@
             android:name=".service.ContinuumService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <receiver
+            android:name=".update.InstallResultReceiver"
+            android:exported="false" />
 
         <receiver
             android:name=".service.BootReceiver"

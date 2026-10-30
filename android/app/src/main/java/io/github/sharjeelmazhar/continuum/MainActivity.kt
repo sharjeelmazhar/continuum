@@ -13,6 +13,7 @@ import io.github.sharjeelmazhar.continuum.service.Link
 import io.github.sharjeelmazhar.continuum.service.LinkState
 import io.github.sharjeelmazhar.continuum.ui.App
 import io.github.sharjeelmazhar.continuum.ui.theme.ContinuumTheme
+import io.github.sharjeelmazhar.continuum.update.Updater
 
 class MainActivity : ComponentActivity() {
     /** A `continuum://pair` link opened from outside the app, waiting for the user to confirm. */
@@ -35,6 +36,8 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         resumeTick.intValue++
+        // Also covers phones that aren't paired yet (the background service only runs when paired).
+        Thread { Updater.check(applicationContext) }.start()
         // Opening the app retries at once (e.g. after granting a permission in Settings).
         if (PairedStore(this).load() != null) ContinuumService.start(this)
     }

@@ -3,6 +3,7 @@ package io.github.sharjeelmazhar.continuum.proto
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import kotlinx.serialization.json.jsonObject
 import org.junit.Test
 
 class ClipTest {
@@ -60,5 +61,34 @@ class SafeNameTest {
         assertEquals("file", f.safeName(".."))
         assertEquals("ab", f.safeName("a\u0000b"))
         assertEquals(true, f.safeName("é".repeat(300)).toByteArray().size in 250..255)
+    }
+}
+
+class UpdaterTest {
+    @Test
+    fun versionsCompareNumerically() {
+        val u = io.github.sharjeelmazhar.continuum.update.Updater
+        assertEquals(true, u.isNewer("0.10.0", "0.9.3"))
+        assertEquals(true, u.isNewer("0.4.2", "0.4.1"))
+        assertEquals(true, u.isNewer("1.0", "0.99.99"))
+        assertEquals(false, u.isNewer("0.4.1", "0.4.1"))
+        assertEquals(false, u.isNewer("0.4.0", "0.4.1"))
+        assertEquals(false, u.isNewer("garbage", "0.4.1"))
+    }
+}
+
+class ReleaseParseTest {
+    private fun release(tag: String, draft: Boolean = false, apk: Boolean = true) = kotlinx.serialization.json.Json.parseToJsonElement(
+        """{"tag_name":"$tag","draft":$draft,"body":"notes","assets":[""" +
+            (if (apk) """{"name":"Continuum-x.apk","size":5,"browser_download_url":"https://x/a.apk"},""" else "") +
+            """{"name":"Continuum-x.apk.sha256","browser_download_url":"https://x/a.sha256"}]}""",
+    ).jsonObject
+
+    @Test
+    fun picksPublishedReleasesWithApk() {
+        val u = io.github.sharjeelmazhar.continuum.update.Updater
+        assertEquals("0.4.1", u.parse(release("v0.4.1"))!!.version)
+        assertNull(u.parse(release("v0.5.0", draft = true)))
+        assertNull(u.parse(release("v0.5.0", apk = false)))
     }
 }

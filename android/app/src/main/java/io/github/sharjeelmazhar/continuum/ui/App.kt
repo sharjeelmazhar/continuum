@@ -126,6 +126,7 @@ private fun HomeScreen(state: LinkState, exempt: Boolean, resumeTick: Int, onSca
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            UpdateCard(resumeTick)
             when (state) {
                 is LinkState.Unpaired -> Welcome(state.error, onScan)
                 is LinkState.Pairing -> Busy(stringResource(R.string.pairing_with, state.computer))
