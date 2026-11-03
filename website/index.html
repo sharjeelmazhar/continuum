@@ -178,8 +178,8 @@
     <div class="steps">
       <div class="card">
         <h3>Install on your PC</h3>
-        <p>Ubuntu 24.04 or newer with GNOME (other desktops work too). Paste this into a terminal:</p>
-        <pre id="install-cmd">curl -L https://github.com/sharjeelmazhar/continuum/releases → download Continuum-desktop-…-x86_64.tar.gz, unpack it, then run ./install.sh</pre>
+        <p>Ubuntu, Fedora, Arch and their relatives, with GNOME. Paste this into a terminal. Updates then arrive with your system's own updates.</p>
+        <pre id="install-cmd">curl -fsSL https://sharjeelmazhar.github.io/continuum/install.sh | sh</pre>
       </div>
       <div class="card">
         <h3>Install on your phone</h3>
@@ -230,17 +230,12 @@
       const rel = list.find(r => !r.draft);
       if (!rel) return;
       const asset = re => rel.assets.find(a => re.test(a.name));
-      const apk = asset(/\.apk$/), desk = asset(/^Continuum-desktop-.*\.tar\.gz$/);
+      const apk = asset(/\.apk$/);
       const v = rel.tag_name.replace(/^v/, '');
       if (apk) for (const id of ['dl-apk', 'dl-apk-2']) document.getElementById(id).href = apk.browser_download_url;
       const date = new Date(rel.published_at).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
       document.getElementById('release-meta').textContent =
         `Version ${v} · ${date}` + (apk ? ` · ${(apk.size / 1e6).toFixed(1)} MB` : '') + ' · Free and open source';
-      if (desk) {
-        const dir = desk.name.replace(/-x86_64\.tar\.gz$/, '');
-        document.getElementById('install-cmd').textContent =
-          `curl -L ${desk.browser_download_url} | tar xz && ./${dir}/install.sh`;
-      }
     })
     .catch(() => {});
 </script>

@@ -7,7 +7,7 @@
   notifications with quick reply, phone storage, ring, files-to-clipboard, GNOME Quick Settings
   tile), website on GitHub Pages (`website/`, `.github/workflows/pages.yml`), prebuilt desktop
   bundle in releases.
-- **Distro test (resumable):** `VM_DIR=/data2/vms KEEP=1 scripts/test-distros.sh` (fedora, arch, ubuntu GNOME VMs; reruns skip finished steps; results in /data2/vms/continuum-test/<distro>/result.txt).
+- **Distro test (resumable):** serve a local site first (`/data2/vms/continuum-test/site`, built with packaging/build-packages.sh + build-repos.sh + website/install.sh; `python3 -m http.server 8000 --bind 192.168.122.1 -d /data2/vms/continuum-test/site`), then `VM_DIR=/data2/vms KEEP=1 SITE=http://192.168.122.1:8000 scripts/test-distros.sh`; after release, without SITE (fedora, arch, ubuntu GNOME VMs; reruns skip finished steps; results in /data2/vms/continuum-test/<distro>/result.txt).
 - **Next task:** measure v0.5.2 raw downloads on a fast phone (S24 Ultra got 57 MB/s PC->phone,
   36 MB/s phone->PC with the old base64 path); check the model-code table in
   continuum-ui/src/models.rs against real devices. Then, in order of value:

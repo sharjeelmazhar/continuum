@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   android:
@@ -59,7 +60,7 @@ jobs:
             "$RUNNER_TEMP/Continuum-${{ steps.ver.outputs.name }}.apk" \
             "$RUNNER_TEMP/Continuum-${{ steps.ver.outputs.name }}.apk.sha256"
 
-  # Prebuilt desktop bundle (Ubuntu 24.04 or newer, x86_64): unpack, run ./install.sh.
+  # Prebuilt desktop bundle (Ubuntu 24.04 or newer, x86_64) and the deb, rpm and Arch packages.
   desktop:
     needs: android
     runs-on: ubuntu-24.04
@@ -68,7 +69,7 @@ jobs:
       - name: Build
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libgtk-4-dev libadwaita-1-dev libdbus-1-dev libgstreamer1.0-dev pkg-config
+          sudo apt-get install -y -qq libgtk-4-dev libadwaita-1-dev libdbus-1-dev libgstreamer1.0-dev pkg-config rpm
           cd desktop && cargo build --release --locked -p continuumd -p continuum-ui
       - name: Bundle and upload
         env:
@@ -85,3 +86,11 @@ jobs:
           tar czf "$d-x86_64.tar.gz" "$d"
           sha256sum "$d-x86_64.tar.gz" > "$d-x86_64.tar.gz.sha256"
           gh release upload "$GITHUB_REF_NAME" "$d-x86_64.tar.gz" "$d-x86_64.tar.gz.sha256"
+      # Packages for the apt, dnf and pacman repositories (published by the Website workflow).
+      - name: Packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          packaging/build-packages.sh "${GITHUB_REF_NAME#v}" desktop/target/release pkgs
+          gh release upload "$GITHUB_REF_NAME" pkgs/*
+          gh workflow run pages.yml --ref main

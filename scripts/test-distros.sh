@@ -1,12 +1,13 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Installs the published Continuum desktop bundle on fresh GNOME VMs (KVM/libvirt), the way a
+# Installs Continuum with its one-line installer on fresh GNOME VMs (KVM/libvirt), the way a
 # new user would, and checks that it works: the binaries load, the service runs, the D-Bus API
 # answers, the GNOME extension is installed, in-app video works and the app window opens.
 #
 #   scripts/test-distros.sh [fedora|arch|ubuntu ...]     # default: all three
 #   VM_DIR=/big/disk scripts/test-distros.sh fedora      # where images go (default ~/vms)
 #   KEEP=1 ...                                           # leave the VMs running afterwards
+#   SITE=http://192.168.122.1:8000 ...                   # test a local build of the website
 #
 # Resumable (power cuts): each finished step leaves a marker in $VM_DIR/<distro>/, so a rerun
 # skips it; a download cut off half-way is redone. Results: $VM_DIR/<distro>/result.txt and a
@@ -15,7 +16,8 @@
 set -u
 CONN=qemu:///system
 VM_DIR=${VM_DIR:-$HOME/vms}/continuum-test
-RELEASES=https://api.github.com/repos/sharjeelmazhar/continuum/releases
+# Where install.sh and the package repositories are (a local copy can be served for testing).
+SITE=${SITE:-https://sharjeelmazhar.github.io/continuum}
 mkdir -p "$VM_DIR"
 chmod o+x "$VM_DIR" "$(dirname "$VM_DIR")" 2>/dev/null # libvirt's qemu user must reach the disks
 KEY=$VM_DIR/ssh_key
@@ -110,27 +112,26 @@ boot() { # $1=distro: create (once) and start the VM, wait for GNOME to be insta
 
 check() { # $1=distro: install like a user and record what works
   local d=$1 dir=$VM_DIR/$1 out
-  echo "[$d] installing Continuum from the latest GitHub release"
-  out=$(ssh_vm "$d" bash -s "$RELEASES" <<'EOF'
+  echo "[$d] installing Continuum with the one-line installer from $SITE"
+  out=$(ssh_vm "$d" bash -s "$SITE" <<'EOF'
 set -u
-url=$(curl -fsSL "$1" | grep -o 'https://[^"]*Continuum-desktop-[^"]*x86_64.tar.gz' | head -1)
-echo "bundle: ${url##*/}"
-cd ~ && curl -fsSL "$url" | tar xz && dir=$(ls -d Continuum-desktop-*/ | tail -1)
 export XDG_RUNTIME_DIR=/run/user/$(id -u) DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus WAYLAND_DISPLAY=wayland-0
-yes | ./"$dir"install.sh >/tmp/install.log 2>&1 && echo "install: ok" || { echo "install: FAILED"; tail -5 /tmp/install.log; }
+curl -fsSL "$1/install.sh" | CONTINUUM_SITE="$1" sh >/tmp/install.log 2>&1 && echo "install: ok" || { echo "install: FAILED"; tail -8 /tmp/install.log; }
+echo "package: $( (dpkg-query -W -f '${Version}' continuum || rpm -q continuum || pacman -Q continuum) 2>/dev/null | tail -1)"
 sleep 3
 for b in continuumd continuum-ui; do
-  missing=$(ldd ~/.local/bin/$b 2>/dev/null | grep -c "not found")
-  [ "$missing" = 0 ] && echo "$b libraries: ok" || echo "$b libraries: MISSING $(ldd ~/.local/bin/$b | grep 'not found' | tr -s ' ' | tr '\n' ';')"
+  missing=$(ldd /usr/bin/$b 2>/dev/null | grep -c "not found")
+  [ "$missing" = 0 ] && echo "$b libraries: ok" || echo "$b libraries: MISSING $(ldd /usr/bin/$b | grep 'not found' | tr -s ' ' | tr '\n' ';')"
 done
-echo "daemon version: $(~/.local/bin/continuumd --version 2>&1)"
+echo "daemon version: $(/usr/bin/continuumd --version 2>&1)"
 echo "service: $(systemctl --user is-active continuumd)"
+echo "restart after update: $(systemctl --user is-active continuumd-update.path)"
 gdbus call --session -d io.github.sharjeelmazhar.Continuum.Daemon -o /io/github/sharjeelmazhar/Continuum/Daemon \
   -m io.github.sharjeelmazhar.Continuum.Daemon1.ListDevices >/dev/null 2>&1 && echo "d-bus api: ok" || echo "d-bus api: FAILED"
 gnome-extensions list 2>/dev/null | grep -q continuum@ && echo "gnome extension: installed" || echo "gnome extension: MISSING"
 gst-inspect-1.0 gtk4paintablesink >/dev/null 2>&1 && echo "in-app video: ok" || echo "in-app video: no gtk4paintablesink (videos open in the video player)"
 echo "gnome shell: $(gnome-shell --version 2>/dev/null)"
-(setsid ~/.local/bin/continuum-ui >/tmp/ui.log 2>&1 &) ; sleep 6
+(setsid /usr/bin/continuum-ui >/tmp/ui.log 2>&1 &) ; sleep 6
 pgrep -x continuum-ui >/dev/null && echo "app window: running" || { echo "app window: CRASHED"; tail -5 /tmp/ui.log; }
 EOF
 )

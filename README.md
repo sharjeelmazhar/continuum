@@ -10,9 +10,12 @@ It's fast, private (everything stays on your LAN, end-to-end encrypted) and desi
 > See [PROGRESS.md](PROGRESS.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Try it
-1. **Computer** (any Linux distro with GNOME, for now from source):
-   `git clone https://github.com/sharjeelmazhar/continuum && cd continuum && scripts/setup-dev.sh --no-avd && scripts/install-desktop.sh`
-   This installs the app and a background service that starts at login.
+1. **Computer** (Ubuntu, Debian, Fedora, Arch and their relatives, with GNOME):
+   `curl -fsSL https://sharjeelmazhar.github.io/continuum/install.sh | sh`
+   This adds Continuum's signed package repository and installs the app and a background
+   service that starts at login. New versions then arrive with the system's own updates
+   (`sudo apt upgrade`, `sudo dnf upgrade`, `sudo pacman -Syu`, or GNOME Software).
+   From source instead: `scripts/setup-dev.sh --no-avd && scripts/install-desktop.sh`.
 2. **Phone:** download the APK from [Releases](https://github.com/sharjeelmazhar/continuum/releases) and install it.
 3. Open **Continuum** on the computer, click **Pair a Phone**, and scan the code with the app.
 

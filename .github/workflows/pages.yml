@@ -1,4 +1,6 @@
-# Publishes website/ to https://sharjeelmazhar.github.io/continuum/ on every push that changes it.
+# Publishes website/ to https://sharjeelmazhar.github.io/continuum/ on every push that changes it,
+# together with signed apt, dnf and pacman repositories holding the newest release's packages
+# (the Release workflow starts this one after uploading them).
 name: Website
 
 on:
@@ -9,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
@@ -25,8 +28,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      - name: Website and package repositories
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO_GPG_KEY: ${{ secrets.REPO_GPG_KEY }}
+        run: |
+          mkdir -p _site && cp -r website/. _site/
+          tag=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
+          gh release download "$tag" -D pkgs -p '*.deb' -p '*.rpm' -p '*.pkg.tar.zst' || true
+          if ls pkgs/*.deb >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq dpkg-dev createrepo-c rpm
+            export GNUPGHOME=$(mktemp -d)
+            echo "$REPO_GPG_KEY" | gpg --batch --import
+            packaging/build-repos.sh pkgs _site
+            rm -rf "$GNUPGHOME"
+          fi
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: website
+          path: _site
       - id: deployment
         uses: actions/deploy-pages@v4
