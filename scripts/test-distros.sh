@@ -128,8 +128,13 @@ echo "service: $(systemctl --user is-active continuumd)"
 echo "restart after update: $(systemctl --user is-active continuumd-update.path)"
 gdbus call --session -d io.github.sharjeelmazhar.Continuum.Daemon -o /io/github/sharjeelmazhar/Continuum/Daemon \
   -m io.github.sharjeelmazhar.Continuum.Daemon1.ListDevices >/dev/null 2>&1 && echo "d-bus api: ok" || echo "d-bus api: FAILED"
-gnome-extensions list 2>/dev/null | grep -q continuum@ && echo "gnome extension: installed" || echo "gnome extension: MISSING"
-gst-inspect-1.0 gtk4paintablesink >/dev/null 2>&1 && echo "in-app video: ok" || echo "in-app video: no gtk4paintablesink (videos open in the video player)"
+# GNOME only loads a newly installed extension at the next login: check it's there and enabled.
+[ -f /usr/share/gnome-shell/extensions/continuum@sharjeelmazhar.github.io/extension.js ] &&
+  gsettings get org.gnome.shell enabled-extensions | grep -q continuum@ &&
+  echo "gnome extension: installed, enabled ($(gnome-extensions info continuum@sharjeelmazhar.github.io 2>/dev/null | sed -n 's/.*State: //p' | grep . || echo "active after next login"))" ||
+  echo "gnome extension: MISSING"
+ls /usr/lib*/gstreamer-1.0/libgstgtk4.so /usr/lib/*/gstreamer-1.0/libgstgtk4.so >/dev/null 2>&1 &&
+  echo "in-app video: ok" || echo "in-app video: no gtk4paintablesink (videos open in the video player)"
 echo "gnome shell: $(gnome-shell --version 2>/dev/null)"
 (setsid /usr/bin/continuum-ui >/tmp/ui.log 2>&1 &) ; sleep 6
 pgrep -x continuum-ui >/dev/null && echo "app window: running" || { echo "app window: CRASHED"; tail -5 /tmp/ui.log; }
