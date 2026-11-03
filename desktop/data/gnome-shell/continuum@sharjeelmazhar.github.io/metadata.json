@@ -2,7 +2,7 @@
   "uuid": "continuum@sharjeelmazhar.github.io",
   "name": "Continuum",
   "description": "Your Android phone in Quick Settings: battery, ring, messages, photos and files. Needs the Continuum app.",
-  "shell-version": ["46", "47", "48", "49", "50"],
+  "shell-version": ["46", "47", "48", "49", "50", "51"],
   "url": "https://github.com/sharjeelmazhar/continuum",
   "version": 1
 }
