@@ -1,5 +1,5 @@
 //! A drawn battery like the iPhone's: the fill follows the level, red when low, green with a
-//! bolt while charging (two bolts on a fast charger).
+//! bolt while charging.
 
 use std::cell::Cell;
 use std::f64::consts::PI;
@@ -9,7 +9,7 @@ use gtk::prelude::*;
 
 const W: i32 = 34;
 /// Taller than the battery itself, so the bolt can stand out above and below it.
-const H: i32 = 24;
+const H: i32 = 19;
 /// The battery body's height inside that.
 const BODY_H: f64 = 15.0;
 
@@ -18,7 +18,6 @@ const BODY_H: f64 = 15.0;
 pub struct Battery {
     pub widget: gtk::DrawingArea,
     state: Rc<Cell<(i32, bool)>>,
-    fast: Rc<Cell<bool>>,
 }
 
 fn rounded(cr: &gtk::cairo::Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
@@ -38,26 +37,18 @@ impl Battery {
             .valign(gtk::Align::Center)
             .build();
         let state = Rc::new(Cell::new((-1, false)));
-        let fast = Rc::new(Cell::new(false));
-        let (s, f) = (state.clone(), fast.clone());
+        let s = state.clone();
         widget.set_draw_func(move |area, cr, w, h| {
             let (level, charging) = s.get();
             let fg = area.color();
             let fg = (fg.red() as f64, fg.green() as f64, fg.blue() as f64);
-            paint(cr, w, h, level, charging, f.get(), fg);
+            paint(cr, w, h, level, charging, fg);
         });
-        Self {
-            widget,
-            state,
-            fast,
-        }
+        Self { widget, state }
     }
 
     pub fn set(&self, level: i32, charging: bool) {
         self.state.set((level, charging));
-        if !charging {
-            self.fast.set(false);
-        }
         self.widget.set_visible(level >= 0);
         self.widget.queue_draw();
         self.widget
@@ -67,8 +58,6 @@ impl Battery {
     /// Charging power, charger speed and time to full, when the phone reports them.
     pub fn set_details(&self, watts: u16, fast: bool, full_in: i32) {
         let (level, charging) = self.state.get();
-        self.fast.set(charging && fast);
-        self.widget.queue_draw();
         self.widget
             .set_tooltip_text(Some(&tooltip(level, charging, watts, fast, full_in)));
     }
@@ -81,7 +70,6 @@ fn paint(
     h: i32,
     level: i32,
     charging: bool,
-    fast: bool,
     fg: (f64, f64, f64),
 ) {
     let (fr, fgc, fb) = fg;
@@ -110,16 +98,8 @@ fn paint(
     rounded(cr, 2.2, top + 2.2, width, h - 4.4, 2.0);
     let _ = cr.fill();
     if charging {
-        // Big bolts that reach past the battery's edges: one on a normal charger, two on
-        // a fast one.
-        let (cx, cy) = (body_w / 2.0, full_h / 2.0);
-        let edge = (fr, fgc, fb);
-        if fast {
-            bolt(cr, cx - 5.5, cy, full_h - 2.0, edge);
-            bolt(cr, cx + 5.5, cy, full_h - 2.0, edge);
-        } else {
-            bolt(cr, cx, cy, full_h - 1.0, edge);
-        }
+        // A bolt that pokes just past the battery's top and bottom edges.
+        bolt(cr, body_w / 2.0, full_h / 2.0, full_h - 1.0, (fr, fgc, fb));
     }
 }
 
@@ -211,11 +191,11 @@ mod tests {
                 cr.set_source_rgb(bg, bg, bg);
                 cr.rectangle(0.0, (row as i32 * ch) as f64, iw as f64, ch as f64);
                 let _ = cr.fill();
-                for (i, (level, charging, fast)) in states.into_iter().enumerate() {
+                for (i, (level, charging, _)) in states.into_iter().enumerate() {
                     cr.save().unwrap();
                     cr.translate((i as i32 * cw + 20) as f64, (row as i32 * ch + 20) as f64);
                     cr.scale(S as f64, S as f64);
-                    paint(&cr, W, H, level, charging, fast, (fg, fg, fg));
+                    paint(&cr, W, H, level, charging, (fg, fg, fg));
                     cr.restore().unwrap();
                 }
             }
