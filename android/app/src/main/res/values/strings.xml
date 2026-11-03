@@ -32,7 +32,8 @@
     <string name="status_body">The “Connected to your computer” notification. Turning it off doesn’t stop the connection or your other notifications.</string>
     <string name="status_shade">In the notification shade</string>
     <string name="status_lock">On the lock screen</string>
-    <string name="status_off_hint">Android keeps one small folded line while Continuum runs. To remove it too, switch off “Connection status (hidden)” in Android settings. Continuum stays connected.</string>
+    <string name="status_off_hint">Android still shows a small line while Continuum runs. To remove it, switch off “Connection status (hidden)” in Android settings. Continuum stays connected.</string>
+    <string name="status_fully_hidden">Hidden everywhere. Continuum stays connected in the background.</string>
     <string name="status_android_settings">Android settings</string>
     <string name="notif_connected">Connected to %1$s</string>
     <string name="notif_connecting">Connecting to %1$s…</string>

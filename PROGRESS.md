@@ -43,6 +43,7 @@
 | M11 | Hardening and release | ☐ |
 
 ## Log (newest first)
+- 3 November 2026: v0.5.1. Turning off the shade switch opens the Android channel switch directly; card shows "Hidden everywhere" once done. Real Redmi confirmed: 0.5.0 update, permissions, lock-screen switch, multi-screenshot share to clipboard.
 - 3 November 2026: v0.5.0. Phone storage browser, videos (streamed to disk, up to 4 GiB), Ring
   (alarm stream, max volume), quick reply from desktop popups, received files on the clipboard
   (gnome-copied-files, uri-list, image, paths), GNOME Quick Settings extension, Apple-style
