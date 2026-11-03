@@ -59,13 +59,17 @@ impl Ctx {
     }
 
     pub fn toast(&self, text: &str) {
-        self.toasts.add_toast(adw::Toast::new(text));
+        self.toasts.add_toast(crate::ctx::plain_toast(text));
     }
 
     /// A toast that stays until dismissed: dismiss it as soon as the work is done, so the
     /// result shows at once instead of queueing behind it.
     pub fn busy_toast(&self, text: &str) -> adw::Toast {
-        let t = adw::Toast::builder().title(text).timeout(0).build();
+        let t = adw::Toast::builder()
+            .use_markup(false)
+            .title(text)
+            .timeout(0)
+            .build();
         self.toasts.add_toast(t.clone());
         t
     }
@@ -185,7 +189,12 @@ pub fn error_page(e: &ReqError, what: &str) -> adw::StatusPage {
                 "The Continuum app on your phone is too old to show {what}. Open it and install the update."
             ),
         ),
-        ReqError::Other(msg) => status_page("dialog-warning-symbolic", "Something Went Wrong", msg),
+        // The phone's own words: shown as text, not markup.
+        ReqError::Other(msg) => status_page(
+            "dialog-warning-symbolic",
+            "Something Went Wrong",
+            &glib::markup_escape_text(msg),
+        ),
     }
 }
 
@@ -209,4 +218,9 @@ pub fn clear_box(b: &gtk::Box) {
     while let Some(c) = b.first_child() {
         b.remove(&c);
     }
+}
+
+/// A toast that shows `text` as it is: names from the phone may contain `<` or `&`.
+pub fn plain_toast(text: &str) -> adw::Toast {
+    adw::Toast::builder().use_markup(false).title(text).build()
 }

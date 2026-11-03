@@ -1,10 +1,8 @@
 package io.github.sharjeelmazhar.continuum
 
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
-import android.os.Process
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -53,9 +51,16 @@ class ShareActivity : ComponentActivity() {
         finish()
     }
 
-    private fun canRead(uri: Uri): Boolean = when (uri.scheme) {
-        "content" -> checkUriPermission(uri, Process.myPid(), Process.myUid(), Intent.FLAG_GRANT_READ_URI_PERMISSION) ==
-            PackageManager.PERMISSION_GRANTED || runCatching { contentResolver.openAssetFileDescriptor(uri, "r")?.close() }.isSuccess
-        else -> false // file:// links are not allowed between apps.
+    /**
+     * Only items the sharing app handed over with a read grant. Android checks that app may read them
+     * before it starts us, so another app can't use Continuum's own photo or contacts access to send
+     * the computer something it can't read itself.
+     */
+    private fun canRead(uri: Uri): Boolean {
+        if (uri.scheme != "content") return false // file:// links are not allowed between apps.
+        if (intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0) return false
+        val clip = intent.clipData ?: return false
+        if ((0 until clip.itemCount).none { clip.getItemAt(it).uri == uri }) return false
+        return runCatching { contentResolver.openAssetFileDescriptor(uri, "r")?.close() }.isSuccess
     }
 }

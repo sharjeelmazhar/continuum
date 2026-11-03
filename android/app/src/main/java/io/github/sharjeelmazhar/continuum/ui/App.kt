@@ -28,7 +28,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
+import io.github.sharjeelmazhar.continuum.data.PairedStore
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -140,14 +144,31 @@ fun App(externalLink: MutableState<String?>, resumeTick: Int) {
 
     // Links from outside the app (browser, system camera) must be confirmed: a web page must
     // not be able to pair this phone with someone else's computer.
-    externalLink.value?.let { link ->
-        val uri = PairUri.parse(link)
+    externalLink.value?.let { raw ->
+        // Only home-network addresses: a web page can't point the phone at an internet host.
+        val link = PairUri.localOnly(raw)
+        val uri = link?.let(PairUri::parse)
+        val current = remember(raw) { PairedStore(context).load() }
         AlertDialog(
             onDismissRequest = { externalLink.value = null },
             title = { Text(if (uri != null) stringResource(R.string.confirm_pair_title, uri.name.ifEmpty { "this computer" }) else stringResource(R.string.bad_link_title)) },
-            text = { Text(stringResource(if (uri != null) R.string.confirm_pair_body else R.string.bad_link_body)) },
+            text = {
+                if (uri == null) {
+                    Text(stringResource(R.string.bad_link_body))
+                } else {
+                    Column {
+                        Text(stringResource(R.string.confirm_pair_body))
+                        Text(stringResource(R.string.confirm_pair_address, uri.hosts.joinToString(", ")),
+                            Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall)
+                        if (current != null) {
+                            Text(stringResource(R.string.confirm_pair_replaces, current.name),
+                                Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            },
             confirmButton = {
-                if (uri != null) {
+                if (link != null && uri != null) {
                     TextButton(onClick = { externalLink.value = null; pair(link) }) { Text(stringResource(R.string.pair)) }
                 }
             },

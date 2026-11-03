@@ -82,7 +82,11 @@ impl Assembler {
     pub fn push(&mut self, p: ClipboardPart) -> Option<Content> {
         let size = usize::try_from(p.size).ok()?;
         let expected_parts = size.div_ceil(PART_BYTES) as u32;
-        let ok_header = size > 0 && size <= MAX_BYTES && p.parts == expected_parts;
+        // Header first: the arithmetic below is only safe for 0 <= part < parts.
+        if size == 0 || size > MAX_BYTES || p.parts != expected_parts || p.part >= p.parts {
+            self.current = None;
+            return None;
+        }
         let Ok(bytes) = STANDARD.decode(&p.data) else {
             self.current = None;
             return None;
@@ -92,7 +96,7 @@ impl Assembler {
         } else {
             PART_BYTES
         };
-        if !ok_header || p.part >= p.parts || bytes.len() != want {
+        if bytes.len() != want {
             self.current = None;
             return None;
         }
@@ -189,6 +193,13 @@ mod tests {
         big.size = MAX_BYTES as u64 + 1;
         big.parts = big.size.div_ceil(PART_BYTES as u64) as u32;
         assert!(a.push(big).is_none());
+        // Part numbers that would overflow (or underflow) the length arithmetic.
+        let mut last = parts[0].clone();
+        last.part = u32::MAX;
+        assert!(a.push(last).is_none());
+        let mut none = parts[0].clone();
+        none.parts = 0;
+        assert!(a.push(none).is_none());
         // Mixed ids.
         assert!(a.push(parts[0].clone()).is_none());
         let mut other = parts[1].clone();

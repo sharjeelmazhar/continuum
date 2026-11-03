@@ -96,12 +96,22 @@ systemctl --user daemon-reload
 systemctl --user enable continuumd.service >/dev/null
 systemctl --user restart continuumd.service
 
+# Only home and office networks (private, link-local, CGNAT/Tailscale ranges), never public ones.
+LOCAL_NETS="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 fe80::/10 fc00::/7"
 if command -v ufw >/dev/null && sudo -n ufw status 2>/dev/null | grep -q "Status: active"; then
-  echo "==> Opening port $PORT in the firewall (ufw)"
-  sudo -n ufw allow "$PORT/tcp" comment Continuum >/dev/null
+  echo "==> Opening port $PORT to local networks in the firewall (ufw)"
+  sudo -n ufw delete allow "$PORT/tcp" >/dev/null 2>&1 || true # the open-to-all rule of older versions
+  for net in $LOCAL_NETS; do
+    sudo -n ufw allow proto tcp from "$net" to any port "$PORT" comment Continuum >/dev/null
+  done
 elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
-  echo "==> Opening port $PORT in the firewall (firewalld)"
-  sudo -n firewall-cmd --add-port="$PORT/tcp" --permanent >/dev/null && sudo -n firewall-cmd --reload >/dev/null
+  echo "==> Opening port $PORT to local networks in the firewall (firewalld)"
+  sudo -n firewall-cmd --permanent --remove-port="$PORT/tcp" >/dev/null 2>&1 || true
+  for net in $LOCAL_NETS; do
+    case $net in *:*) fam=ipv6 ;; *) fam=ipv4 ;; esac
+    sudo -n firewall-cmd --permanent --add-rich-rule="rule family=$fam source address=$net port port=$PORT protocol=tcp accept" >/dev/null
+  done
+  sudo -n firewall-cmd --reload >/dev/null
 fi
 
 case ":$PATH:" in *":$BIN:"*) ;; *) echo "note: $BIN is not on your PATH; the app menu entry works anyway." ;; esac

@@ -70,6 +70,32 @@ data class PairUri(
             return PairUri(hosts, port, fp, secret, name)
         }
 
+        /**
+         * A link from outside the app (web page, other app) keeps only addresses on a home or office
+         * network, so a page can't pair the phone with a computer somewhere on the internet.
+         */
+        fun localOnly(uri: String): String? {
+            val hosts = parse(uri)?.hosts?.filter(::isLocalAddress)?.takeIf { it.isNotEmpty() } ?: return null
+            val params = uri.removePrefix(PREFIX).split('&')
+                .map { if (it.startsWith("h=")) "h=" + hosts.joinToString(",") else it }
+            return PREFIX + params.joinToString("&")
+        }
+
+        /** Private, link-local or carrier-grade NAT IPv4; link-local or unique-local IPv6; mDNS names. */
+        fun isLocalAddress(host: String): Boolean {
+            val h = host.lowercase().removePrefix("[").removeSuffix("]")
+            if (h.endsWith(".local")) return true
+            val v4 = h.split('.').takeIf { it.size == 4 }?.map { it.toIntOrNull()?.takeIf { n -> n in 0..255 } ?: return false }
+            if (v4 != null) {
+                val (a, b) = v4
+                return a == 10 || a == 172 && b in 16..31 || a == 192 && b == 168 || a == 169 && b == 254 ||
+                    a == 100 && b in 64..127
+            }
+            if (':' !in h) return false
+            return h.startsWith("fe8") || h.startsWith("fe9") || h.startsWith("fea") || h.startsWith("feb") ||
+                h.startsWith("fc") || h.startsWith("fd")
+        }
+
         private fun percentDecode(s: String): String? {
             val out = ByteArrayOutputStream()
             var i = 0

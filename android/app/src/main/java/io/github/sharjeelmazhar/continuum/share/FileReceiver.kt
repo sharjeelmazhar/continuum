@@ -63,7 +63,9 @@ class FileReceiver(private val context: Context) {
             val p = load(offer.transferId, i)
             if (p != null && p.size == f.size && exists(Uri.parse(p.uri))) p.offset.coerceIn(0, f.size) else 0L
         }
-        val remaining = offer.files.zip(offsets).sumOf { (f, o) -> f.size - o }
+        // Checked: a hostile offer of huge sizes must not wrap round to a small (or negative) total.
+        val remaining = runCatching { offer.files.zip(offsets).fold(0L) { sum, (f, o) -> Math.addExact(sum, f.size - o) } }
+            .getOrElse { return Result.failure(IOException("these files are too large")) }
         val free = runCatching { StatFs(Environment.getExternalStorageDirectory().path).availableBytes }.getOrDefault(Long.MAX_VALUE)
         if (free < remaining + RESERVE) return Result.failure(IOException("not enough free space on the phone"))
         return Result.success(offsets)

@@ -64,6 +64,21 @@ class ProtocolTest {
     }
 
     @Test
+    fun outsideLinksKeepOnlyHomeNetworkAddresses() {
+        val good = str("uri", "text")
+        val hosts = PairUri.parse(good)!!.hosts.joinToString(",")
+        val mixed = good.replace("h=$hosts", "h=203.0.113.5,192.168.1.20,fe80::1,8.8.8.8,my-pc.local")
+        assertEquals(listOf("192.168.1.20", "fe80::1", "my-pc.local"), PairUri.parse(PairUri.localOnly(mixed)!!)!!.hosts)
+        assertNull(PairUri.localOnly(good.replace("h=$hosts", "h=203.0.113.5,2001:db8::1")))
+        listOf("10.0.0.2", "172.16.0.1", "172.31.9.9", "100.64.1.1", "169.254.3.3", "fd12::5").forEach {
+            assertEquals(it, true, PairUri.isLocalAddress(it))
+        }
+        listOf("172.32.0.1", "100.128.0.1", "11.0.0.1", "192.169.0.1", "2001:db8::1", "example.com", "1.2.3").forEach {
+            assertEquals(it, false, PairUri.isLocalAddress(it))
+        }
+    }
+
+    @Test
     fun frameMatchesVector() {
         val env = WireJson.decodeFromString(Envelope.serializer(), str("frame", "json"))
         assertEquals(str("frame", "hex"), Crypto.hex(Frame.encode(env)))

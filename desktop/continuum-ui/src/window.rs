@@ -733,7 +733,7 @@ async fn start(ui: Rc<Ui>) {
                     dialog.close();
                 }
                 ui.toasts
-                    .add_toast(adw::Toast::new(&format!("Paired with {name}")));
+                    .add_toast(crate::ctx::plain_toast(&format!("Paired with {name}")));
             }
         });
     }
@@ -990,6 +990,7 @@ fn ring_phone(ui: &Rc<Ui>) {
             return;
         }
         let toast = adw::Toast::builder()
+            .use_markup(false)
             .title(format!("Ringing {}…", d.name))
             .button_label("Stop")
             .timeout(0)
@@ -1110,7 +1111,7 @@ async fn send_paths(ui: &Rc<Ui>, id: &str, name: &str, paths: Vec<String>) {
         Err(zbus::Error::MethodError(_, Some(msg), _)) => format!("Couldn't send: {msg}"),
         Err(e) => format!("Couldn't send: {e}"),
     };
-    ui.toasts.add_toast(adw::Toast::new(&text));
+    ui.toasts.add_toast(crate::ctx::plain_toast(&text));
 }
 
 fn confirm_unpair(ui: &Rc<Ui>, id: &str, name: &str) {
@@ -1133,7 +1134,7 @@ fn confirm_unpair(ui: &Rc<Ui>, id: &str, name: &str) {
             if let Some(p) = proxy(&ui)
                 && let Err(e) = p.unpair(&id).await
             {
-                ui.toasts.add_toast(adw::Toast::new(&format!(
+                ui.toasts.add_toast(crate::ctx::plain_toast(&format!(
                     "Could not remove the device: {e}"
                 )));
             }

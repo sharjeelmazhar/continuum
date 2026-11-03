@@ -142,12 +142,15 @@ impl Transfers {
         let offsets: Vec<u64> = (0..offer.files.len())
             .map(|i| self.resume_offset(&offer.transfer_id, i, offer.files[i].size))
             .collect();
-        let remaining: u64 = offer
+        // Checked: a hostile offer like [u64::MAX, 2] must not wrap round to a small number.
+        let remaining = offer
             .files
             .iter()
             .zip(&offsets)
-            .map(|(f, o)| f.size - o)
-            .sum();
+            .try_fold(0u64, |sum, (f, o)| {
+                sum.checked_add(f.size.saturating_sub(*o))
+            })
+            .ok_or("these files are too large")?;
         if let Ok(st) = rustix::fs::statvfs(&partial)
             && st.f_bavail.saturating_mul(st.f_frsize) < remaining.saturating_add(DISK_RESERVE)
         {
@@ -416,4 +419,30 @@ impl Drop for ActiveGuard<'_> {
 fn checkpoint(meta: &Path, size: u64, offset: u64) -> Result<(), String> {
     let json = serde_json::to_vec(&PartMeta { size, offset }).map_err(|e| e.to_string())?;
     write_atomic(meta, &json).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use continuum_proto::message::FileMeta;
+
+    #[test]
+    fn sizes_that_add_past_u64_are_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Transfers::new(dir.path().to_owned());
+        let file = |size| FileMeta {
+            name: "a.bin".into(),
+            size,
+            mime: String::new(),
+        };
+        let offer = ShareOffer {
+            transfer_id: "ab".repeat(16),
+            files: vec![file(u64::MAX), file(2)],
+        };
+        let (tx, _rx) = mpsc::channel(1);
+        assert_eq!(
+            t.prepare("d", "Phone", offer, tx).unwrap_err(),
+            "these files are too large"
+        );
+    }
 }

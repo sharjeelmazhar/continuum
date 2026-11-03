@@ -18,6 +18,8 @@
 
     <string name="confirm_pair_title">Pair with %1$s?</string>
     <string name="confirm_pair_body">Only continue if this code is shown by Continuum on your own computer, right now.</string>
+    <string name="confirm_pair_address">Computer address: %1$s</string>
+    <string name="confirm_pair_replaces">This replaces %1$s. Your phone will stop connecting to it.</string>
     <string name="bad_link_title">This link can\'t be used</string>
     <string name="bad_link_body">It isn\'t a valid Continuum pairing code. Click “Pair a Phone” on your computer to get a new one.</string>
 

@@ -362,6 +362,7 @@ fn download(
         match result {
             Ok(local) if save => {
                 let toast = adw::Toast::builder()
+                    .use_markup(false)
                     .title(format!("Saved {name} in Downloads/Continuum"))
                     .button_label("Show")
                     .build();

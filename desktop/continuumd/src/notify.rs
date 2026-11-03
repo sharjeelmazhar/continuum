@@ -379,8 +379,9 @@ impl Notifier {
             (_, title) => title.to_owned(),
         };
         let body = format!(
-            "{} · {device}\n{}",
+            "{} · {}\n{}",
             glib_escape(&n.app),
+            glib_escape(device),
             glib_escape(&n.text)
         );
         let hints = HashMap::from([("desktop-entry", Value::from(APP_ID))]);
@@ -461,7 +462,12 @@ impl Notifier {
                     .and_then(|p| p.parent())
                     .map(|d| d.display().to_string())
                     .unwrap_or_default();
-                let body = format!("From {device} · saved in {folder}");
+                // Bodies are markup: names from the phone are escaped.
+                let body = format!(
+                    "From {} · saved in {}",
+                    glib_escape(device),
+                    glib_escape(&folder)
+                );
                 let actions = ["default", "Open", "open", "Open", "show", "Show in Files"];
                 if let Some(id) = self.show(replaces, &summary, &body, &actions).await {
                     self.files
@@ -502,7 +508,7 @@ impl Notifier {
                 self.show(
                     replaces,
                     &summary,
-                    &format!("To {device} · in Downloads/Continuum"),
+                    &format!("To {} · in Downloads/Continuum", glib_escape(device)),
                     &[],
                 )
                 .await;
@@ -512,7 +518,7 @@ impl Notifier {
                 self.show(
                     replaces,
                     &format!("Couldn't send files to {device}"),
-                    reason,
+                    &glib_escape(reason),
                     &[],
                 )
                 .await;
@@ -527,7 +533,7 @@ impl Notifier {
                 self.show(
                     replaces,
                     &format!("Couldn't receive files from {device}"),
-                    reason,
+                    &glib_escape(reason),
                     &[],
                 )
                 .await;

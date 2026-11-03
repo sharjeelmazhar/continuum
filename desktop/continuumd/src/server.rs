@@ -31,15 +31,24 @@ const PAIR_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const PING_EVERY: Duration = Duration::from_secs(3);
 /// No frame for this long (pings answered, or the phone's own) means the connection is dead.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(9);
+/// Open connections at once (sessions, file and photo transfers, handshakes in progress).
+const MAX_CONNECTIONS: usize = 128;
 
 /// Accepts connections forever.
 pub async fn serve(daemon: Arc<Daemon>, listener: TcpListener) -> std::io::Result<()> {
     let config = tls::server_config(&daemon.identity).map_err(std::io::Error::other)?;
     let acceptor = TlsAcceptor::from(Arc::new(config));
+    // A flood of connections from the network can't use up memory or tasks.
+    let slots = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
     loop {
         let (tcp, addr) = listener.accept().await?;
+        let Ok(slot) = slots.clone().try_acquire_owned() else {
+            debug!("too many connections; dropped {addr}");
+            continue;
+        };
         let (daemon, acceptor) = (daemon.clone(), acceptor.clone());
         tokio::spawn(async move {
+            let _slot = slot;
             if let Err(e) = handle(daemon, acceptor, tcp, addr).await {
                 debug!("connection from {addr} ended: {e}");
             }

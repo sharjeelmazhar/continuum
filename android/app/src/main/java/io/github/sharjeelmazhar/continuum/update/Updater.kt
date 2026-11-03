@@ -197,6 +197,10 @@ object Updater {
 
     private fun open(url: String): HttpURLConnection {
         var current = URL(url)
+        // Only GitHub over HTTPS to start with (redirects then go to its download servers).
+        if (current.protocol != "https" || current.host != "github.com" && current.host != "api.github.com") {
+            throw IOException("unexpected download address")
+        }
         repeat(5) {
             val c = current.openConnection() as HttpURLConnection
             c.connectTimeout = 15_000
