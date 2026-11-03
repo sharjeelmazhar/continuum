@@ -11,12 +11,14 @@ object Protocol {
     const val DEFAULT_PORT = 47820
 
     /** Capabilities this build understands. */
-    val CAPS = listOf("battery", "share", CAP_SHARE_RECEIVE, CAP_CLIPBOARD, CAP_PHOTOS, CAP_SMS, CAP_NOTIF)
+    val CAPS = listOf("battery", "share", CAP_SHARE_RECEIVE, CAP_CLIPBOARD, CAP_PHOTOS, CAP_SMS, CAP_NOTIF, CAP_FILES, CAP_FIND)
     const val CAP_SHARE_RECEIVE = "share.receive"
     const val CAP_CLIPBOARD = "clipboard"
     const val CAP_PHOTOS = "photos"
     const val CAP_SMS = "sms"
     const val CAP_NOTIF = "notif"
+    const val CAP_FILES = "files"
+    const val CAP_FIND = "find"
 
     const val PING_INTERVAL_MS = 20_000L
 

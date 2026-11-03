@@ -8,6 +8,7 @@
 use std::collections::VecDeque;
 use std::os::fd::AsFd;
 use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -32,21 +33,46 @@ use crate::state::Daemon;
 const STEP_TIMEOUT: Duration = Duration::from_secs(2);
 const RETRY: Duration = Duration::from_secs(10);
 
+/// What we put on the desktop clipboard.
+pub enum Owned {
+    /// A text or image copied on a phone.
+    Copied(Content),
+    /// Files a phone just sent: pasted as files (file managers, browsers, chat apps), as the
+    /// newest image itself (for apps that only take images) and as their paths (terminals).
+    Files {
+        paths: Vec<PathBuf>,
+        image: Option<Content>,
+    },
+}
+
 /// Remembers the last clipboard content seen in either direction, so nothing echoes back.
 #[derive(Default)]
 pub struct ClipHub {
     last: Mutex<Option<[u8; 32]>>,
-    local: Mutex<Option<(Sender<Content>, UnixStream)>>,
+    local: Mutex<Option<(Sender<Owned>, UnixStream)>>,
 }
 
 impl ClipHub {
+    fn set(&self, o: Owned) {
+        if let Some((tx, wake)) = &*self.local.lock().unwrap_or_else(|e| e.into_inner()) {
+            let _ = tx.send(o);
+            let _ = std::io::Write::write(&mut &*wake, &[1]);
+        }
+    }
+
     /// Content copied on a phone: put it on the desktop clipboard.
     pub fn from_device(&self, c: Content) {
         *self.last.lock().unwrap_or_else(|e| e.into_inner()) = Some(c.digest());
-        if let Some((tx, wake)) = &*self.local.lock().unwrap_or_else(|e| e.into_inner()) {
-            let _ = tx.send(c);
-            let _ = std::io::Write::write(&mut &*wake, &[1]);
+        self.set(Owned::Copied(c));
+    }
+
+    /// Files received from a phone: put them on the clipboard, ready to paste anywhere.
+    pub fn files(&self, paths: Vec<PathBuf>) {
+        if paths.is_empty() {
+            return;
         }
+        let image = paths.iter().rev().find_map(|p| image_content(p));
+        self.set(Owned::Files { paths, image });
     }
 
     /// True if a desktop copy is new (not what a phone just sent us).
@@ -59,6 +85,34 @@ impl ClipHub {
         *last = Some(d);
         true
     }
+}
+
+/// The file as clipboard image content, if it's a PNG/JPEG/WebP/GIF small enough to serve.
+fn image_content(path: &std::path::Path) -> Option<Content> {
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    let mime = match ext.as_str() {
+        "png" => IMAGE_TYPES[0],
+        "jpg" | "jpeg" => IMAGE_TYPES[1],
+        "webp" => IMAGE_TYPES[2],
+        "gif" => IMAGE_TYPES[3],
+        _ => return None,
+    };
+    if std::fs::metadata(path).ok()?.len() > MAX_BYTES as u64 {
+        return None;
+    }
+    let data = std::fs::read(path).ok()?;
+    Some(Content {
+        mime: mime.to_owned(),
+        data,
+    })
+}
+
+/// `text/uri-list`: one `file://` URI per line, CRLF-terminated (RFC 2483).
+fn uri_list(paths: &[PathBuf]) -> String {
+    paths
+        .iter()
+        .map(|p| crate::notify::file_uri(p) + "\r\n")
+        .collect()
 }
 
 /// Starts watching the desktop clipboard on a background thread.
@@ -122,6 +176,7 @@ x11rb::atom_manager! {
         IMAGE_GIF: b"image/gif",
         PASSWORD_HINT: b"x-kde-passwordManagerHint",
         GNOME_FILES: b"x-special/gnome-copied-files",
+        URI_LIST: b"text/uri-list",
     }
 }
 
@@ -170,10 +225,10 @@ impl X11 {
     fn run(
         mut self,
         daemon: &Daemon,
-        incoming: &Receiver<Content>,
+        incoming: &Receiver<Owned>,
         wake: &UnixStream,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut owned: Option<Content> = None;
+        let mut owned: Option<Owned> = None;
         // Anything the phone sent while we were disconnected is stale now.
         while incoming.try_recv().is_ok() {}
         loop {
@@ -195,7 +250,7 @@ impl X11 {
             while let Ok(c) = incoming.try_recv() {
                 self.conn
                     .set_selection_owner(self.win, self.atoms.CLIPBOARD, CURRENT_TIME)?;
-                debug!("clipboard set from phone ({})", c.mime);
+                debug!("clipboard set from phone");
                 owned = Some(c);
             }
             self.conn.flush()?;
@@ -330,7 +385,7 @@ impl X11 {
     /// Answers another program that pastes what a phone sent.
     fn serve(
         &self,
-        owned: Option<&Content>,
+        owned: Option<&Owned>,
         e: &SelectionRequestEvent,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let a = &self.atoms;
@@ -340,32 +395,44 @@ impl X11 {
             e.property
         };
         let mut ok = false;
-        if let Some(c) = owned
+        if let Some(o) = owned
             && e.selection == a.CLIPBOARD
         {
-            let formats: Vec<Atom> = if c.mime == TEXT {
-                vec![
+            // (target, bytes) pairs this clipboard offers, in order of preference.
+            let offers: Vec<(Atom, Vec<u8>)> = match o {
+                Owned::Copied(c) if c.mime == TEXT => [
                     a.UTF8_STRING,
                     a.TEXT_PLAIN_UTF8,
                     a.TEXT_PLAIN,
                     AtomEnum::STRING.into(),
                     a.TEXT,
                 ]
-            } else {
-                [
-                    (a.IMAGE_PNG, IMAGE_TYPES[0]),
-                    (a.IMAGE_JPEG, IMAGE_TYPES[1]),
-                    (a.IMAGE_WEBP, IMAGE_TYPES[2]),
-                    (a.IMAGE_GIF, IMAGE_TYPES[3]),
-                ]
                 .into_iter()
-                .filter(|(_, m)| *m == c.mime)
-                .map(|(t, _)| t)
-                .collect()
+                .map(|t| (t, c.data.clone()))
+                .collect(),
+                Owned::Copied(c) => image_offer(a, c).into_iter().collect(),
+                Owned::Files { paths, image } => {
+                    let uris = uri_list(paths);
+                    let gnome = format!("copy\n{}", uris.trim_end().replace("\r\n", "\n"));
+                    let text = paths
+                        .iter()
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    let mut v = vec![
+                        (a.GNOME_FILES, gnome.into_bytes()),
+                        (a.URI_LIST, uris.into_bytes()),
+                    ];
+                    v.extend(image.as_ref().and_then(|c| image_offer(a, c)));
+                    for t in [a.UTF8_STRING, a.TEXT_PLAIN_UTF8, a.TEXT_PLAIN] {
+                        v.push((t, text.clone().into_bytes()));
+                    }
+                    v
+                }
             };
             if e.target == a.TARGETS {
                 let mut list = vec![a.TARGETS];
-                list.extend(&formats);
+                list.extend(offers.iter().map(|(t, _)| *t));
                 self.conn.change_property32(
                     PropMode::REPLACE,
                     e.requestor,
@@ -374,8 +441,8 @@ impl X11 {
                     &list,
                 )?;
                 ok = true;
-            } else if formats.contains(&e.target)
-                && c.data.len() + 1024 < self.conn.maximum_request_bytes()
+            } else if let Some((_, data)) = offers.iter().find(|(t, _)| *t == e.target)
+                && data.len() + 1024 < self.conn.maximum_request_bytes()
             {
                 let ty = if e.target == a.TEXT {
                     a.UTF8_STRING
@@ -383,7 +450,7 @@ impl X11 {
                     e.target
                 };
                 self.conn
-                    .change_property8(PropMode::REPLACE, e.requestor, prop, ty, &c.data)?;
+                    .change_property8(PropMode::REPLACE, e.requestor, prop, ty, data)?;
                 ok = true;
             }
         }
@@ -400,6 +467,19 @@ impl X11 {
             .send_event(false, e.requestor, EventMask::NO_EVENT, notify)?;
         Ok(())
     }
+}
+
+/// The X11 target for an image (by its MIME type) and its bytes.
+fn image_offer(a: &Atoms, c: &Content) -> Option<(Atom, Vec<u8>)> {
+    [
+        (a.IMAGE_PNG, IMAGE_TYPES[0]),
+        (a.IMAGE_JPEG, IMAGE_TYPES[1]),
+        (a.IMAGE_WEBP, IMAGE_TYPES[2]),
+        (a.IMAGE_GIF, IMAGE_TYPES[3]),
+    ]
+    .into_iter()
+    .find(|(_, m)| *m == c.mime)
+    .map(|(t, _)| (t, c.data.clone()))
 }
 
 /// Connects to the X server (XWayland on Wayland). A service started at login may not have

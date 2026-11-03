@@ -9,6 +9,7 @@ use futures_util::StreamExt;
 use zbus::Variant as Value;
 use zbus::{Connection, proxy};
 
+use crate::state::Daemon;
 use crate::transfer::Progress;
 use continuum_proto::message::PhoneNotification;
 
@@ -37,6 +38,10 @@ trait Notifications {
 
     #[zbus(signal)]
     fn action_invoked(&self, id: u32, action_key: &str) -> zbus::Result<()>;
+
+    /// Sent just before `ActionInvoked`, so the window we open can take the focus.
+    #[zbus(signal)]
+    fn activation_token(&self, id: u32, activation_token: &str) -> zbus::Result<()>;
 }
 
 #[proxy(
@@ -57,10 +62,18 @@ pub struct Notifier {
     in_progress: Mutex<HashMap<String, u32>>,
     /// "device/key" of a phone notification → our popup for it.
     phone: Mutex<HashMap<String, u32>>,
+    /// Popup → (device id, phone notification key), for its Reply and action buttons.
+    popups: Mutex<HashMap<u32, (String, String)>>,
+    tokens: Mutex<HashMap<u32, String>>,
+    daemon: Arc<Daemon>,
+}
+
+fn locked<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 impl Notifier {
-    pub async fn new(conn: &Connection) -> zbus::Result<Arc<Self>> {
+    pub async fn new(conn: &Connection, daemon: Arc<Daemon>) -> zbus::Result<Arc<Self>> {
         let proxy = NotificationsProxy::new(conn).await?;
         let me = Arc::new(Self {
             conn: conn.clone(),
@@ -68,6 +81,22 @@ impl Notifier {
             files: Mutex::new(HashMap::new()),
             in_progress: Mutex::new(HashMap::new()),
             phone: Mutex::new(HashMap::new()),
+            popups: Mutex::new(HashMap::new()),
+            tokens: Mutex::new(HashMap::new()),
+            daemon,
+        });
+        let mut tokens = proxy.receive_activation_token().await?;
+        let weak = Arc::downgrade(&me);
+        tokio::spawn(async move {
+            while let Some(signal) = tokens.next().await {
+                if let (Ok(args), Some(me)) = (signal.args(), weak.upgrade()) {
+                    let mut g = locked(&me.tokens);
+                    if g.len() > 50 {
+                        g.clear();
+                    }
+                    g.insert(args.id, args.activation_token.to_owned());
+                }
+            }
         });
         let mut actions = proxy.receive_action_invoked().await?;
         let weak = Arc::downgrade(&me);
@@ -84,8 +113,8 @@ impl Notifier {
                     .cloned();
                 if let Some(files) = files {
                     me.act(args.action_key, &files).await;
-                } else if me.is_phone_popup(args.id) {
-                    me.open_app_page("notifications").await;
+                } else {
+                    me.phone_action(args.id, args.action_key).await;
                 }
             }
         });
@@ -146,32 +175,84 @@ impl Notifier {
             .unwrap_or(0)
     }
 
-    fn is_phone_popup(&self, id: u32) -> bool {
-        let g = self.phone.lock().unwrap_or_else(|e| e.into_inner());
-        g.values().any(|v| *v == id)
-    }
-
-    /// Shows a page of the Continuum window, starting the app if needed.
-    async fn open_app_page(&self, page: &str) {
-        let arg = Value::from(page);
-        let call = self
-            .conn
-            .call_method(
-                Some(APP_ID),
-                "/io/github/sharjeelmazhar/Continuum",
-                Some("org.gtk.Actions"),
-                "Activate",
-                &("show-page", vec![arg], HashMap::<&str, Value<'_>>::new()),
+    /// A button on a phone notification's popup: Reply, one of the phone's own buttons, or
+    /// the popup itself (opens the Notifications page).
+    async fn phone_action(&self, id: u32, action: &str) {
+        let Some((device, key)) = locked(&self.popups).get(&id).cloned() else {
+            return;
+        };
+        let token = locked(&self.tokens).remove(&id);
+        if action == "reply" {
+            self.activate_app(
+                "quick-reply",
+                Some(&format!("{device}\n{key}")),
+                token,
+                true,
             )
             .await;
-        if call.is_err() {
-            let ui = std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|d| d.join("continuum-ui")))
-                .filter(|p| p.exists())
-                .map(PathBuf::into_os_string)
-                .unwrap_or_else(|| "continuum-ui".into());
-            let _ = std::process::Command::new(ui).spawn();
+        } else if let Some(i) = action
+            .strip_prefix("act")
+            .and_then(|i| i.parse::<u32>().ok())
+        {
+            let body = serde_json::json!({ "key": key, "index": i });
+            if let Err(e) = self.daemon.command(&device, "notif.action", body).await {
+                tracing::info!("notification action failed: {e}");
+            }
+        } else {
+            self.activate_app("select-device", Some(&device), token.clone(), false)
+                .await;
+            self.activate_app("show-page", Some("notifications"), token, false)
+                .await;
+        }
+    }
+
+    /// Runs an action of the Continuum app (org.gtk.Actions), starting the app if needed;
+    /// with `background`, a freshly started app shows no main window.
+    async fn activate_app(
+        &self,
+        action: &str,
+        param: Option<&str>,
+        token: Option<String>,
+        background: bool,
+    ) {
+        let params: Vec<Value<'_>> = param.map(Value::from).into_iter().collect();
+        let mut platform = HashMap::<&str, Value<'_>>::new();
+        if let Some(t) = &token {
+            platform.insert("activation-token", Value::from(t.as_str()));
+        }
+        for attempt in 0..40 {
+            let call = self
+                .conn
+                .call_method(
+                    Some(APP_ID),
+                    "/io/github/sharjeelmazhar/Continuum",
+                    Some("org.gtk.Actions"),
+                    "Activate",
+                    &(action, &params, &platform),
+                )
+                .await;
+            if call.is_ok() {
+                return;
+            }
+            if attempt == 0 {
+                let ui = std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.parent().map(|d| d.join("continuum-ui")))
+                    .filter(|p| p.exists())
+                    .map(PathBuf::into_os_string)
+                    .unwrap_or_else(|| "continuum-ui".into());
+                let mut cmd = std::process::Command::new(ui);
+                if background {
+                    cmd.env("CONTINUUM_BACKGROUND", "1");
+                }
+                if let Some(t) = &token {
+                    cmd.env("XDG_ACTIVATION_TOKEN", t);
+                }
+                if cmd.spawn().is_err() {
+                    return;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
         }
     }
 
@@ -183,6 +264,7 @@ impl Notifier {
             .unwrap_or_else(|e| e.into_inner())
             .remove(&format!("{device}/{key}"));
         if let Some(id) = id {
+            locked(&self.popups).remove(&id);
             let _ = self.proxy.close_notification(id).await;
         }
     }
@@ -217,7 +299,14 @@ impl Notifier {
             glib_escape(&n.text)
         );
         let hints = HashMap::from([("desktop-entry", Value::from(APP_ID))]);
-        let actions = ["default", "Open"];
+        let mut actions = vec!["default".to_owned(), "Open".to_owned()];
+        if n.reply {
+            actions.extend(["reply".to_owned(), "Reply".to_owned()]);
+        }
+        for (i, title) in n.actions.iter().enumerate() {
+            actions.extend([format!("act{i}"), title.clone()]);
+        }
+        let actions: Vec<&str> = actions.iter().map(String::as_str).collect();
         if let Ok(id) = self
             .proxy
             .notify(
@@ -232,7 +321,14 @@ impl Notifier {
             )
             .await
         {
-            let mut g = self.phone.lock().unwrap_or_else(|e| e.into_inner());
+            {
+                let mut p = locked(&self.popups);
+                if p.len() > 500 {
+                    p.clear();
+                }
+                p.insert(id, (device_id.to_owned(), n.key.clone()));
+            }
+            let mut g = locked(&self.phone);
             if g.len() > 500 {
                 g.clear();
             }
@@ -400,7 +496,7 @@ fn open(path: &Path) {
 }
 
 /// `file://` URI with everything but unreserved characters and `/` percent-encoded.
-fn file_uri(path: &Path) -> String {
+pub(crate) fn file_uri(path: &Path) -> String {
     let mut out = String::from("file://");
     for b in path.to_string_lossy().bytes() {
         if b.is_ascii_alphanumeric() || b"-._~/".contains(&b) {

@@ -33,13 +33,21 @@ pub const REQUESTS: &[(&str, &str)] = &[
     ("photos.thumbs", CAP_PHOTOS),
     ("photos.fetch", CAP_PHOTOS),
     ("photos.send", CAP_PHOTOS),
+    ("files.list", CAP_FILES),
+    ("files.fetch", CAP_FILES),
     ("sms.threads", CAP_SMS),
     ("sms.messages", CAP_SMS),
     ("sms.send", CAP_SMS),
 ];
 
-/// Fire-and-forget messages the desktop may send about phone notifications.
-pub const NOTIF_COMMANDS: &[&str] = &["notif.dismiss", "notif.reply", "notif.action"];
+/// Fire-and-forget messages the desktop may send, with the capability each needs.
+pub const COMMANDS: &[(&str, &str)] = &[
+    ("notif.dismiss", CAP_NOTIF),
+    ("notif.reply", CAP_NOTIF),
+    ("notif.action", CAP_NOTIF),
+    ("find.ring", CAP_FIND),
+    ("find.stop", CAP_FIND),
+];
 
 /// Capabilities this build understands.
 pub const CAPS: &[&str] = &[
@@ -50,10 +58,14 @@ pub const CAPS: &[&str] = &[
     "photos",
     "sms",
     "notif",
+    "files",
+    "find",
 ];
 pub const CAP_PHOTOS: &str = "photos";
 pub const CAP_SMS: &str = "sms";
 pub const CAP_NOTIF: &str = "notif";
+pub const CAP_FILES: &str = "files";
+pub const CAP_FIND: &str = "find";
 
 /// Capability of a peer that accepts `share.offer` (files sent to it).
 pub const CAP_SHARE_RECEIVE: &str = "share.receive";

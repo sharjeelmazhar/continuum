@@ -360,7 +360,7 @@ class ContinuumService : Service() {
                 }
             }
             val clip = ClipAssembler()
-            val features = Features(this, scope, session, peerCaps) { uris -> queueFiles(uris) }
+            val features = Features(this, scope, session, peerCaps, pc.name) { uris -> queueFiles(uris) }
             features.start()
             try {
                 while (true) {

@@ -16,7 +16,7 @@ use tokio::sync::{Notify, broadcast, mpsc};
 
 use crate::clipboard::ClipHub;
 use crate::outbox::Outbox;
-use crate::phone::{self, Fetched, Notifications, Requests, Waiter};
+use crate::phone::{self, Destination, Notifications, Requests, Waiter};
 use crate::store::{PairedDevice, Store};
 use crate::transfer::{Progress, Transfers};
 
@@ -336,14 +336,14 @@ impl Daemon {
     ) -> Result<serde_json::Value, String> {
         let cap = m::REQUESTS
             .iter()
-            .find(|(k, _)| *k == kind && kind != "photos.fetch")
+            .find(|(k, _)| *k == kind && !kind.ends_with(".fetch"))
             .map(|(_, c)| *c)
             .ok_or_else(|| format!("unknown request {kind}"))?;
         let tx = self.link_with(id, cap)?;
         let obj = body
             .as_object_mut()
             .ok_or("the request body must be an object")?;
-        let (req, waiter) = self.requests.register(id, false);
+        let (req, waiter) = self.requests.register(id, None);
         obj.insert("req".into(), req.into());
         let Waiter::Reply(rx) = waiter else {
             unreachable!()
@@ -370,42 +370,70 @@ impl Daemon {
         }
     }
 
-    /// Downloads one photo from the phone.
-    pub async fn fetch_photo(&self, id: &str, photo: i64) -> Result<Fetched, String> {
-        let tx = self.link_with(id, m::CAP_PHOTOS)?;
-        let (req, waiter) = self.requests.register(id, true);
-        let Waiter::Fetch(rx) = waiter else {
+    /// Downloads a photo, video (`photos.fetch`) or file (`files.fetch`) into `dest`.
+    pub async fn fetch(
+        &self,
+        id: &str,
+        kind: &str,
+        mut body: serde_json::Value,
+        dest: Destination,
+    ) -> Result<std::path::PathBuf, String> {
+        let cap = match kind {
+            "photos.fetch" => m::CAP_PHOTOS,
+            "files.fetch" => m::CAP_FILES,
+            _ => return Err(format!("unknown download {kind}")),
+        };
+        let tx = self.link_with(id, cap)?;
+        let obj = body
+            .as_object_mut()
+            .ok_or("the request body must be an object")?;
+        let (req, waiter) = self.requests.register(id, Some(dest));
+        obj.insert("req".into(), req.into());
+        let Waiter::Fetch(mut rx, progress) = waiter else {
             unreachable!()
         };
         let msg = Message {
-            kind: "photos.fetch".into(),
-            body: serde_json::json!({ "req": req, "id": photo }),
+            kind: kind.to_owned(),
+            body,
         };
         if tx.send(msg).await.is_err() {
             self.requests.cancel(req);
             return Err("the phone disconnected".into());
         }
-        match tokio::time::timeout(phone::FETCH_TIMEOUT, rx).await {
-            Ok(Ok(r)) => r,
-            Ok(Err(_)) => Err("the phone disconnected".into()),
-            Err(_) => {
-                self.requests.cancel(req);
-                Err("the download took too long".into())
+        // Big videos take a while: only a stall counts as a failure.
+        let mut seen = 0;
+        loop {
+            match tokio::time::timeout(phone::FETCH_IDLE_TIMEOUT, &mut rx).await {
+                Ok(Ok(r)) => return r,
+                Ok(Err(_)) => return Err("the phone disconnected".into()),
+                Err(_) => {
+                    let now = progress.load(std::sync::atomic::Ordering::Relaxed);
+                    if now == seen {
+                        self.requests.cancel(req);
+                        return Err("the download stalled".into());
+                    }
+                    seen = now;
+                }
             }
         }
     }
 
-    /// Dismiss, reply to or act on a phone notification.
-    pub async fn notification_command(
+    /// Fire-and-forget commands: dismiss/reply/act on a phone notification, ring the phone.
+    pub async fn command(
         &self,
         id: &str,
         kind: &str,
         body: serde_json::Value,
     ) -> Result<(), String> {
-        if !m::NOTIF_COMMANDS.contains(&kind) || !body.is_object() {
-            return Err(format!("unknown command {kind}"));
+        let cap = m::COMMANDS
+            .iter()
+            .find(|(k, _)| *k == kind)
+            .map(|(_, c)| *c)
+            .ok_or_else(|| format!("unknown command {kind}"))?;
+        if !body.is_object() {
+            return Err("the command body must be an object".into());
         }
-        let tx = self.link_with(id, m::CAP_NOTIF)?;
+        let tx = self.link_with(id, cap)?;
         let msg = Message {
             kind: kind.to_owned(),
             body,
@@ -413,6 +441,14 @@ impl Daemon {
         tx.send(msg)
             .await
             .map_err(|_| "the phone disconnected".to_owned())
+    }
+
+    /// Capabilities of a connected device (empty when offline).
+    pub fn caps(&self, id: &str) -> Vec<String> {
+        self.peer(id)
+            .and_then(|(_, live)| live)
+            .map(|(_, caps)| caps)
+            .unwrap_or_default()
     }
 
     pub fn set_battery(&self, id: &str, b: BatteryStatus) {

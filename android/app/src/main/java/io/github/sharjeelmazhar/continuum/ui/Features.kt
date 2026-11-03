@@ -1,10 +1,12 @@
 package io.github.sharjeelmazhar.continuum.ui
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Environment
 import android.provider.Settings
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Sms
@@ -75,12 +78,29 @@ private fun photoAccess(context: Context): Access = when {
 private fun smsAccess(context: Context): Access =
     if (granted(context, Manifest.permission.READ_SMS) && granted(context, Manifest.permission.SEND_SMS)) Access.Allowed else Access.Missing
 
+private fun filesAccess(context: Context): Access = when {
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> if (Environment.isExternalStorageManager()) Access.Allowed else Access.Missing
+    granted(context, Manifest.permission.READ_EXTERNAL_STORAGE) -> Access.Allowed
+    else -> Access.Missing
+}
+
+/** Android 11+: the "All files access" switch for this app (or the list of apps, if that page is missing). */
+private fun openAllFilesAccess(context: Context) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+    try {
+        context.startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, "package:${context.packageName}".toUri()))
+    } catch (_: ActivityNotFoundException) {
+        runCatching { context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
+    }
+}
+
 private fun openAppInfo(context: Context) =
     context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
 
 /**
- * Photos, Messages and Notifications on the computer, each with its permission state. Android
- * asks for photos and texts in a dialog; notification access is a system setting. [refreshKey]
+ * Photos, Files, Messages and Notifications on the computer, each with its permission state. Android
+ * asks for photos and texts in a dialog; notification and (Android 11+) all-files access are
+ * system settings. [refreshKey]
  * changes on every resume, so coming back from Settings re-checks.
  */
 @Composable
@@ -91,8 +111,10 @@ fun FeaturesCard(refreshKey: Int) {
     // After a refusal Android may stop showing the dialog: then the user goes to App info.
     var photosBlocked by rememberSaveable { mutableStateOf(false) }
     var smsBlocked by rememberSaveable { mutableStateOf(false) }
+    var filesBlocked by rememberSaveable { mutableStateOf(false) }
     val photos = remember(refreshKey, tick) { photoAccess(context) }
     val sms = remember(refreshKey, tick) { smsAccess(context) }
+    val files = remember(refreshKey, tick) { filesAccess(context) }
     val notifs = remember(refreshKey, tick) { if (NotifBridge.isEnabled(context)) Access.Allowed else Access.Missing }
 
     fun blocked(results: Map<String, Boolean>): Boolean = results.filterValues { !it }.keys.let { denied ->
@@ -102,6 +124,10 @@ fun FeaturesCard(refreshKey: Int) {
     val photoRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
         tick++
         photosBlocked = photoAccess(context) == Access.Missing && blocked(results)
+    }
+    val filesRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+        tick++
+        filesBlocked = filesAccess(context) == Access.Missing && blocked(results)
     }
     val smsRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
         tick++
@@ -121,6 +147,19 @@ fun FeaturesCard(refreshKey: Int) {
                 hint = if (photosBlocked && photos == Access.Missing) stringResource(R.string.feature_blocked) else null,
                 onAllow = { if (photosBlocked) openAppInfo(context) else photoRequest.launch(photoPermissions) },
                 blocked = photosBlocked,
+            )
+            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+            FeatureRow(
+                Icons.Outlined.Folder, stringResource(R.string.feature_files), stringResource(R.string.feature_files_body), files,
+                hint = if (filesBlocked && files == Access.Missing) stringResource(R.string.feature_blocked) else null,
+                onAllow = {
+                    when {
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> openAllFilesAccess(context)
+                        filesBlocked -> openAppInfo(context)
+                        else -> filesRequest.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
+                    }
+                },
+                blocked = filesBlocked,
             )
             HorizontalDivider(Modifier.padding(horizontal = 16.dp))
             FeatureRow(

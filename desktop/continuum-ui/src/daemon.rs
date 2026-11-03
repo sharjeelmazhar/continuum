@@ -21,7 +21,9 @@ pub trait Daemon {
     fn request(&self, id: &str, kind: &str, body: &str) -> zbus::Result<String>;
     fn fetch_photo(&self, id: &str, photo: i64) -> zbus::Result<String>;
     fn list_notifications(&self, id: &str) -> zbus::Result<String>;
-    fn notification_command(&self, id: &str, kind: &str, body: &str) -> zbus::Result<()>;
+    fn fetch_file(&self, id: &str, path: &str, version: &str, save: bool) -> zbus::Result<String>;
+    fn command(&self, id: &str, kind: &str, body: &str) -> zbus::Result<()>;
+    fn device_caps(&self, id: &str) -> zbus::Result<Vec<String>>;
     #[zbus(property)]
     fn name(&self) -> zbus::Result<String>;
     #[zbus(signal)]

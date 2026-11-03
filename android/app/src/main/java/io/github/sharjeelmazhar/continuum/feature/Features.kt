@@ -8,6 +8,8 @@ import io.github.sharjeelmazhar.continuum.proto.Ack
 import io.github.sharjeelmazhar.continuum.proto.Envelope
 import io.github.sharjeelmazhar.continuum.proto.ErrorReply
 import io.github.sharjeelmazhar.continuum.proto.FeatureType
+import io.github.sharjeelmazhar.continuum.proto.FilesListReply
+import io.github.sharjeelmazhar.continuum.proto.FilesRequest
 import io.github.sharjeelmazhar.continuum.proto.Limits
 import io.github.sharjeelmazhar.continuum.proto.NotifAction
 import io.github.sharjeelmazhar.continuum.proto.NotifKey
@@ -28,21 +30,21 @@ import io.github.sharjeelmazhar.continuum.proto.SmsMessagesReply
 import io.github.sharjeelmazhar.continuum.proto.SmsSend
 import io.github.sharjeelmazhar.continuum.proto.SmsThreads
 import io.github.sharjeelmazhar.continuum.proto.SmsThreadsReply
-import java.util.Base64
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.serialization.KSerializer
 
 /**
  * The phone as a data source for one connection: answers the computer's requests (photos,
- * messages) off the read loop, and mirrors notifications and SMS changes while connected.
+ * files, messages), rings on `find.ring`, off the read loop, and mirrors notifications and SMS changes while connected.
  * Everything from the computer is treated as hostile: bodies are parsed strictly and clamped.
  */
 class Features(
@@ -50,17 +52,20 @@ class Features(
     parent: CoroutineScope,
     private val session: Session,
     private val peerCaps: List<String>,
+    /** Shown on the phone when the computer rings it. */
+    private val computerName: String,
     /** Queues MediaStore items as a normal file transfer; false if none could be read. */
     private val sendFiles: suspend (List<Uri>) -> Boolean,
 ) {
     private val scope = CoroutineScope(parent.coroutineContext + SupervisorJob(parent.coroutineContext[Job]))
     private val photos = Photos(context)
+    private val storage = Storage(context)
     private val sms = Sms(context)
     private val smsWatcher = Sms.Watcher(context) { scope.launch { send(FeatureType.SMS_CHANGED, Envelope(FeatureType.SMS_CHANGED)) } }
     private val inFlight = AtomicInteger()
 
-    /** Full-size photo downloads hold the whole image in memory: one at a time. */
-    private val fetchLock = Mutex()
+    /** Downloads streaming at once; each holds a slot of [MAX_IN_FLIGHT] until done. */
+    private val streams = Semaphore(MAX_STREAMS)
 
     fun start() {
         if (Protocol.CAP_SMS in peerCaps) smsWatcher.start()
@@ -88,6 +93,8 @@ class Features(
         when (msg.type) {
             in FeatureType.REQUESTS -> request(msg)
             FeatureType.NOTIF_DISMISS, FeatureType.NOTIF_REPLY, FeatureType.NOTIF_ACTION -> scope.launch { notifCommand(msg) }
+            FeatureType.FIND_RING -> FindPhone.ring(context, computerName)
+            FeatureType.FIND_STOP -> FindPhone.stop()
             else -> return false
         }
         return true
@@ -137,7 +144,7 @@ class Features(
             FeatureType.PHOTOS_FETCH -> {
                 val r = msg.parse(PhotosFetch.serializer())
                 if (!photos.canRead()) return replyError(replyType, req, ErrorReply.PERMISSION)
-                fetchLock.withLock { fetch(req, replyType, r.id) }
+                stream(req, replyType) { photos.fetch(r.id) }
             }
             FeatureType.PHOTOS_SEND -> {
                 val r = msg.parse(PhotosSend.serializer())
@@ -145,6 +152,19 @@ class Features(
                 val found = photos.lookup(r.ids.take(Limits.SEND_IDS_MAX))
                 if (found.isEmpty() || !sendFiles(found.map { it.uri })) return replyError(replyType, req, "not found")
                 reply(replyType, Ack.serializer(), Ack(req))
+            }
+            FeatureType.FILES_LIST -> {
+                val r = msg.parse(FilesRequest.serializer())
+                StoragePaths.segments(r.path) ?: throw BadRequest()
+                if (!storage.canRead()) return replyError(replyType, req, ErrorReply.PERMISSION)
+                val (entries, cut) = storage.list(r.path)
+                reply(replyType, FilesListReply.serializer(), FilesListReply(req, r.path, entries, cut))
+            }
+            FeatureType.FILES_FETCH -> {
+                val r = msg.parse(FilesRequest.serializer())
+                StoragePaths.segments(r.path)?.takeIf { it.isNotEmpty() } ?: throw BadRequest()
+                if (!storage.canRead()) return replyError(replyType, req, ErrorReply.PERMISSION)
+                stream(req, replyType) { storage.open(r.path) }
             }
             FeatureType.SMS_THREADS -> {
                 val r = msg.parse(SmsThreads.serializer())
@@ -169,22 +189,33 @@ class Features(
         }
     }
 
-    /** `photos.fetch`: the reply with name, type and size, then the parts in order. */
-    private fun fetch(req: Long, replyType: String, id: Long) {
-        val f = photos.fetch(id)
-        val parts = Limits.parts(f.data.size.toLong())
-        if (parts == 0) return replyError(replyType, req, "empty file")
-        reply(replyType, PhotosFetchReply.serializer(), PhotosFetchReply(req, f.name, f.mime, f.data.size.toLong(), parts))
-        val enc = Base64.getEncoder()
-        // Already replied: if the connection drops now, the computer just times out.
-        runCatching {
-            for (i in 0 until parts) {
-                val from = i * Limits.PART_BYTES
-                val to = minOf(from + Limits.PART_BYTES, f.data.size)
-                val data = enc.encodeToString(f.data.copyOfRange(from, to))
-                session.send(Envelope.of(FeatureType.PHOTOS_PART, PhotosPart.serializer(), PhotosPart(req, i, data)))
+    /**
+     * `photos.fetch` / `files.fetch`: the reply with name, type and size, then the parts in order,
+     * read from the stream one at a time (a 4 GiB video never sits in memory). Runs on this
+     * request's own coroutine, so other requests are answered between the parts.
+     */
+    private suspend fun stream(req: Long, replyType: String, open: () -> Outgoing) {
+        if (!streams.tryAcquire()) return replyError(replyType, req, "busy")
+        try {
+            open().use { out ->
+                if (out.size <= 0) return replyError(replyType, req, "empty file")
+                if (out.size > Limits.FETCH_MAX_BYTES) return replyError(replyType, req, "too large")
+                val parts = Limits.parts(out.size)
+                reply(replyType, PhotosFetchReply.serializer(), PhotosFetchReply(req, Limits.cutUtf8(out.name, 255), out.mime, out.size, parts))
+                // Already replied: if reading or the connection fails now, the computer times out.
+                runCatching {
+                    streamParts(out.input, out.size) { i, data ->
+                        currentCoroutineContext().ensureActive()
+                        session.send(Envelope.of(FeatureType.PHOTOS_PART, PhotosPart.serializer(), PhotosPart(req, i, data)))
+                    }
+                }.onFailure {
+                    if (it is kotlinx.coroutines.CancellationException) throw it
+                    Log.i(TAG, "parts not sent: $it")
+                }
             }
-        }.onFailure { Log.i(TAG, "photo parts not sent: $it") }
+        } finally {
+            streams.release()
+        }
     }
 
     private fun notifCommand(msg: Envelope) {
@@ -219,5 +250,8 @@ class Features(
 
         /** Requests answered at the same time; more get `error: "busy"`. */
         private const val MAX_IN_FLIGHT = 8
+
+        /** Downloads at once, so a few big ones can't take every request slot. */
+        private const val MAX_STREAMS = 3
     }
 }

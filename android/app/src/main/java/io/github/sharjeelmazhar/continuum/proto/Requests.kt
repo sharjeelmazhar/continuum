@@ -1,10 +1,13 @@
 package io.github.sharjeelmazhar.continuum.proto
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 
 /**
  * Requests from the computer (phone as a data source) and their replies, plus the notification
- * messages. Mirrors docs/PROTOCOL.md, "Requests", "Photos", "Messages" and "Notifications".
+ * messages. Mirrors docs/PROTOCOL.md, "Requests", "Photos", "Files", "Find my phone",
+ * "Messages" and "Notifications".
  * Every incoming value is clamped with [Limits] before it's used: the peer is untrusted.
  */
 object FeatureType {
@@ -22,8 +25,12 @@ object FeatureType {
     const val NOTIF_DISMISS = "notif.dismiss"
     const val NOTIF_REPLY = "notif.reply"
     const val NOTIF_ACTION = "notif.action"
+    const val FILES_LIST = "files.list"
+    const val FILES_FETCH = "files.fetch"
+    const val FIND_RING = "find.ring"
+    const val FIND_STOP = "find.stop"
 
-    val REQUESTS = setOf(PHOTOS_LIST, PHOTOS_THUMBS, PHOTOS_FETCH, PHOTOS_SEND, SMS_THREADS, SMS_MESSAGES, SMS_SEND)
+    val REQUESTS = setOf(PHOTOS_LIST, PHOTOS_THUMBS, PHOTOS_FETCH, PHOTOS_SEND, SMS_THREADS, SMS_MESSAGES, SMS_SEND, FILES_LIST, FILES_FETCH)
 
     fun reply(type: String) = "$type.reply"
 }
@@ -35,7 +42,8 @@ object Limits {
     const val THUMB_MIN = 64
     const val THUMB_MAX = 320
     const val SEND_IDS_MAX = 100
-    const val FETCH_MAX_BYTES = 50L shl 20
+    /** Largest photo, video or file a `*.fetch` streams (4 GiB). */
+    const val FETCH_MAX_BYTES = 4L shl 30
     const val PART_BYTES = 512 shl 10
 
     /** Base64 thumbnail data per reply. */
@@ -51,6 +59,13 @@ object Limits {
     const val NOTIF_TEXT_MAX = 4096
     const val NOTIF_ACTION_MAX = 64
     const val NOTIF_REPLY_MAX = 5000
+
+    /** `files.list`: entries per reply, and their JSON size (the frame limit is 1 MiB). */
+    const val FILES_MAX = 5000
+    const val FILES_BUDGET = 900_000
+
+    /** Longest `path` we accept, in characters. */
+    const val PATH_MAX = 4096
 
     /** `req` is a u32 on the wire. */
     fun validReq(r: Long) = r in 0..0xFFFF_FFFFL
@@ -146,6 +161,24 @@ data class PhotosPart(val req: Long, val part: Int, val data: String)
 
 @Serializable
 data class PhotosSend(val req: Long, val ids: List<Long> = emptyList())
+
+// ---- Files ----
+
+@Serializable
+data class FilesRequest(val req: Long, val path: String = "")
+
+@Serializable
+data class FileEntry(val name: String, val dir: Boolean, val size: Long, val date: Long, val mime: String)
+
+/** `truncated` is only on the wire when the folder had more than fits in one reply. */
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class FilesListReply(
+    val req: Long,
+    val path: String,
+    val entries: List<FileEntry>,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val truncated: Boolean = false,
+)
 
 // ---- Messages ----
 

@@ -7,6 +7,7 @@ mod messages;
 mod notifications;
 mod photos;
 mod qr;
+mod storage;
 mod window;
 
 use adw::prelude::*;
@@ -16,11 +17,20 @@ const APP_ID: &str = "io.github.sharjeelmazhar.Continuum";
 fn main() -> glib::ExitCode {
     let app = adw::Application::builder().application_id(APP_ID).build();
     app.connect_activate(|app| {
-        if let Some(win) = app.active_window() {
+        if let Some(win) = app
+            .windows()
+            .into_iter()
+            .find(|w| w.is::<adw::ApplicationWindow>())
+        {
             win.present();
             return;
         }
-        window::build(app).present();
+        let win = window::build(app);
+        // Started by the service just to show a quick reply: the (hidden) main window keeps
+        // the app running, and appears when the app is opened.
+        if std::env::var_os("CONTINUUM_BACKGROUND").is_none() {
+            win.present();
+        }
     });
     app.run()
 }

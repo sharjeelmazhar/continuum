@@ -9,6 +9,7 @@ use zbus::object_server::SignalEmitter;
 use zbus::{connection, interface};
 
 use crate::notify::Notifier;
+use crate::phone::Destination;
 use crate::state::{Daemon, Event, PAIRING_TTL};
 use crate::sysinfo;
 
@@ -26,6 +27,20 @@ pub struct Api {
 }
 
 impl Api {
+    async fn download(
+        &self,
+        id: &str,
+        kind: &str,
+        body: serde_json::Value,
+        dest: Destination,
+    ) -> zbus::fdo::Result<String> {
+        let (daemon, id, kind) = (self.daemon.clone(), id.to_owned(), kind.to_owned());
+        let path = self
+            .on_tokio(async move { daemon.fetch(&id, &kind, body, dest).await })
+            .await?;
+        Ok(path.to_string_lossy().into_owned())
+    }
+
     async fn on_tokio<T: Send + 'static>(
         &self,
         f: impl Future<Output = Result<T, String>> + Send + 'static,
@@ -102,22 +117,60 @@ impl Api {
         Ok(reply.to_string())
     }
 
-    /// Downloads a photo (MediaStore id) into the cache and returns its path.
+    /// Downloads a photo or video (MediaStore id) into the cache and returns its path.
     async fn fetch_photo(&self, id: &str, photo: i64) -> zbus::fdo::Result<String> {
         let dir = sysinfo::cache_dir().join("photos").join(hex_only(id));
-        if let Some(hit) = cached(&dir, photo) {
+        if let Some(hit) = cached(&dir, &format!("{photo}-")) {
             return Ok(hit);
         }
-        let (daemon, device) = (self.daemon.clone(), id.to_owned());
-        let f = self
-            .on_tokio(async move { daemon.fetch_photo(&device, photo).await })
-            .await?;
-        let name = continuum_proto::filename::sanitize(&f.name);
-        let path = dir.join(format!("{photo}-{name}"));
-        std::fs::create_dir_all(&dir)
-            .and_then(|_| crate::store::write_atomic(&path, &f.data))
-            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
-        Ok(path.to_string_lossy().into_owned())
+        let dest = Destination {
+            dir,
+            prefix: format!("{photo}-"),
+        };
+        let body = serde_json::json!({ "id": photo });
+        self.download(id, "photos.fetch", body, dest).await
+    }
+
+    /// Downloads a file from the phone's storage (path relative to its root). With `save`, it
+    /// goes to the download folder (never overwriting); otherwise into the cache, to open it.
+    /// `version` (e.g. size and date from the listing) keeps a changed file from the cache.
+    async fn fetch_file(
+        &self,
+        id: &str,
+        path: &str,
+        version: &str,
+        save: bool,
+    ) -> zbus::fdo::Result<String> {
+        let key = format!("{path}\0{version}");
+        let key =
+            hex::encode(&ring::digest::digest(&ring::digest::SHA256, key.as_bytes()).as_ref()[..8]);
+        let dir = sysinfo::cache_dir()
+            .join("files")
+            .join(hex_only(id))
+            .join(key);
+        let dest = Destination {
+            dir: dir.clone(),
+            prefix: String::new(),
+        };
+        let body = serde_json::json!({ "path": path });
+        let cached = match cached(&dir, "") {
+            Some(hit) => hit,
+            None => self.download(id, "files.fetch", body, dest).await?,
+        };
+        if !save {
+            return Ok(cached);
+        }
+        let target_dir = self.daemon.transfers.dir().to_owned();
+        let name = std::path::Path::new(&cached)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let fail = |e: std::io::Error| zbus::fdo::Error::Failed(e.to_string());
+        std::fs::create_dir_all(&target_dir).map_err(fail)?;
+        let unique = continuum_proto::filename::unique(&name, |n| target_dir.join(n).exists());
+        let target = target_dir.join(unique);
+        std::fs::copy(&cached, &target).map_err(fail)?;
+        Ok(target.to_string_lossy().into_owned())
     }
 
     /// Current notifications on a phone, as a JSON array of `notif.posted` bodies (oldest first).
@@ -125,13 +178,9 @@ impl Api {
         serde_json::to_string(&self.daemon.notifications.list(id)).unwrap_or_else(|_| "[]".into())
     }
 
-    /// `notif.dismiss`, `notif.reply` or `notif.action` with a JSON body.
-    async fn notification_command(
-        &self,
-        id: &str,
-        kind: &str,
-        body: &str,
-    ) -> zbus::fdo::Result<()> {
+    /// Fire-and-forget commands with a JSON body: `notif.dismiss`, `notif.reply`,
+    /// `notif.action`, `find.ring`, `find.stop`.
+    async fn command(&self, id: &str, kind: &str, body: &str) -> zbus::fdo::Result<()> {
         let body =
             serde_json::from_str(body).map_err(|e| zbus::fdo::Error::InvalidArgs(e.to_string()))?;
         if kind == "notif.dismiss"
@@ -145,9 +194,15 @@ impl Api {
             });
         }
         self.daemon
-            .notification_command(id, kind, body)
+            .command(id, kind, body)
             .await
             .map_err(zbus::fdo::Error::Failed)
+    }
+
+    /// What a connected device can do (`photos`, `sms`, `notif`, `files`, `find`, …); empty
+    /// when it isn't connected.
+    fn device_caps(&self, id: &str) -> Vec<String> {
+        self.daemon.caps(id)
     }
 
     #[zbus(property)]
@@ -194,7 +249,7 @@ pub async fn run(daemon: Arc<Daemon>) -> zbus::Result<connection::Connection> {
         _ => return Err(zbus::Error::NameTaken),
     }
     let emitter = SignalEmitter::new(&conn, PATH)?.into_owned();
-    let notifier = Notifier::new(&conn)
+    let notifier = Notifier::new(&conn, names.clone())
         .await
         .map_err(|e| tracing::warn!("desktop notifications unavailable: {e}"))
         .ok();
@@ -206,6 +261,10 @@ pub async fn run(daemon: Arc<Daemon>) -> zbus::Result<connection::Connection> {
                 }
                 Ok(Event::Paired { id, name }) => Api::paired(&emitter, &id, &name).await,
                 Ok(Event::Transfer(p)) => {
+                    // Files from a phone are ready to paste right away (screenshots → chat).
+                    if let crate::transfer::Progress::Finished { saved, .. } = &p {
+                        names.clip.files(saved.clone());
+                    }
                     if let Some(n) = &notifier {
                         n.on_transfer(&p).await;
                     }
@@ -244,12 +303,15 @@ fn hex_only(id: &str) -> String {
         .collect()
 }
 
-/// A photo downloaded earlier (`<photo id>-<name>` in `dir`).
-fn cached(dir: &std::path::Path, photo: i64) -> Option<String> {
-    let prefix = format!("{photo}-");
+/// A download finished earlier: a file in `dir` whose name starts with `prefix` (partial
+/// downloads are hidden `.download-*` files and never match).
+fn cached(dir: &std::path::Path, prefix: &str) -> Option<String> {
     std::fs::read_dir(dir)
         .ok()?
         .flatten()
-        .find(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+        .find(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            name.starts_with(prefix) && !name.starts_with('.')
+        })
         .map(|e| e.path().to_string_lossy().into_owned())
 }

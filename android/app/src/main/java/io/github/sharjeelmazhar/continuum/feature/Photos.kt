@@ -12,6 +12,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.util.Size
 import androidx.core.content.ContextCompat
@@ -20,8 +21,8 @@ import io.github.sharjeelmazhar.continuum.proto.Clip
 import io.github.sharjeelmazhar.continuum.proto.Limits
 import io.github.sharjeelmazhar.continuum.proto.PhotoItem
 import io.github.sharjeelmazhar.continuum.proto.Thumb
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
-import java.io.IOException
 import java.util.Base64
 
 /** The phone's photos and videos (MediaStore, all albums) for the computer (PROTOCOL.md, "Photos"). */
@@ -36,11 +37,6 @@ class Photos(private val context: Context) {
                 if (video) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id,
             )
     }
-
-    /** A file ready to go: its bytes are sent as `photos.part`s. */
-    class Fetched(val name: String, val mime: String, val data: ByteArray)
-
-    class FetchError(message: String) : IOException(message)
 
     /** Full or partial ("selected photos", Android 14+) access; with partial, only those are listed. */
     fun canRead(): Boolean = when {
@@ -163,20 +159,31 @@ class Photos(private val context: Context) {
         return scaled
     }
 
-    /** The image's bytes, converted to JPEG unless it's JPEG/PNG/WebP/GIF. Images only, ≤ 50 MiB. */
-    fun fetch(id: Long): Fetched {
+    /**
+     * Opens a photo or video for `photos.fetch` (≤ [Limits.FETCH_MAX_BYTES]). Videos and
+     * JPEG/PNG/WebP/GIF are streamed as they are; other images (e.g. HEIC) are converted to JPEG.
+     */
+    fun fetch(id: Long): Outgoing {
         val m = lookup(listOf(id)).firstOrNull() ?: throw FetchError("not found")
-        if (m.video) throw FetchError("videos can't be opened this way")
-        if (m.size > Limits.FETCH_MAX_BYTES && m.mime in Clip.IMAGE_TYPES) throw FetchError("too large")
-        if (m.mime in Clip.IMAGE_TYPES) {
-            val data = cr.openInputStream(m.uri)?.use { readAtMost(it, Limits.FETCH_MAX_BYTES) } ?: throw FetchError("can't read")
-            return Fetched(m.name, m.mime, data)
+        if (m.size > Limits.FETCH_MAX_BYTES) throw FetchError("too large")
+        if (m.video || m.mime in Clip.IMAGE_TYPES) {
+            val pfd = cr.openFileDescriptor(m.uri, "r") ?: throw FetchError("can't read")
+            // The real size, not MediaStore's (it can be stale): we promise this many bytes.
+            val size = pfd.statSize.takeIf { it >= 0 } ?: m.size
+            if (size > Limits.FETCH_MAX_BYTES) {
+                pfd.close()
+                throw FetchError("too large")
+            }
+            val mime = m.mime.ifEmpty { "application/octet-stream" }
+            return Outgoing(m.name, mime, size, ParcelFileDescriptor.AutoCloseInputStream(pfd))
         }
-        val bmp = decodeFull(m.uri) ?: throw FetchError("can't read this image")
-        val jpeg = ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }.toByteArray()
-        bmp.recycle()
-        if (jpeg.size > Limits.FETCH_MAX_BYTES) throw FetchError("too large")
-        return Fetched(m.name.substringBeforeLast('.', m.name).ifEmpty { "photo" } + ".jpg", "image/jpeg", jpeg)
+        // A full-size bitmap is big: convert one image at a time.
+        val jpeg = synchronized(convertLock) {
+            val bmp = decodeFull(m.uri) ?: throw FetchError("can't read this image")
+            ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }.toByteArray().also { bmp.recycle() }
+        }
+        val name = m.name.substringBeforeLast('.', m.name).ifEmpty { "photo" } + ".jpg"
+        return Outgoing(name, "image/jpeg", jpeg.size.toLong(), ByteArrayInputStream(jpeg))
     }
 
     private fun decodeFull(uri: Uri): Bitmap? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -191,23 +198,12 @@ class Photos(private val context: Context) {
         cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
     }
 
-    private fun readAtMost(input: java.io.InputStream, max: Long): ByteArray {
-        val out = ByteArrayOutputStream()
-        val buf = ByteArray(256 * 1024)
-        while (true) {
-            val n = input.read(buf)
-            if (n < 0) break
-            out.write(buf, 0, n)
-            if (out.size() > max) throw FetchError("too large")
-        }
-        return out.toByteArray()
-    }
-
     companion object {
         /** Literal names: on Android 9 and older these columns exist but the constants don't. */
         private const val DATE_TAKEN = "datetaken"
         private const val DURATION = "duration"
         private const val MAX_PIXELS = 50_000_000L
+        private val convertLock = Any()
         private val MEDIA_SELECTION = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN " +
             "(${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
     }

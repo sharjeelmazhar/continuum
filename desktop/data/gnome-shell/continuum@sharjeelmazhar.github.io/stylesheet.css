@@ -1,0 +1,4 @@
+/* Continuum Quick Settings tile. */
+.continuum-battery {
+  font-feature-settings: "tnum";
+}

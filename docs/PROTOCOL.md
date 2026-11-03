@@ -82,19 +82,36 @@ The desktop asks the phone for data (photos, messages) with **requests**: the bo
 `req` (u32, chosen by the desktop, unique among its open requests) and the phone answers with
 `<type>.reply { "req", … }` exactly once. A reply with `error` (string) failed; the special value
 `"permission"` means the user has to allow access in the Continuum app on the phone. The desktop
-gives up after 20 s (photo downloads: 120 s) and ignores late replies. Other errors the phone
+gives up after 20 s (downloads: 30 s without a new part) and ignores late replies. Other errors the phone
 may send: `"busy"` (more than 8 requests at once), `"bad request"`, `"not found"`,
-`"too large"`, `"empty file"`, or a plain message.
+`"too large"`, `"empty file"`, `"not a folder"`, `"not a file"`, or a plain message. At most 3
+downloads (`*.fetch`) run at once per connection; a 4th gets `"busy"`.
 
 ### Photos (cap `photos`)
 | Type | Body | Reply |
 |---|---|---|
 | `photos.list` | `req`, `offset` ≥ 0, `limit` 1–200 | `items`: `[{ "id" (i64), "name", "mime", "date" (ms since epoch), "size", "w", "h", "dur" (ms, 0 for images) }]`, newest first; `total` |
 | `photos.thumbs` | `req`, `ids` (≤ 24), `size` (longest side, 64–320 px) | `items`: `[{ "id", "data" (base64 JPEG) }]`. Ids that no longer exist, or don't fit in the 900 KB budget, are left out (ask again). |
-| `photos.fetch` | `req`, `id` | `name`, `mime`, `size`, `parts`; then `parts` × `photos.part { "req", "part", "data" }` (512 KiB raw per part, base64, in order). Images only, at most 50 MiB; formats other than JPEG/PNG/WebP/GIF (e.g. HEIC) are converted to JPEG first. |
+| `photos.fetch` | `req`, `id` | `name`, `mime`, `size`, `parts`; then `parts` × `photos.part { "req", "part", "data" }` (512 KiB raw per part, base64, in order). Photos and videos, at most 4 GiB. Image formats other than JPEG/PNG/WebP/GIF (e.g. HEIC) are converted to JPEG first; videos are sent as they are. |
 | `photos.send` | `req`, `ids` (≤ 100) | `{}`. The phone sends those photos/videos as a normal file transfer (`share.offer`), so they land in the download folder. |
 
 Photos and videos come from the phone's MediaStore (all albums), ids are MediaStore ids.
+
+### Files (cap `files`)
+Browsing the phone's shared storage (what the Files app shows: `/storage/emulated/0`). Paths
+are relative to that root, `/`-separated, without a leading `/`; `""` is the root. The phone
+rejects `..`, `.` and empty segments, NUL, and anything that resolves (after symlinks) outside the
+root. Needs "All files access" on Android 11+ (storage permission before), else `"permission"`.
+
+| Type | Body | Reply |
+|---|---|---|
+| `files.list` | `req`, `path` | `path` (as asked), `entries`: `[{ "name", "dir" (bool), "size", "date" (ms, modified), "mime" ("" for folders) }]`, folders first then by name; at most 5000 entries; hidden (`.`-prefixed) entries left out; `"truncated": true` when cut (5000 entries or ~900 KB) |
+| `files.fetch` | `req`, `path` | Like `photos.fetch`: `name`, `mime`, `size`, `parts`, then `parts` × `photos.part`. Regular files only, at most 4 GiB. |
+
+### Find my phone (cap `find`)
+- `find.ring {}` (desktop → phone): rings at full alarm volume, even on silent, until the user
+  taps Stop on the phone or `find.stop {}` arrives; gives up after 60 s.
+- `find.stop {}`.
 
 ### Messages (cap `sms`)
 | Type | Body | Reply |

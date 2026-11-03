@@ -10,7 +10,7 @@ use futures_util::StreamExt;
 
 use crate::ctx::{self, Ctx, Device};
 use crate::daemon::{self, DaemonProxy};
-use crate::{messages, notifications, photos, qr};
+use crate::{messages, notifications, photos, qr, storage};
 
 /// The feature pages, in sidebar order: (stack name, title, icons to try).
 const PAGES: &[(&str, &str, &[&str])] = &[
@@ -25,8 +25,20 @@ const PAGES: &[(&str, &str, &[&str])] = &[
         "Notifications",
         &["preferences-system-notifications-symbolic"],
     ),
+    ("storage", "Phone Storage", &["folder-symbolic"]),
     ("files", "Send Files", &["document-send-symbolic"]),
 ];
+
+/// The capability each page needs from the phone ("" = always there).
+fn page_cap(page: &str) -> &'static str {
+    match page {
+        "photos" => "photos",
+        "messages" => "sms",
+        "notifications" => "notif",
+        "storage" => "files",
+        _ => "",
+    }
+}
 
 struct Ui {
     ctx: Rc<Ctx>,
@@ -53,6 +65,8 @@ struct Ui {
     photos: Rc<photos::Photos>,
     messages: Rc<messages::Messages>,
     notifications: Rc<notifications::Notifications>,
+    storage: Rc<storage::Storage>,
+    ring: gtk::Button,
     /// (page, device id) each page last loaded, so a page reloads only when needed.
     loaded: RefCell<Vec<(String, String)>>,
     /// Set while `refresh` fills the switcher, whose selection changes as a side effect.
@@ -135,10 +149,24 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     hero.append(&phone_name);
     hero.append(&phone_status);
     hero.append(&switcher);
+    let ring = gtk::Button::builder()
+        .halign(gtk::Align::Center)
+        .margin_top(8)
+        .css_classes(["pill"])
+        .tooltip_text("Ring your phone at full volume, even when it's on silent")
+        .child(
+            &adw::ButtonContent::builder()
+                .icon_name("audio-volume-high-symbolic")
+                .label("Ring")
+                .build(),
+        )
+        .build();
+    hero.append(&ring);
 
     let photos = photos::build(&ctx);
     let messages = messages::build(&ctx);
     let notifications = notifications::build(&ctx);
+    let storage = storage::build(&ctx);
 
     let nav = gtk::ListBox::builder()
         .css_classes(["navigation-sidebar"])
@@ -165,6 +193,7 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     }
     let menu = gtk::gio::Menu::new();
     menu.append(Some("Pair a Phone…"), Some("win.pair"));
+    menu.append(Some("Change Picture…"), Some("win.picture"));
     menu.append(Some("Remove This Phone…"), Some("win.unpair"));
     let menu_button = gtk::MenuButton::builder()
         .icon_name("open-menu-symbolic")
@@ -197,6 +226,7 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     pages.add_named(&photos.widget, Some("photos"));
     pages.add_named(&messages.widget, Some("messages"));
     pages.add_named(&notifications.widget, Some("notifications"));
+    pages.add_named(&storage.widget, Some("storage"));
     let choose = gtk::Button::builder()
         .label("Choose Files…")
         .halign(gtk::Align::Center)
@@ -272,6 +302,8 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         photos,
         messages,
         notifications,
+        storage,
+        ring: ring.clone(),
         loaded: RefCell::default(),
         filling: Cell::new(false),
     });
@@ -311,22 +343,30 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
             glib::spawn_future_local(async move { pick_and_send(&ui, &d.id, &d.name).await });
         });
     }
+    {
+        let ui = ui.clone();
+        ring.connect_clicked(move |_| ring_phone(&ui));
+    }
     add_actions(&ui);
     add_drop_target(&ui);
 
     let ui2 = ui.clone();
     glib::spawn_future_local(async move { start(ui2).await });
-    dev_snapshots(&window);
+    dev_snapshots(&window, "");
     window
 }
 
 /// Development aid: with `CONTINUUM_SNAPSHOT=/path.png`, saves a picture of the window every
 /// two seconds (GNOME doesn't let scripts take screenshots).
-fn dev_snapshots(window: &adw::ApplicationWindow) {
+fn dev_snapshots(window: &impl IsA<gtk::Window>, suffix: &str) {
     let Some(path) = std::env::var_os("CONTINUUM_SNAPSHOT") else {
         return;
     };
-    let window = window.downgrade();
+    let mut path = std::path::PathBuf::from(path);
+    if !suffix.is_empty() {
+        path = path.with_extension(format!("{suffix}.png"));
+    }
+    let window = window.upcast_ref::<gtk::Window>().downgrade();
     glib::timeout_add_local(Duration::from_secs(2), move || {
         let Some(w) = window.upgrade() else {
             return glib::ControlFlow::Break;
@@ -338,7 +378,7 @@ fn dev_snapshots(window: &adw::ApplicationWindow) {
         if let (Some(node), Some(renderer)) =
             (snap.to_node(), w.native().and_then(|n| n.renderer()))
         {
-            let tmp = std::path::PathBuf::from(&path).with_extension("part.png");
+            let tmp = path.with_extension("part.png");
             if renderer
                 .render_texture(&node, None)
                 .save_to_png(&tmp)
@@ -396,6 +436,7 @@ fn add_actions(ui: &Rc<Ui>) {
             if let Some(name) = arg.and_then(|a| a.str()) {
                 show_page(&ui, name, false);
                 ui.split.set_show_content(true);
+                ui.window.present();
             }
         });
     }
@@ -412,10 +453,50 @@ fn add_actions(ui: &Rc<Ui>) {
             }
         });
     }
+    let reply = gtk::gio::SimpleAction::new("quick-reply", Some(glib::VariantTy::STRING));
+    {
+        let ui = ui.clone();
+        reply.connect_activate(move |_, arg| {
+            let Some((device, key)) = arg.and_then(|a| a.str()).and_then(|s| s.split_once('\n'))
+            else {
+                return;
+            };
+            let (ui, device, key) = (ui.clone(), device.to_owned(), key.to_owned());
+            glib::spawn_future_local(async move { quick_reply(&ui, &device, &key).await });
+        });
+    }
+    let present = gtk::gio::SimpleAction::new("present", None);
+    {
+        let ui = ui.clone();
+        present.connect_activate(move |_, _| ui.window.present());
+    }
+    let send = gtk::gio::SimpleAction::new("send-files", None);
+    {
+        let ui = ui.clone();
+        send.connect_activate(move |_, _| {
+            ui.window.present();
+            show_page(&ui, "files", false);
+            let Some(d) = ui.ctx.device() else { return };
+            let ui = ui.clone();
+            glib::spawn_future_local(async move { pick_and_send(&ui, &d.id, &d.name).await });
+        });
+    }
     if let Some(app) = ui.window.application() {
+        app.add_action(&present);
+        app.add_action(&reply);
+        app.add_action(&send);
         app.add_action(&page);
         app.add_action(&device);
     }
+    let picture = gtk::gio::SimpleAction::new("picture", None);
+    {
+        let ui = ui.clone();
+        picture.connect_activate(move |_, _| {
+            let ui = ui.clone();
+            glib::spawn_future_local(async move { choose_picture(&ui).await });
+        });
+    }
+    ui.window.add_action(&picture);
     ui.window.add_action(&reload);
     ui.window.add_action(&pair);
     ui.window.add_action(&unpair);
@@ -484,6 +565,12 @@ fn show_page(ui: &Rc<Ui>, name: &str, force: bool) {
             ui.page_title.set_subtitle("");
             notifications::reload(&ui.notifications);
         }
+        "storage" => {
+            ui.page_title.set_subtitle("");
+            if fresh || force {
+                storage::reload(&ui.storage, fresh);
+            }
+        }
         _ => ui.page_title.set_subtitle(""),
     }
     let mut loaded = ui.loaded.borrow_mut();
@@ -505,8 +592,10 @@ fn select_device(ui: &Rc<Ui>, d: Device) {
     notifications::reload(&ui.notifications);
 }
 
-fn update_hero(ui: &Ui, d: &Device) {
-    ui.picture.set_paintable(Some(&device_texture(&d.ty)));
+fn update_hero(ui: &Rc<Ui>, d: &Device) {
+    ui.picture.set_paintable(Some(&device_picture(d)));
+    ui.ring.set_sensitive(d.connected);
+    update_features(ui, d);
     ui.phone_name.set_label(&d.name);
     ui.phone_status
         .set_label(&status_text(d.connected, d.battery, d.charging));
@@ -658,6 +747,238 @@ fn save_last_device(id: &str) {
     }
     let tmp = path.with_extension("part");
     let _ = std::fs::write(&tmp, id).and_then(|_| std::fs::rename(&tmp, &path));
+}
+
+/// A small window to answer a phone notification (a chat message) without opening the app.
+async fn quick_reply(ui: &Rc<Ui>, device: &str, key: &str) {
+    #[derive(serde::Deserialize)]
+    struct Posted {
+        key: String,
+        #[serde(default)]
+        app: String,
+        #[serde(default)]
+        title: String,
+        #[serde(default)]
+        text: String,
+    }
+    let Some(p) = ui.ctx.proxy() else { return };
+    let list: Vec<Posted> = p
+        .list_notifications(device)
+        .await
+        .ok()
+        .and_then(|j| serde_json::from_str(&j).ok())
+        .unwrap_or_default();
+    let Some(n) = list.into_iter().find(|n| n.key == key) else {
+        ui.ctx.toast("That message is no longer on your phone");
+        return;
+    };
+    let header = adw::HeaderBar::builder()
+        .title_widget(&adw::WindowTitle::new(&n.title, &n.app))
+        .build();
+    let message = gtk::Label::builder()
+        .label(&n.text)
+        .wrap(true)
+        .wrap_mode(gtk::pango::WrapMode::WordChar)
+        .xalign(0.0)
+        .selectable(true)
+        .lines(8)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .css_classes(["bubble", "in"])
+        .halign(gtk::Align::Start)
+        .build();
+    let entry = gtk::Entry::builder()
+        .placeholder_text("Reply…")
+        .hexpand(true)
+        .build();
+    let send = gtk::Button::builder()
+        .icon_name("mail-send-symbolic")
+        .tooltip_text("Send")
+        .css_classes(["circular", "suggested-action"])
+        .sensitive(false)
+        .build();
+    let row = gtk::Box::builder().spacing(8).build();
+    row.append(&entry);
+    row.append(&send);
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(14)
+        .margin_top(6)
+        .margin_bottom(16)
+        .margin_start(16)
+        .margin_end(16)
+        .build();
+    content.append(&message);
+    content.append(&row);
+    let view = adw::ToolbarView::new();
+    view.add_top_bar(&header);
+    view.set_content(Some(&content));
+    let win = adw::Window::builder()
+        .title(format!("Reply to {}", n.title))
+        .default_width(420)
+        .content(&view)
+        .build();
+    if let Some(app) = ui.window.application() {
+        win.set_application(Some(&app));
+    }
+    let esc = gtk::ShortcutController::new();
+    esc.add_shortcut(gtk::Shortcut::new(
+        gtk::ShortcutTrigger::parse_string("Escape"),
+        Some(gtk::CallbackAction::new(|w, _| {
+            if let Some(w) = w.downcast_ref::<gtk::Window>() {
+                w.close();
+            }
+            glib::Propagation::Stop
+        })),
+    ));
+    win.add_controller(esc);
+    {
+        let send = send.clone();
+        entry.connect_changed(move |e| send.set_sensitive(!e.text().trim().is_empty()));
+    }
+    let go = {
+        let (win, entry, device, key) = (
+            win.clone(),
+            entry.clone(),
+            device.to_owned(),
+            key.to_owned(),
+        );
+        move || {
+            let text = entry.text().trim().to_owned();
+            if text.is_empty() {
+                return;
+            }
+            entry.set_sensitive(false);
+            let (win, entry, p, device, key) = (
+                win.clone(),
+                entry.clone(),
+                p.clone(),
+                device.clone(),
+                key.clone(),
+            );
+            glib::spawn_future_local(async move {
+                let body = serde_json::json!({ "key": key, "text": text }).to_string();
+                match p.command(&device, "notif.reply", &body).await {
+                    Ok(()) => win.close(),
+                    Err(e) => {
+                        entry.set_sensitive(true);
+                        entry.set_placeholder_text(Some(&ctx::dbus_error(e).text()));
+                    }
+                }
+            });
+        }
+    };
+    let go2 = go.clone();
+    entry.connect_activate(move |_| go());
+    send.connect_clicked(move |_| go2());
+    dev_snapshots(&win, "reply");
+    win.present();
+    entry.grab_focus();
+}
+
+/// Shows only the features the connected phone supports (all of them while it's offline, so
+/// the pages can say why they're empty).
+fn update_features(ui: &Rc<Ui>, d: &Device) {
+    let (Some(p), id) = (ui.ctx.proxy(), d.id.clone()) else {
+        return;
+    };
+    let ui = ui.clone();
+    glib::spawn_future_local(async move {
+        let caps = p.device_caps(&id).await.unwrap_or_default();
+        if ui.ctx.device().map(|d| d.id) != Some(id) {
+            return;
+        }
+        for (i, (name, _, _)) in PAGES.iter().enumerate() {
+            let cap = page_cap(name);
+            let shown = caps.is_empty() || cap.is_empty() || caps.iter().any(|c| c == cap);
+            if let Some(row) = ui.nav.row_at_index(i as i32) {
+                row.set_visible(shown);
+            }
+        }
+        ui.ring
+            .set_visible(caps.is_empty() || caps.iter().any(|c| c == "find"));
+    });
+}
+
+fn ring_phone(ui: &Rc<Ui>) {
+    let (Some(p), Some(d)) = (ui.ctx.proxy(), ui.ctx.device()) else {
+        return;
+    };
+    let ui = ui.clone();
+    glib::spawn_future_local(async move {
+        if let Err(e) = p.command(&d.id, "find.ring", "{}").await {
+            ui.ctx.toast(&ctx::dbus_error(e).text());
+            return;
+        }
+        let toast = adw::Toast::builder()
+            .title(format!("Ringing {}…", d.name))
+            .button_label("Stop")
+            .timeout(0)
+            .build();
+        let id = d.id.clone();
+        toast.connect_button_clicked(move |_| {
+            let (p, id) = (p.clone(), id.clone());
+            glib::spawn_future_local(async move {
+                let _ = p.command(&id, "find.stop", "{}").await;
+            });
+        });
+        // The phone gives up after a minute by itself.
+        let weak = toast.downgrade();
+        glib::timeout_add_local_once(Duration::from_secs(60), move || {
+            if let Some(t) = weak.upgrade() {
+                t.dismiss();
+            }
+        });
+        ui.toasts.add_toast(toast);
+    });
+}
+
+/// A picture the user chose for a device (`~/.local/share/continuum/pictures/<id>.png`).
+pub fn custom_picture_path(id: &str) -> std::path::PathBuf {
+    let id: String = id.chars().filter(char::is_ascii_hexdigit).collect();
+    glib::user_data_dir()
+        .join("continuum")
+        .join("pictures")
+        .join(format!("{id}.png"))
+}
+
+fn device_picture(d: &Device) -> gtk::gdk::Texture {
+    gtk::gdk::Texture::from_filename(custom_picture_path(&d.id))
+        .unwrap_or_else(|_| device_texture(&d.ty))
+}
+
+async fn choose_picture(ui: &Rc<Ui>) {
+    let Some(d) = ui.ctx.device() else { return };
+    let filter = gtk::FileFilter::new();
+    filter.add_pixbuf_formats();
+    filter.set_name(Some("Images"));
+    let filters = gtk::gio::ListStore::new::<gtk::FileFilter>();
+    filters.append(&filter);
+    let dialog = gtk::FileDialog::builder()
+        .title(format!("Picture for {}", d.name))
+        .filters(&filters)
+        .build();
+    let Ok(file) = dialog.open_future(Some(&ui.window)).await else {
+        return;
+    };
+    let Some(path) = file.path() else { return };
+    let Ok(texture) = gtk::gdk::Texture::from_filename(&path) else {
+        ui.ctx.toast("That file isn't a picture");
+        return;
+    };
+    let target = custom_picture_path(&d.id);
+    let tmp = target.with_extension("part");
+    let saved = target
+        .parent()
+        .map(std::fs::create_dir_all)
+        .unwrap_or(Ok(()))
+        .is_ok()
+        && texture.save_to_png(&tmp).is_ok()
+        && std::fs::rename(&tmp, &target).is_ok();
+    if saved {
+        update_hero(ui, &d);
+    } else {
+        ui.ctx.toast("Couldn't save the picture");
+    }
 }
 
 fn device_texture(ty: &str) -> gtk::gdk::Texture {

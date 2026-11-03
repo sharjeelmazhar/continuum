@@ -33,6 +33,8 @@ class RequestsTest {
         assertEquals(NotifReply("k", "ok"), parse("""{"type":"notif.reply","body":{"key":"k","text":"ok"}}""").body(NotifReply.serializer()))
         assertEquals(NotifAction("k", 1), parse("""{"type":"notif.action","body":{"key":"k","index":1}}""").body(NotifAction.serializer()))
         assertEquals(NotifKey("k"), parse("""{"type":"notif.dismiss","body":{"key":"k"}}""").body(NotifKey.serializer()))
+        assertEquals(FilesRequest(8, "DCIM/Camera"), parse("""{"type":"files.list","body":{"req":8,"path":"DCIM/Camera"}}""").body(FilesRequest.serializer()))
+        assertEquals(FilesRequest(8, ""), parse("""{"type":"files.list","body":{"req":8}}""").body(FilesRequest.serializer()))
         assertEquals(9L, parse("""{"type":"sms.send","body":{"req":9}}""").body(RequestId.serializer()).req)
     }
 
@@ -48,6 +50,12 @@ class RequestsTest {
         assertEquals(setOf("req"), keys(Envelope.of("x", Ack.serializer(), Ack(1)).body))
         val err = Envelope.of("x", ErrorReply.serializer(), ErrorReply(1, ErrorReply.PERMISSION)).body
         assertEquals("permission", err["error"]!!.jsonPrimitive.content)
+        val entry = FileEntry("a.txt", false, 3, 4, "text/plain")
+        assertEquals(setOf("name", "dir", "size", "date", "mime"), keys(WireJson.encodeToJsonElement(FileEntry.serializer(), entry).jsonObject))
+        // `truncated` only when the list was cut.
+        assertEquals(setOf("req", "path", "entries"), keys(Envelope.of("x", FilesListReply.serializer(), FilesListReply(1, "", listOf(entry))).body))
+        val cut = Envelope.of("x", FilesListReply.serializer(), FilesListReply(1, "", listOf(entry), true)).body
+        assertEquals("true", cut["truncated"]!!.jsonPrimitive.content)
         val thread = SmsThread(1, "+1", "", "hey", 5, 2, true)
         val threads = Envelope.of("x", SmsThreadsReply.serializer(), SmsThreadsReply(1, listOf(thread))).body
         assertEquals(setOf("req", "threads"), keys(threads))
@@ -68,7 +76,9 @@ class RequestsTest {
         assertEquals("photos.list.reply", FeatureType.reply(FeatureType.PHOTOS_LIST))
         assertTrue(FeatureType.SMS_SEND in FeatureType.REQUESTS)
         assertFalse(FeatureType.NOTIF_REPLY in FeatureType.REQUESTS)
-        assertTrue(Protocol.CAPS.containsAll(listOf("photos", "sms", "notif")))
+        assertTrue(Protocol.CAPS.containsAll(listOf("photos", "sms", "notif", "files", "find")))
+        assertTrue(FeatureType.FILES_LIST in FeatureType.REQUESTS && FeatureType.FILES_FETCH in FeatureType.REQUESTS)
+        assertFalse(FeatureType.FIND_RING in FeatureType.REQUESTS)
     }
 
     @Test
@@ -83,7 +93,9 @@ class RequestsTest {
         assertEquals(1, Limits.parts(1))
         assertEquals(1, Limits.parts(512L * 1024))
         assertEquals(2, Limits.parts(512L * 1024 + 1))
-        assertEquals(100, Limits.parts(Limits.FETCH_MAX_BYTES))
+        assertEquals(8192, Limits.parts(Limits.FETCH_MAX_BYTES))
+        assertEquals(8193, Limits.parts(Limits.FETCH_MAX_BYTES + 1))
+        assertEquals(0, Limits.parts(0))
         assertNull(Limits.smsBody(""))
         assertEquals("x".repeat(5000), Limits.smsBody("x".repeat(5000)))
         assertNull(Limits.smsBody("x".repeat(5001)))

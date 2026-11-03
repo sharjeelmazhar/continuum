@@ -117,7 +117,7 @@ async fn command(ctx: &Ctx, kind: &str, body: serde_json::Value) {
     let (Some(p), Some(d)) = (ctx.proxy(), ctx.device()) else {
         return;
     };
-    if let Err(e) = p.notification_command(&d.id, kind, &body.to_string()).await {
+    if let Err(e) = p.command(&d.id, kind, &body.to_string()).await {
         ctx.toast(&ctx::dbus_error(e).text());
     }
 }

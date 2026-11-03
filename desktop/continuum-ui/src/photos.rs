@@ -246,6 +246,7 @@ pub fn reload(page: &Rc<Photos>) {
         *page.device.borrow_mut() = device;
     }
     page.generation.set(page.generation.get() + 1);
+    page.subtitle.set_label("");
     page.store.remove_all();
     page.bound.borrow_mut().clear();
     page.queue.borrow_mut().clear();
@@ -480,11 +481,42 @@ fn open_viewer(page: &Rc<Photos>, photo: Photo) {
     if video {
         let status = ctx::status_page(
             "media-playback-start-symbolic",
-            "Video",
-            "Save the video to this computer to play it.",
+            "Getting the Video…",
+            &format!(
+                "{} from your phone. It opens in your video player.",
+                human_size(photo.size)
+            ),
         );
+        status.set_child(Some(
+            &gtk::Spinner::builder()
+                .spinning(true)
+                .width_request(32)
+                .height_request(32)
+                .build(),
+        ));
         stack.add_named(&status, Some("video"));
         stack.set_visible_child_name("video");
+        let dialog = dialog.downgrade();
+        glib::spawn_future_local(async move {
+            let result = ctx.fetch_photo(id).await;
+            let Some(d) = dialog.upgrade() else { return };
+            match result {
+                Ok(path) => {
+                    d.close();
+                    let file = gtk::gio::File::for_path(&path);
+                    gtk::FileLauncher::new(Some(&file)).launch(
+                        Some(&ctx.window),
+                        gtk::gio::Cancellable::NONE,
+                        |_| {},
+                    );
+                }
+                Err(e) => {
+                    status.set_title("Couldn't Get the Video");
+                    status.set_description(Some(&e.text()));
+                    status.set_child(gtk::Widget::NONE);
+                }
+            }
+        });
         return;
     }
 
