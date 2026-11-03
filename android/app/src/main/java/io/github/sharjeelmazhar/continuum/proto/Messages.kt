@@ -61,7 +61,16 @@ data class PairAccept(val id: String, val name: String, @SerialName("type") val 
 data class PairReject(val reason: String)
 
 @Serializable
-data class BatteryStatus(val level: Int, val charging: Boolean)
+data class BatteryStatus(
+    val level: Int,
+    val charging: Boolean,
+    /** Charging power in whole watts (0 = unknown). */
+    val watts: Int = 0,
+    /** A fast charger is plugged in (or the phone is charging at 15 W or more). */
+    val fast: Boolean = false,
+    /** Minutes until full (-1 = unknown). */
+    @SerialName("full_in") val fullIn: Int = -1,
+)
 
 @Serializable
 data class FileMeta(val name: String, val size: Long, val mime: String = "")

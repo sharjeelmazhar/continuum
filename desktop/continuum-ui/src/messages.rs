@@ -25,6 +25,9 @@ struct Thread {
     unread: u32,
     #[serde(default)]
     out: bool,
+    /// Base64 JPEG of the contact's photo.
+    #[serde(default)]
+    photo: String,
 }
 
 impl Thread {
@@ -109,7 +112,7 @@ pub fn build(ctx: &Rc<Ctx>) -> Rc<Messages> {
             .vexpand(true)
             .build(),
     );
-    left.set_width_request(300);
+    left.set_width_request(240);
     left.add_css_class("thread-pane");
 
     let chat_title = adw::WindowTitle::new("", "");
@@ -173,10 +176,17 @@ pub fn build(ctx: &Rc<Ctx>) -> Rc<Messages> {
     chat_stack.add_named(&chat, Some("chat"));
     chat_stack.set_hexpand(true);
 
-    let split = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    split.append(&left);
-    split.append(&gtk::Separator::new(gtk::Orientation::Vertical));
-    split.append(&chat_stack);
+    // Drag the divider to make the conversation list wider or narrower; remembered.
+    let split = gtk::Paned::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .start_child(&left)
+        .end_child(&chat_stack)
+        .resize_start_child(false)
+        .shrink_start_child(false)
+        .shrink_end_child(false)
+        .position(saved_split().unwrap_or(300))
+        .build();
+    split.connect_position_notify(|p| save_split(p.position()));
     widget.add_named(&split, Some("main"));
     widget.add_named(
         &gtk::Spinner::builder()
@@ -342,8 +352,42 @@ fn same_number(a: &str, b: &str) -> bool {
     }
 }
 
+fn split_file() -> std::path::PathBuf {
+    glib::user_config_dir()
+        .join("continuum")
+        .join("messages-split")
+}
+
+fn saved_split() -> Option<i32> {
+    std::fs::read_to_string(split_file())
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+fn save_split(position: i32) {
+    let path = split_file();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(path, position.to_string());
+}
+
+/// The contact's photo from the phone, if it sent one.
+fn contact_photo(t: &Thread) -> Option<gtk::gdk::Texture> {
+    use base64::Engine;
+    let jpeg = base64::engine::general_purpose::STANDARD
+        .decode(&t.photo)
+        .ok()?;
+    gtk::gdk::Texture::from_bytes(&glib::Bytes::from(&jpeg)).ok()
+}
+
 fn thread_row(t: &Thread) -> gtk::ListBoxRow {
     let avatar = adw::Avatar::new(40, Some(t.title()), !t.name.is_empty());
+    if let Some(photo) = contact_photo(t) {
+        avatar.set_custom_image(Some(&photo));
+    }
     let name = gtk::Label::builder()
         .label(t.title())
         .xalign(0.0)

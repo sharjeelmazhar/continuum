@@ -205,6 +205,32 @@ impl Api {
         self.daemon.caps(id)
     }
 
+    /// Puts files on the desktop clipboard (Files, chat apps and editors paste them; the newest
+    /// image also pastes as a picture). Only existing regular files are taken.
+    fn copy_files(&self, paths: Vec<String>) -> zbus::fdo::Result<()> {
+        let files: Vec<std::path::PathBuf> = paths
+            .into_iter()
+            .take(500)
+            .map(std::path::PathBuf::from)
+            .filter(|p| p.is_absolute() && p.is_file())
+            .collect();
+        if files.is_empty() {
+            return Err(zbus::fdo::Error::InvalidArgs("no files".into()));
+        }
+        self.daemon.clip.files(files);
+        Ok(())
+    }
+
+    /// Charging details: (watts or 0, fast charger, minutes to full or -1).
+    fn battery_details(&self, id: &str) -> (u16, bool, i32) {
+        self.daemon
+            .list()
+            .into_iter()
+            .find(|s| s.device.id == id)
+            .and_then(|s| s.battery)
+            .map_or((0, false, -1), |b| (b.watts, b.fast, b.full_in))
+    }
+
     #[zbus(property)]
     fn name(&self) -> String {
         self.daemon.name.clone()

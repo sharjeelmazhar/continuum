@@ -163,6 +163,19 @@ pub struct PairReject {
 pub struct BatteryStatus {
     pub level: u8,
     pub charging: bool,
+    /// Charging power in watts while charging (0 = unknown; phones before 0.5.1 don't send it).
+    #[serde(default)]
+    pub watts: u16,
+    /// A fast charger is plugged in.
+    #[serde(default)]
+    pub fast: bool,
+    /// Minutes until full while charging (-1 = unknown).
+    #[serde(default = "unknown")]
+    pub full_in: i32,
+}
+
+fn unknown() -> i32 {
+    -1
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -341,7 +354,10 @@ mod tests {
             m.body::<BatteryStatus>().unwrap(),
             BatteryStatus {
                 level: 82,
-                charging: true
+                charging: true,
+                watts: 0,
+                fast: false,
+                full_in: -1,
             }
         );
     }

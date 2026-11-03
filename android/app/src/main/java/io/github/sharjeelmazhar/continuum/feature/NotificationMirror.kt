@@ -37,6 +37,17 @@ object NotifBridge {
 
     fun isEnabled(context: Context) = context.packageName in NotificationManagerCompat.getEnabledListenerPackages(context)
 
+    /**
+     * Android often leaves the listener unbound after an app update, and MIUI after killing
+     * the app, even though access is still granted. Ask for it back.
+     */
+    fun rebindIfNeeded(context: Context) {
+        if (listener != null || !isEnabled(context)) return
+        runCatching {
+            NotificationListenerService.requestRebind(ComponentName(context, NotificationMirror::class.java))
+        }
+    }
+
     /** Opens the system screen where the user allows notification access for Continuum. */
     fun openSettings(context: Context) {
         val detail = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -72,6 +83,8 @@ class NotificationMirror : NotificationListenerService() {
         shown.clear()
         runCatching { activeNotifications }.getOrNull()?.filter { mirrored(it) }?.forEach { shown[it.key] = it }
         NotifBridge.listener = this
+        // Bound after the computer connected (e.g. a late rebind): send what's already showing.
+        snapshot().forEach { NotifBridge.events.tryEmit(NotifEvent.Posted(it)) }
     }
 
     override fun onListenerDisconnected() {

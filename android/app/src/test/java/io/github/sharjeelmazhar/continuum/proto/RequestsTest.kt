@@ -59,7 +59,7 @@ class RequestsTest {
         val thread = SmsThread(1, "+1", "", "hey", 5, 2, true)
         val threads = Envelope.of("x", SmsThreadsReply.serializer(), SmsThreadsReply(1, listOf(thread))).body
         assertEquals(setOf("req", "threads"), keys(threads))
-        assertEquals(setOf("thread", "address", "name", "snippet", "date", "unread", "out"), keys(WireJson.encodeToJsonElement(SmsThread.serializer(), thread).jsonObject))
+        assertEquals(setOf("thread", "address", "name", "snippet", "date", "unread", "out", "photo"), keys(WireJson.encodeToJsonElement(SmsThread.serializer(), thread).jsonObject))
         val m = SmsMessage(1, "+1", "b", 2, false, "received")
         assertEquals(setOf("id", "address", "body", "date", "out", "status"), keys(WireJson.encodeToJsonElement(SmsMessage.serializer(), m).jsonObject))
         val n = NotifPosted("k", "p", "App", "t", "x", 1, "", true, listOf("Mark read"), false)
@@ -87,7 +87,7 @@ class RequestsTest {
         assertEquals(1, Limits.limit(-5))
         assertEquals(200, Limits.limit(10_000))
         assertEquals(64, Limits.thumbSize(1))
-        assertEquals(320, Limits.thumbSize(4096))
+        assertEquals(640, Limits.thumbSize(4096))
         assertTrue(Limits.validReq(0) && Limits.validReq(0xFFFF_FFFFL))
         assertFalse(Limits.validReq(-1) || Limits.validReq(0x1_0000_0000L))
         assertEquals(1, Limits.parts(1))

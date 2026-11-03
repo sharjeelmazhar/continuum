@@ -68,7 +68,7 @@ jobs:
       - name: Build
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libgtk-4-dev libadwaita-1-dev libdbus-1-dev pkg-config
+          sudo apt-get install -y -qq libgtk-4-dev libadwaita-1-dev libdbus-1-dev libgstreamer1.0-dev pkg-config
           cd desktop && cargo build --release --locked -p continuumd -p continuum-ui
       - name: Bundle and upload
         env:

@@ -43,7 +43,7 @@
 | M11 | Hardening and release | ☐ |
 
 ## Log (newest first)
-- 3 November 2026: v0.5.1. Turning off the shade switch opens the Android channel switch directly; card shows "Hidden everywhere" once done. Real Redmi confirmed: 0.5.0 update, permissions, lock-screen switch, multi-screenshot share to clipboard.
+- 3 November 2026: v0.5.1. In-app video (GStreamer gtk4paintablesink, falls back to the video player), grid multi-select with right-click Copy/Save (CopyFiles D-Bus method, real file names), 480 px thumbnails, resizable Messages split, contact photos, battery watts/fast/time-to-full with one or two bolts, desktop pings every 3 s (9 s timeout), notification listener rebind, shade switch opens the Android channel switch. Found: the emulator's clipboard sharing overwrote the PC clipboard with empty text (now off in Emulator.conf). Real Redmi: 0.5.0 update, permissions, lock-screen switch, multi-screenshot share to clipboard confirmed by the owner.
 - 3 November 2026: v0.5.0. Phone storage browser, videos (streamed to disk, up to 4 GiB), Ring
   (alarm stream, max volume), quick reply from desktop popups, received files on the clipboard
   (gnome-copied-files, uri-list, image, paths), GNOME Quick Settings extension, Apple-style

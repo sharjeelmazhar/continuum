@@ -27,8 +27,10 @@ use crate::transfer::Progress;
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const PAIR_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-/// No frame for this long (the phone pings every 20 s) means the connection is dead.
-pub const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+/// We ping the phone this often, so a phone that drops off Wi-Fi shows as gone within seconds.
+const PING_EVERY: Duration = Duration::from_secs(3);
+/// No frame for this long (pings answered, or the phone's own) means the connection is dead.
+pub const IDLE_TIMEOUT: Duration = Duration::from_secs(9);
 
 /// Accepts connections forever.
 pub async fn serve(daemon: Arc<Daemon>, listener: TcpListener) -> std::io::Result<()> {
@@ -297,6 +299,18 @@ async fn session<R: AsyncRead + Unpin>(
     kill: &Notify,
 ) -> Result<(), String> {
     let mut clip = Assembler::default();
+    let pinger = {
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(PING_EVERY).await;
+                if tx.send(Message::new(m::PING)).await.is_err() {
+                    break;
+                }
+            }
+        })
+    };
+    let _stop_pinger = AbortOnDrop(pinger);
     loop {
         let msg = tokio::select! {
             msg = reader.next(IDLE_TIMEOUT) => msg?,
@@ -306,8 +320,12 @@ async fn session<R: AsyncRead + Unpin>(
             m::PING => send(tx, Ok(Message::new(m::PONG))).await?,
             m::PONG | m::ERROR => {}
             m::BATTERY_STATUS => match msg.body::<BatteryStatus>() {
-                Ok(b) if b.level <= 100 => {
-                    info!(
+                Ok(mut b) if b.level <= 100 => {
+                    b.watts = b.watts.min(240);
+                    if !(0..=24 * 60).contains(&b.full_in) {
+                        b.full_in = -1;
+                    }
+                    debug!(
                         "{} battery {}%{}",
                         device.name,
                         b.level,
@@ -464,4 +482,13 @@ async fn send(
     tx.send(msg)
         .await
         .map_err(|_| "connection closed".to_owned())
+}
+
+/// Stops a background task when the session ends, however it ends.
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }

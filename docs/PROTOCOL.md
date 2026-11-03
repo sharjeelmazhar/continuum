@@ -59,8 +59,10 @@ continuum://pair?v=1&h=<ip>[,<ip>…]&p=<port>&fp=<64 hex>&s=<secret>&n=<desktop
 - Both sides send `hello { "v": 1, "id", "name", "type", "caps": [ … ] }` first (the phone
   right after connecting or after `pair.accept`; the desktop in reply). Features are used only
   if both `caps` lists contain them.
-- Keepalive: the phone sends `ping {}` every 20 s; the desktop answers `pong {}`. 60 s without
-  any frame = connection dead; the phone reconnects with backoff (1, 2, 4 … 30 s).
+- Keepalive: the phone sends `ping {}` every 20 s and the desktop (0.5.1+) every 3 s; each side
+  answers `pong {}`. The desktop drops a session after 9 s without any frame (so a phone that
+  leaves Wi-Fi shows as gone within seconds); the phone after 60 s, then reconnects with backoff
+  (1, 2, 4 … 30 s).
 - **Wake nudge (UDP):** when the desktop daemon starts, it sends the UTF-8 datagram
   `continuum-wake 1 <desktop id>` to UDP port 47820 at the last address of each paired phone
   that isn't connected (at 0, 2, 5, 10, 20 and 40 s). A phone that's paired with that id and
@@ -72,7 +74,7 @@ continuum://pair?v=1&h=<ip>[,<ip>…]&p=<port>&fp=<64 hex>&s=<secret>&n=<desktop
 ## Messages by plugin
 | Type | Direction | Body |
 |---|---|---|
-| `battery.status` | phone → desktop | `level` 0–100, `charging` bool. Sent after `hello` and on every change. |
+| `battery.status` | phone → desktop | `level` 0–100, `charging` bool; while charging (0.5.1+) also `watts` (0–240, 0 = unknown), `fast` (fast charger) and `full_in` (minutes to full, -1 = unknown). Sent after `hello` and on every change. |
 | `clipboard` | both ways | A copied text or image; see "Clipboard". Needs the `clipboard` cap on both sides. |
 
 Later plugins (`call`, `mirror`, `find`, `media`) add their rows here when they're built.
@@ -91,7 +93,7 @@ downloads (`*.fetch`) run at once per connection; a 4th gets `"busy"`.
 | Type | Body | Reply |
 |---|---|---|
 | `photos.list` | `req`, `offset` ≥ 0, `limit` 1–200 | `items`: `[{ "id" (i64), "name", "mime", "date" (ms since epoch), "size", "w", "h" (as displayed: rotation applied), "dur" (ms, 0 for images) }]`, newest first; `total` |
-| `photos.thumbs` | `req`, `ids` (≤ 24), `size` (longest side, 64–320 px) | `items`: `[{ "id", "data" (base64 JPEG) }]`. Ids that no longer exist, or don't fit in the 900 KB budget, are left out (ask again). |
+| `photos.thumbs` | `req`, `ids` (≤ 24), `size` (longest side, 64–640 px; older phones cap at 320) | `items`: `[{ "id", "data" (base64 JPEG) }]`. Ids that no longer exist, or don't fit in the 900 KB budget, are left out (ask again). |
 | `photos.fetch` | `req`, `id` | `name`, `mime`, `size`, `parts`; then `parts` × `photos.part { "req", "part", "data" }` (512 KiB raw per part, base64, in order). Photos and videos, at most 4 GiB. Image formats other than JPEG/PNG/WebP/GIF (e.g. HEIC) are converted to JPEG first; videos are sent as they are. |
 | `photos.send` | `req`, `ids` (≤ 100) | `{}`. The phone sends those photos/videos as a normal file transfer (`share.offer`), so they land in the download folder. |
 
@@ -117,7 +119,7 @@ root. Needs "All files access" on Android 11+ (storage permission before), else 
 ### Messages (cap `sms`)
 | Type | Body | Reply |
 |---|---|---|
-| `sms.threads` | `req`, `limit` 1–200 | `threads`: `[{ "thread" (i64), "address", "name" (contact name or ""), "snippet", "date" (ms), "unread" (count), "out" (last message was sent by the phone) }]`, newest first |
+| `sms.threads` | `req`, `limit` 1–200 | `threads`: `[{ "thread" (i64), "address", "name" (contact name or ""), "snippet", "date" (ms), "unread" (count), "out" (last message was sent by the phone), "photo" (0.5.1+: the contact's photo, 96 px base64 JPEG, or "" when there is none or the 500 KB photo budget is used up) }]`, newest first |
 | `sms.messages` | `req`, `thread`, `before` (ms, 0 = newest), `limit` 1–200 | `messages`: `[{ "id", "address", "body", "date", "out", "status" ("sent", "sending", "failed", "received") }]`, **oldest first** (the newest `limit` messages older than `before`) |
 | `sms.send` | `req`, `address`, `body` (1–5000 characters) | `{}` once the phone has handed it to the modem |
 

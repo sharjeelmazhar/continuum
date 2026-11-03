@@ -7,6 +7,7 @@ mod daemon;
 mod messages;
 mod notifications;
 mod photos;
+mod player;
 mod qr;
 mod storage;
 mod window;

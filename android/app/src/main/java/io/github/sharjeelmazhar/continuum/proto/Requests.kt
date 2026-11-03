@@ -40,7 +40,7 @@ object Limits {
     const val LIST_MAX = 200
     const val THUMB_IDS_MAX = 24
     const val THUMB_MIN = 64
-    const val THUMB_MAX = 320
+    const val THUMB_MAX = 640
     const val SEND_IDS_MAX = 100
     /** Largest photo, video or file a `*.fetch` streams (4 GiB). */
     const val FETCH_MAX_BYTES = 4L shl 30
@@ -194,6 +194,8 @@ data class SmsThread(
     val date: Long,
     val unread: Int,
     val out: Boolean,
+    /** The contact's photo as a small base64 JPEG ("" = none, or over the reply budget). */
+    val photo: String = "",
 )
 
 @Serializable

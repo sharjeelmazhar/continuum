@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.database.Cursor
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -17,9 +19,17 @@ import io.github.sharjeelmazhar.continuum.proto.Limits
 import io.github.sharjeelmazhar.continuum.proto.SmsMessage
 import io.github.sharjeelmazhar.continuum.proto.SmsThread
 import androidx.core.net.toUri
+import java.io.ByteArrayOutputStream
+import java.util.Base64
 
 /** Reads and sends text messages for the computer (PROTOCOL.md, "Messages"). */
 class Sms(private val context: Context) {
+    private companion object {
+        /** Contact photos are sent at this size, within this much of the threads reply. */
+        const val PHOTO_PX = 96
+        const val PHOTOS_BUDGET = 500_000
+    }
+
     private val cr = context.contentResolver
 
     fun canRead() = granted(Manifest.permission.READ_SMS)
@@ -31,16 +41,37 @@ class Sms(private val context: Context) {
         rows += querySms(null, null, SmsData.SCAN_MAX)
         val mms = queryMms(null, null, SmsData.SCAN_MAX)
         rows += mms
-        val names = HashMap<String, String>()
-        val threads = SmsData.threads(rows, limit) { addr -> names.getOrPut(addr) { contactName(addr) } }
+        val contacts = HashMap<String, Contact>()
+        val contact = { addr: String -> contacts.getOrPut(addr) { contact(addr) } }
+        val threads = SmsData.threads(rows, limit) { addr -> contact(addr).name }
         // Threads with only MMS have no address yet: read it from the latest MMS.
-        return threads.map { t ->
+        val named = threads.map { t ->
             if (t.address.isNotEmpty()) return@map t
             val latest = mms.firstOrNull { it.thread == t.thread } ?: return@map t
             val addr = mmsAddress(-latest.id, SmsData.isOut(latest.type))
-            if (addr.isEmpty()) t else t.copy(address = addr, name = names.getOrPut(addr) { contactName(addr) })
+            if (addr.isEmpty()) t else t.copy(address = addr, name = contact(addr).name)
+        }
+        var budget = PHOTOS_BUDGET
+        return named.map { t ->
+            val uri = contacts[t.address]?.photo ?: return@map t
+            val data = photo(uri) ?: return@map t
+            if (data.length > budget) return@map t
+            budget -= data.length
+            t.copy(photo = data)
         }
     }
+
+    private data class Contact(val name: String, val photo: Uri?)
+
+    /** A contact's photo, shrunk to a small JPEG (base64). */
+    private fun photo(uri: Uri): String? = runCatching {
+        val bmp = cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } ?: return null
+        val small = Bitmap.createScaledBitmap(bmp, PHOTO_PX, PHOTO_PX, true)
+        val jpeg = ByteArrayOutputStream().also { small.compress(Bitmap.CompressFormat.JPEG, 85, it) }.toByteArray()
+        if (small !== bmp) small.recycle()
+        bmp.recycle()
+        Base64.getEncoder().encodeToString(jpeg)
+    }.getOrNull()
 
     fun messages(thread: Long, before: Long, limit: Int): List<SmsMessage> {
         val n = Limits.limit(limit)
@@ -113,14 +144,16 @@ class Sms(private val context: Context) {
         }
     }.getOrNull().orEmpty()
 
-    private fun contactName(address: String): String {
-        if (!granted(Manifest.permission.READ_CONTACTS)) return ""
+    private fun contact(address: String): Contact {
+        val none = Contact("", null)
+        if (address.isEmpty() || !granted(Manifest.permission.READ_CONTACTS)) return none
         return runCatching {
             val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(address))
-            cr.query(uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null)?.use { c ->
-                if (c.moveToFirst()) c.getString(0) else null
+            val cols = arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME, ContactsContract.PhoneLookup.PHOTO_THUMBNAIL_URI)
+            cr.query(uri, cols, null, null, null)?.use { c ->
+                if (c.moveToFirst()) Contact(c.getString(0).orEmpty(), c.getString(1)?.toUri()) else null
             }
-        }.getOrNull().orEmpty()
+        }.getOrNull() ?: none
     }
 
     private fun <T> read(uri: Uri, projection: Array<String>, selection: String?, args: Array<String>?, order: String, max: Int, row: (Cursor) -> T): List<T> {

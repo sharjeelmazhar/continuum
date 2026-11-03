@@ -1,5 +1,5 @@
 //! A drawn battery like the iPhone's: the fill follows the level, red when low, green with a
-//! bolt while charging.
+//! bolt while charging (two bolts on a fast charger).
 
 use std::cell::Cell;
 use std::f64::consts::PI;
@@ -7,14 +7,15 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 
-const W: i32 = 30;
-const H: i32 = 14;
+const W: i32 = 32;
+const H: i32 = 15;
 
 /// Level 0–100 (or -1 for unknown) and charging.
 #[derive(Clone)]
 pub struct Battery {
     pub widget: gtk::DrawingArea,
     state: Rc<Cell<(i32, bool)>>,
+    fast: Rc<Cell<bool>>,
 }
 
 fn rounded(cr: &gtk::cairo::Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
@@ -34,7 +35,8 @@ impl Battery {
             .valign(gtk::Align::Center)
             .build();
         let state = Rc::new(Cell::new((-1, false)));
-        let s = state.clone();
+        let fast = Rc::new(Cell::new(false));
+        let (s, f) = (state.clone(), fast.clone());
         widget.set_draw_func(move |area, cr, w, h| {
             let (level, charging) = s.get();
             let fg = area.color();
@@ -62,40 +64,119 @@ impl Battery {
             rounded(cr, 2.2, 2.2, width, h - 4.4, 2.0);
             let _ = cr.fill();
             if charging {
-                // A bolt across the middle, cut out with the window background around it.
                 let (cx, cy) = (body_w / 2.0, h / 2.0);
-                let bolt = [
-                    (cx + 1.2, cy - 5.6),
-                    (cx - 3.4, cy + 0.9),
-                    (cx - 0.2, cy + 0.9),
-                    (cx - 1.2, cy + 5.6),
-                    (cx + 3.4, cy - 0.9),
-                    (cx + 0.2, cy - 0.9),
-                ];
-                cr.move_to(bolt[0].0, bolt[0].1);
-                for (x, y) in &bolt[1..] {
-                    cr.line_to(*x, *y);
+                if f.get() {
+                    bolt(cr, cx - 3.2, cy, h - 3.0);
+                    bolt(cr, cx + 3.2, cy, h - 3.0);
+                } else {
+                    bolt(cr, cx, cy, h - 2.0);
                 }
-                cr.close_path();
-                cr.set_source_rgb(1.0, 1.0, 1.0);
-                let _ = cr.fill_preserve();
-                cr.set_source_rgba(0.0, 0.0, 0.0, 0.35);
-                cr.set_line_width(0.6);
-                let _ = cr.stroke();
             }
         });
-        Self { widget, state }
+        Self {
+            widget,
+            state,
+            fast,
+        }
     }
 
     pub fn set(&self, level: i32, charging: bool) {
         self.state.set((level, charging));
+        if !charging {
+            self.fast.set(false);
+        }
         self.widget.set_visible(level >= 0);
         self.widget.queue_draw();
-        let tip = match (level, charging) {
-            (l, _) if l < 0 => String::new(),
-            (l, true) => format!("{l}%, charging"),
-            (l, false) => format!("{l}%"),
-        };
-        self.widget.set_tooltip_text(Some(&tip));
+        self.widget
+            .set_tooltip_text(Some(&tooltip(level, charging, 0, false, -1)));
+    }
+
+    /// Charging power, charger speed and time to full, when the phone reports them.
+    pub fn set_details(&self, watts: u16, fast: bool, full_in: i32) {
+        let (level, charging) = self.state.get();
+        self.fast.set(charging && fast);
+        self.widget.queue_draw();
+        self.widget
+            .set_tooltip_text(Some(&tooltip(level, charging, watts, fast, full_in)));
+    }
+}
+
+/// A classic lightning bolt, centred on (cx, cy) and `h` tall, white with a soft edge.
+fn bolt(cr: &gtk::cairo::Context, cx: f64, cy: f64, h: f64) {
+    const SHAPE: [(f64, f64); 6] = [
+        (0.16, -0.5),
+        (-0.26, 0.08),
+        (-0.02, 0.08),
+        (-0.14, 0.5),
+        (0.26, -0.08),
+        (0.02, -0.08),
+    ];
+    for (i, (x, y)) in SHAPE.iter().enumerate() {
+        let (x, y) = (cx + x * h, cy + y * h);
+        if i == 0 {
+            cr.move_to(x, y);
+        } else {
+            cr.line_to(x, y);
+        }
+    }
+    cr.close_path();
+    cr.set_source_rgb(1.0, 1.0, 1.0);
+    let _ = cr.fill_preserve();
+    cr.set_source_rgba(0.0, 0.0, 0.0, 0.3);
+    cr.set_line_width(0.5);
+    let _ = cr.stroke();
+}
+
+/// "25% · Fast charging · 18 W · Full in 1 h 5 min".
+fn tooltip(level: i32, charging: bool, watts: u16, fast: bool, full_in: i32) -> String {
+    if level < 0 {
+        return String::new();
+    }
+    let mut parts = vec![format!("{level}%")];
+    if charging {
+        parts.push(if level >= 100 {
+            "Charged".to_owned()
+        } else if fast {
+            "Fast charging".to_owned()
+        } else {
+            "Charging".to_owned()
+        });
+        if watts > 0 {
+            parts.push(format!("{watts} W"));
+        }
+        match full_in {
+            m if m > 0 && level < 100 => parts.push(format!("Full in {}", duration(m))),
+            _ => {}
+        }
+    }
+    parts.join(" · ")
+}
+
+fn duration(minutes: i32) -> String {
+    match (minutes / 60, minutes % 60) {
+        (0, m) => format!("{m} min"),
+        (h, 0) => format!("{h} h"),
+        (h, m) => format!("{h} h {m} min"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tooltips() {
+        assert_eq!(tooltip(-1, false, 0, false, -1), "");
+        assert_eq!(tooltip(40, false, 0, false, -1), "40%");
+        assert_eq!(tooltip(25, true, 0, false, -1), "25% · Charging");
+        assert_eq!(
+            tooltip(25, true, 18, true, 65),
+            "25% · Fast charging · 18 W · Full in 1 h 5 min"
+        );
+        assert_eq!(
+            tooltip(90, true, 7, false, 20),
+            "90% · Charging · 7 W · Full in 20 min"
+        );
+        assert_eq!(tooltip(100, true, 2, false, 0), "100% · Charged · 2 W");
     }
 }

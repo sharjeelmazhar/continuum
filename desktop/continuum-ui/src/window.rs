@@ -642,6 +642,15 @@ fn update_hero(ui: &Rc<Ui>, d: &Device) {
     }
     let level = if d.connected { d.battery } else { -1 };
     ui.battery.set(level, d.charging);
+    if d.connected && d.charging {
+        let (battery, proxy, id) = (ui.battery.clone(), ui.ctx.proxy(), d.id.clone());
+        glib::spawn_future_local(async move {
+            let Some(p) = proxy else { return };
+            if let Ok((watts, fast, full_in)) = p.battery_details(&id).await {
+                battery.set_details(watts, fast, full_in);
+            }
+        });
+    }
     ui.battery_label.set_visible(level >= 0);
     ui.battery_label.set_label(&format!("{level}%"));
     ui.battery_label.set_css_classes(if d.charging {

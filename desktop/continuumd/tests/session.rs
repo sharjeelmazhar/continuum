@@ -76,6 +76,10 @@ impl Phone {
         let mut buf = [0u8; 4096];
         loop {
             if let Some(msg) = self.dec.next_message().unwrap() {
+                // The desktop's keep-alive pings can land anywhere; tests don't care.
+                if msg.kind == m::PING {
+                    continue;
+                }
                 return Some(msg);
             }
             let n = tokio::time::timeout(Duration::from_secs(5), self.stream.read(&mut buf))
@@ -149,6 +153,9 @@ async fn pair_report_battery_then_reconnect_without_pairing() {
             &BatteryStatus {
                 level: 77,
                 charging: true,
+                watts: 18,
+                fast: true,
+                full_in: 40,
             },
         )
         .unwrap(),

@@ -120,7 +120,7 @@ class Photos(private val context: Context) {
         val enc = Base64.getEncoder()
         for (m in lookup(ids)) {
             val bmp = runCatching { thumbnail(m, size) }.getOrNull() ?: continue
-            val jpeg = ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, 80, it) }.toByteArray()
+            val jpeg = ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, 85, it) }.toByteArray()
             bmp.recycle()
             val data = enc.encodeToString(jpeg)
             if (used + data.length + 32 > Limits.THUMBS_BUDGET) break

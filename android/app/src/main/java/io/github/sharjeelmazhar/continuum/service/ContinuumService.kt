@@ -44,6 +44,7 @@ import android.net.Network
 import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -59,6 +60,7 @@ import io.github.sharjeelmazhar.continuum.net.Session
 import io.github.sharjeelmazhar.continuum.net.Tls
 import io.github.sharjeelmazhar.continuum.net.UnsupportedAndroidException
 import io.github.sharjeelmazhar.continuum.net.WrongComputerException
+import io.github.sharjeelmazhar.continuum.feature.NotifBridge
 import io.github.sharjeelmazhar.continuum.proto.BatteryStatus
 import io.github.sharjeelmazhar.continuum.proto.Crypto
 import io.github.sharjeelmazhar.continuum.proto.Envelope
@@ -118,6 +120,7 @@ class ContinuumService : Service() {
     override fun onCreate() {
         super.onCreate()
         store = PairedStore(this)
+        NotifBridge.rebindIfNeeded(this)
         val nm = getSystemService(NotificationManager::class.java)
         // "Connected to …": default importance (without sound or vibration), because Android
         // folds silent ones into a dot on the lock screen; a blocked twin for when the user
@@ -369,6 +372,7 @@ class ContinuumService : Service() {
             peerCaps = reply.body(Hello.serializer()).caps
             session.socket.soTimeout = Protocol.IDLE_TIMEOUT_MS
             this.session = session
+            NotifBridge.rebindIfNeeded(this)
             computer = pc
             Shortcuts.publish(this, pc)
             sentBattery = null
@@ -681,6 +685,8 @@ class ContinuumService : Service() {
         }
     }
 
+    private val chargeClock = ChargeClock()
+
     private val batteryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
@@ -688,7 +694,35 @@ class ContinuumService : Service() {
             if (level < 0 || scale <= 0) return
             val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
             val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
-            lastBattery = BatteryStatus((level * 100 / scale).coerceIn(0, 100), charging)
+            val percent = (level * 100 / scale).coerceIn(0, 100)
+            lastBattery = if (charging) {
+                val bm = context.getSystemService(BatteryManager::class.java)
+                val watts = Charging.watts(
+                    bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW) ?: 0,
+                    intent.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0),
+                )
+                // Hidden extras SystemUI uses for "Charging rapidly"; missing on some phones.
+                val charger = Charging.chargerWatts(
+                    intent.getIntExtra("max_charging_current", 0),
+                    intent.getIntExtra("max_charging_voltage", 0),
+                )
+                val fromAndroid = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    bm?.computeChargeTimeRemaining()?.takeIf { it > 0 }?.let { (it / 60_000).toInt() }
+                } else {
+                    null
+                }
+                val estimate = chargeClock.update(percent, true, SystemClock.elapsedRealtime())
+                BatteryStatus(
+                    percent,
+                    true,
+                    watts = Charging.roundWatts(watts),
+                    fast = Charging.fast(watts, charger),
+                    fullIn = if (percent >= 100) 0 else fromAndroid ?: estimate,
+                )
+            } else {
+                chargeClock.update(percent, false, SystemClock.elapsedRealtime())
+                BatteryStatus(percent, false)
+            }
             sendBatteryIfChanged()
         }
     }

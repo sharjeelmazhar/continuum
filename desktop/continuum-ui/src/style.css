@@ -20,6 +20,23 @@
   background-color: alpha(currentColor, 0.06);
 }
 
+.photo-grid > child:selected {
+  background: none;
+}
+
+.photo-grid > child:selected .thumb {
+  outline: 3px solid var(--accent-bg-color, @accent_bg_color);
+  outline-offset: -3px;
+  filter: brightness(0.85);
+}
+
+.select-check {
+  background-color: var(--accent-bg-color, @accent_bg_color);
+  color: var(--accent-fg-color, @accent_fg_color);
+  border-radius: 999px;
+  padding: 3px;
+}
+
 .photo-grid > child:hover .thumb {
   filter: brightness(1.08);
 }

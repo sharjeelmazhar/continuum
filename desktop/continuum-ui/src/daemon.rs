@@ -24,6 +24,8 @@ pub trait Daemon {
     fn fetch_file(&self, id: &str, path: &str, version: &str, save: bool) -> zbus::Result<String>;
     fn command(&self, id: &str, kind: &str, body: &str) -> zbus::Result<()>;
     fn device_caps(&self, id: &str) -> zbus::Result<Vec<String>>;
+    fn copy_files(&self, paths: &[&str]) -> zbus::Result<()>;
+    fn battery_details(&self, id: &str) -> zbus::Result<(u16, bool, i32)>;
     #[zbus(property)]
     fn name(&self) -> zbus::Result<String>;
     #[zbus(signal)]
