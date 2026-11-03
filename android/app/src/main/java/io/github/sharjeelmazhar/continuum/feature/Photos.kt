@@ -21,13 +21,20 @@ import io.github.sharjeelmazhar.continuum.proto.Clip
 import io.github.sharjeelmazhar.continuum.proto.Limits
 import io.github.sharjeelmazhar.continuum.proto.PhotoItem
 import io.github.sharjeelmazhar.continuum.proto.Thumb
-import java.io.ByteArrayInputStream
+import java.io.File
+import java.io.FileInputStream
 import java.io.ByteArrayOutputStream
 import java.util.Base64
 
 /** The phone's photos and videos (MediaStore, all albums) for the computer (PROTOCOL.md, "Photos"). */
 class Photos(private val context: Context) {
     private val cr = context.contentResolver
+
+    init {
+        // Conversions left behind by a crash or power loss.
+        val stale = System.currentTimeMillis() - 3_600_000L
+        File(context.cacheDir, "convert").listFiles()?.filter { it.lastModified() < stale }?.forEach { it.delete() }
+    }
     private val files: Uri = MediaStore.Files.getContentUri("external")
 
     /** One photo or video as stored in MediaStore. */
@@ -47,6 +54,8 @@ class Photos(private val context: Context) {
     }
 
     private fun granted(p: String) = ContextCompat.checkSelfPermission(context, p) == PackageManager.PERMISSION_GRANTED
+
+    @Volatile private var total = -1
 
     /** Newest first (date added, then id); returns the page and the total count. */
     fun list(offset: Int, limit: Int): Pair<List<PhotoItem>, Int> {
@@ -88,8 +97,11 @@ class Photos(private val context: Context) {
                 )
             }
         }
-        val total = cr.query(files, arrayOf(MediaStore.MediaColumns._ID), MEDIA_SELECTION, null, null)?.use { it.count } ?: 0
-        return items to total
+        // Counting the whole gallery is a full scan: once per listing, reused for later pages.
+        if (offset == 0 || total < 0) {
+            total = cr.query(files, arrayOf(MediaStore.MediaColumns._ID), MEDIA_SELECTION, null, null)?.use { it.count } ?: 0
+        }
+        return items to maxOf(total, offset + items.size)
     }
 
     private fun sideways(c: android.database.Cursor): Boolean =
@@ -182,13 +194,31 @@ class Photos(private val context: Context) {
             val mime = m.mime.ifEmpty { "application/octet-stream" }
             return Outgoing(m.name, mime, size, ParcelFileDescriptor.AutoCloseInputStream(pfd))
         }
-        // A full-size bitmap is big: convert one image at a time.
-        val jpeg = synchronized(convertLock) {
-            val bmp = decodeFull(m.uri) ?: throw FetchError("can't read this image")
-            ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }.toByteArray().also { bmp.recycle() }
+        // A full-size bitmap is big: convert one image at a time, into a temporary file (not
+        // memory) that is deleted once sent.
+        val dir = File(context.cacheDir, "convert").apply { mkdirs() }
+        val jpeg = File.createTempFile("photo", ".jpg", dir)
+        try {
+            synchronized(convertLock) {
+                val bmp = decodeFull(m.uri) ?: throw FetchError("can't read this image")
+                try {
+                    jpeg.outputStream().buffered().use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+                } finally {
+                    bmp.recycle()
+                }
+            }
+        } catch (e: Exception) {
+            jpeg.delete()
+            throw e
         }
         val name = m.name.substringBeforeLast('.', m.name).ifEmpty { "photo" } + ".jpg"
-        return Outgoing(name, "image/jpeg", jpeg.size.toLong(), ByteArrayInputStream(jpeg))
+        val input = object : FileInputStream(jpeg) {
+            override fun close() {
+                super.close()
+                jpeg.delete()
+            }
+        }
+        return Outgoing(name, "image/jpeg", jpeg.length(), input)
     }
 
     private fun decodeFull(uri: Uri): Bitmap? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {

@@ -93,7 +93,7 @@ class NotificationMirror : NotificationListenerService() {
         runCatching { activeNotifications }.getOrNull()?.filter { mirrored(it) }?.forEach { shown[it.key] = it }
         NotifBridge.listener = this
         // Bound after the computer connected (e.g. a late rebind): send what's already showing.
-        snapshot().forEach { NotifBridge.events.tryEmit(NotifEvent.Posted(it)) }
+        if (NotifBridge.events.subscriptionCount.value > 0) snapshot().forEach { NotifBridge.events.tryEmit(NotifEvent.Posted(it)) }
     }
 
     override fun onListenerDisconnected() {
@@ -113,6 +113,8 @@ class NotificationMirror : NotificationListenerService() {
             return
         }
         val known = shown.put(sbn.key, sbn) != null
+        // Nobody connected: just remember it (the snapshot sends it on connect).
+        if (NotifBridge.events.subscriptionCount.value == 0) return
         // An update the phone itself doesn't alert for (e.g. progress) doesn't pop up either.
         val quiet = known && sbn.notification.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0
         NotifBridge.events.tryEmit(NotifEvent.Posted(describe(sbn, quiet)))

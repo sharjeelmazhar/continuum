@@ -698,3 +698,72 @@ async fn notifications_from_desktop_mirroring_apps_are_dropped() {
         .collect();
     assert_eq!(keys, ["k2"]);
 }
+
+impl Phone {
+    /// Next frame including pings, or `None` if nothing came within `wait`.
+    async fn frame_within(&mut self, wait: Duration) -> Option<Message> {
+        let mut buf = [0u8; 4096];
+        let until = tokio::time::Instant::now() + wait;
+        loop {
+            if let Some(msg) = self.dec.next_message().unwrap() {
+                return Some(msg);
+            }
+            let n = tokio::time::timeout_at(until, self.stream.read(&mut buf))
+                .await
+                .ok()?
+                .ok()?;
+            if n == 0 {
+                return None;
+            }
+            self.dec.push(&buf[..n]);
+        }
+    }
+}
+
+#[tokio::test]
+async fn idle_phone_gets_slow_pings_and_a_probe_when_the_user_acts() {
+    let d = desktop().await;
+    let uri = d.daemon.start_pairing(vec![]);
+    let id = Identity::generate().unwrap();
+    let mut p = Phone::connect(&id, &d).await;
+    p.pair(&id, &uri).await;
+    let hello = p.hello_caps(&id, &["battery", "find"]).await;
+    assert!(hello.caps.iter().any(|c| c == m::CAP_PRESENCE));
+    p.send(Message::with_body(m::PRESENCE, &m::Presence { active: false }).unwrap())
+        .await;
+    // At most one more ping from the fast pace, then quiet (slow pings are 30 s apart).
+    if let Some(msg) = p.frame_within(Duration::from_secs(4)).await {
+        assert_eq!(msg.kind, m::PING);
+    }
+    p.send(Message::new(m::PONG)).await;
+    assert!(p.frame_within(Duration::from_secs(5)).await.is_none());
+    assert!(d.daemon.list()[0].connected);
+
+    // The user rings the phone: it gets the command and a ping it must answer quickly.
+    let dev = d.daemon.list()[0].device.id.clone();
+    d.daemon
+        .command(&dev, "find.ring", serde_json::json!({}))
+        .await
+        .unwrap();
+    let mut kinds = vec![];
+    while let Some(msg) = p.frame_within(Duration::from_secs(1)).await {
+        kinds.push(msg.kind);
+    }
+    assert!(kinds.iter().any(|k| k == "find.ring"), "{kinds:?}");
+    assert!(kinds.iter().any(|k| k == m::PING), "{kinds:?}");
+    // No answer: the phone counts as gone within seconds, not after the slow timeout.
+    let started = std::time::Instant::now();
+    eventually_within(Duration::from_secs(8), || !d.daemon.list()[0].connected).await;
+    assert!(started.elapsed() < Duration::from_secs(6));
+}
+
+async fn eventually_within(limit: Duration, mut check: impl FnMut() -> bool) {
+    let until = std::time::Instant::now() + limit;
+    while std::time::Instant::now() < until {
+        if check() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("condition not reached");
+}

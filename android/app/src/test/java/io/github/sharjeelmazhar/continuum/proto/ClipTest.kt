@@ -19,7 +19,7 @@ class ClipTest {
         val t = ClipContent.text("héllo 👋")
         assertEquals("héllo 👋", String(roundtrip(t)!!.data))
         val img = ClipContent("image/png", ByteArray(Clip.PART_BYTES * 2 + 7) { it.toByte() })
-        assertEquals(3, Clip.split(img)!!.size)
+        assertEquals(3, Clip.split(img)!!.count())
         assertArrayEquals(img.data, roundtrip(img)!!.data)
     }
 
@@ -34,7 +34,7 @@ class ClipTest {
     @Test
     fun hostilePartsAreDropped() {
         val img = ClipContent("image/png", ByteArray(Clip.PART_BYTES + 10) { 7 })
-        val parts = Clip.split(img)!!
+        val parts = Clip.split(img)!!.toList()
         val a = ClipAssembler()
         assertNull(a.push(parts[1]))
         assertNull(a.push(parts[0].copy(size = 3L * Clip.PART_BYTES)))
@@ -47,7 +47,7 @@ class ClipTest {
     @Test
     fun idMatchesDesktop() {
         // Same rule as Rust: SHA-256 of mime, a zero byte, then the data.
-        assertEquals(16, Clip.split(ClipContent.text("hi"))!![0].id.length)
+        assertEquals(16, Clip.split(ClipContent.text("hi"))!!.first().id.length)
         assertEquals(ClipContent.text("hi").digest, ClipContent.text("hi").digest)
     }
 }

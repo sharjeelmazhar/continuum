@@ -120,6 +120,13 @@ impl Outbox {
             .collect()
     }
 
+    /// Files for this device are being offered or sent.
+    pub fn has_jobs(&self, device_id: &str) -> bool {
+        self.lock()
+            .values()
+            .any(|j| j.device_id == device_id && j.created.elapsed() < JOB_TTL)
+    }
+
     /// Drops every job for a device (it was unpaired).
     pub fn forget_device(&self, device_id: &str) {
         self.lock().retain(|_, j| j.device_id != device_id);

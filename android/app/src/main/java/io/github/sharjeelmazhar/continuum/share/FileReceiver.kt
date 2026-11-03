@@ -177,7 +177,7 @@ class FileReceiver(private val context: Context) {
     }
 
     /** Unfinished files can be resumed for a day; after that they and their state are deleted. */
-    private fun cleanOld() {
+    fun cleanOld() {
         val cutoff = System.currentTimeMillis() - 24L * 3600 * 1000
         dir.listFiles()?.filter { it.lastModified() < cutoff }?.forEach { f ->
             runCatching { Json.decodeFromString(Partial.serializer(), f.readText()) }.getOrNull()

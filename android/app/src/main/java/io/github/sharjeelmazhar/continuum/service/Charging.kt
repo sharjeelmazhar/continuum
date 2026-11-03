@@ -28,6 +28,22 @@ object Charging {
     fun fast(watts: Double, chargerWatts: Double) = watts >= FAST_WATTS || chargerWatts >= FAST_WATTS
 
     fun roundWatts(w: Double) = w.roundToInt().coerceIn(0, 240)
+
+    /** Watts and time to full move all the time while charging: report them at most this often. */
+    const val MINOR_EVERY_MS = 45_000L
+
+    /**
+     * Whether [new] is worth sending after [old] was sent [sinceMs] ago. Level, plugging in or
+     * out and the fast charger go at once; watts (by 2 W or more) and time to full (by 5 min or
+     * more, or becoming known) at most every [MINOR_EVERY_MS].
+     */
+    fun worthSending(old: io.github.sharjeelmazhar.continuum.proto.BatteryStatus?, new: io.github.sharjeelmazhar.continuum.proto.BatteryStatus, sinceMs: Long): Boolean {
+        if (old == null) return true
+        if (old.level != new.level || old.charging != new.charging || old.fast != new.fast) return true
+        if (sinceMs < MINOR_EVERY_MS) return false
+        val fullIn = (old.fullIn < 0) != (new.fullIn < 0) || abs(old.fullIn - new.fullIn) >= 5
+        return abs(old.watts - new.watts) >= 2 || fullIn
+    }
 }
 
 /** Estimates minutes to full from how fast the level has been rising since charging started. */

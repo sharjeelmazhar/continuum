@@ -34,6 +34,7 @@ object MessageType {
     const val SHARE_RESULT = "share.result"
     const val DATA_HELLO = "data.hello"
     const val CLIPBOARD = "clipboard"
+    const val PRESENCE = "presence"
 }
 
 /** Peers may be newer than us: ignore unknown fields, always write `body`. */
@@ -99,3 +100,7 @@ data class DataHello(val token: String)
 
 @Serializable
 data class ClipboardPart(val id: String, val mime: String, val size: Long, val part: Int, val parts: Int, val data: String)
+
+/** Someone is using the phone (screen on, app open) or something runs; see docs/PROTOCOL.md. */
+@Serializable
+data class Presence(val active: Boolean)

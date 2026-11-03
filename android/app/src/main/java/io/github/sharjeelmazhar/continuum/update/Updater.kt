@@ -73,6 +73,23 @@ object Updater {
         return null
     }
 
+    /** How long until [check] would ask GitHub again (at least 10 minutes, e.g. while offline). */
+    fun untilNextCheck(context: Context): Long {
+        if (BuildConfig.DEBUG) return CHECK_EVERY_MS
+        val checked = context.getSharedPreferences("update", Context.MODE_PRIVATE).getLong("checked", 0)
+        val left = checked + CHECK_EVERY_MS - System.currentTimeMillis()
+        return left.coerceIn(10 * 60_000L, CHECK_EVERY_MS)
+    }
+
+    /** Deletes a downloaded update that is already installed (or older), so it doesn't sit in the cache. */
+    fun cleanDownloads(context: Context) {
+        val dir = File(context.cacheDir, "update")
+        dir.listFiles()?.forEach { f ->
+            val version = f.name.removePrefix("Continuum-").removeSuffix(".apk")
+            if (!f.name.startsWith("Continuum-") || !isNewer(version, BuildConfig.VERSION_NAME)) f.delete()
+        }
+    }
+
     /** Asks GitHub right now (Settings › Check for updates). Blocking; run off the main thread. */
     fun checkNow(context: Context): CheckOutcome {
         if (BuildConfig.DEBUG) return CheckOutcome.DevelopmentBuild

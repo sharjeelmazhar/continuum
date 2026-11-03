@@ -44,6 +44,7 @@ import android.net.Network
 import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
@@ -70,6 +71,7 @@ import io.github.sharjeelmazhar.continuum.proto.PairAccept
 import io.github.sharjeelmazhar.continuum.proto.PairReject
 import io.github.sharjeelmazhar.continuum.proto.PairRequest
 import io.github.sharjeelmazhar.continuum.proto.PairUri
+import io.github.sharjeelmazhar.continuum.proto.Presence as PresenceBody
 import io.github.sharjeelmazhar.continuum.proto.Protocol
 import io.github.sharjeelmazhar.continuum.ui.LOCAL_NETWORK
 import java.io.IOException
@@ -100,6 +102,9 @@ class ContinuumService : Service() {
     @Volatile private var session: Session? = null
     @Volatile private var lastBattery: BatteryStatus? = null
     @Volatile private var sentBattery: BatteryStatus? = null
+    @Volatile private var sentBatteryAt = 0L
+    /** Look the computer up on the LAN on the next failed attempt (network changed, app opened, …). */
+    @Volatile private var discoverNext = true
     @Volatile private var wakeSocket: DatagramSocket? = null
     @Volatile private var computer: PairedComputer? = null
 
@@ -128,6 +133,13 @@ class ContinuumService : Service() {
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(Link.state.value), type)
         scope.launch { Link.state.collect { nm.notify(NOTIFICATION_ID, notification(it)) } }
         ContextCompat.registerReceiver(this, batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
+        Presence.screen(getSystemService(PowerManager::class.java)?.isInteractive ?: true)
+        val screenEvents = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        ContextCompat.registerReceiver(this, screenReceiver, screenEvents, ContextCompat.RECEIVER_NOT_EXPORTED)
         getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkCallback)
         scope.launch { listenForWake() }
         scope.launch {
@@ -140,15 +152,25 @@ class ContinuumService : Service() {
             }
         }
         receiver = FileReceiver(this)
+        scope.launch {
+            receiver.cleanOld()
+            Updater.cleanDownloads(this@ContinuumService)
+        }
         scope.launch { checkForUpdates() }
         scope.launch { for (c in ClipSync.outgoing) sendClipboard(c) }
-        screenshots = ScreenshotWatcher(this).also { it.start() }
+        screenshots = ScreenshotWatcher(this)
+        getSharedPreferences(StatusPrefs.FILE, MODE_PRIVATE).registerOnSharedPreferenceChangeListener(prefsListener)
         // Android 9 and older let background apps read the clipboard, so copies go out by
         // themselves. Newer versions only report our own changes here (and reading would show a
         // "pasted" notice), so there "Send clipboard" does it.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             getSystemService(ClipboardManager::class.java).addPrimaryClipChangedListener(clipListener)
         }
+    }
+
+    /** The screenshot switch: watch the gallery only while it's on and we're connected. */
+    private val prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        screenshots?.update(session != null)
     }
 
     private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
@@ -170,13 +192,18 @@ class ContinuumService : Service() {
                 if (loop?.isActive != true) restart(null) else wake.trySend(Unit)
             }
             // A plain start (app opened, boot) also means "try now" if we're waiting.
-            else -> if (loop?.isActive != true) restart(null) else wake.trySend(Unit)
+            else -> if (loop?.isActive != true) restart(null) else {
+                discoverNext = true
+                wake.trySend(Unit)
+            }
         }
         return START_STICKY
     }
 
     override fun onDestroy() {
         unregisterReceiver(batteryReceiver)
+        unregisterReceiver(screenReceiver)
+        getSharedPreferences(StatusPrefs.FILE, MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(prefsListener)
         screenshots?.stop()
         getSystemService(ClipboardManager::class.java).removePrimaryClipChangedListener(clipListener)
         runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkCallback) }
@@ -212,6 +239,7 @@ class ContinuumService : Service() {
     private suspend fun run(initialPairUri: PairUri?) {
         var pairUri = initialPairUri
         var backoffMs = 1_000L
+        var failures = 0
         while (scope.isActive) {
             val pc = store.load()
             if (pairUri == null && pc == null) {
@@ -247,7 +275,15 @@ class ContinuumService : Service() {
                         continue
                     }
                     Link.mutableState.value = LinkState.Connecting(pc.name)
-                    val socket = connectKnownOrDiscovered(pc)
+                    val discover = discoverNext || failures % DISCOVER_EVERY == 0
+                    discoverNext = false
+                    val socket = try {
+                        connectKnownOrDiscovered(pc, discover)
+                    } catch (e: Exception) {
+                        failures++
+                        throw e
+                    }
+                    failures = 0
                     backoffMs = 1_000
                     runSession(Session(socket), pc, justPaired = false)
                 }
@@ -274,7 +310,9 @@ class ContinuumService : Service() {
                 setFailure(pc, reason)
             }
             withTimeoutOrNull(backoffMs) { wake.receive() }
-            backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
+            // With the screen off nobody is waiting: try rarely. Screen on, the app, the
+            // network and the computer's wake nudge all retry at once anyway.
+            backoffMs = (backoffMs * 2).coerceAtMost(if (Presence.screenOn) MAX_BACKOFF_MS else MAX_BACKOFF_SCREEN_OFF_MS)
         }
     }
 
@@ -299,12 +337,12 @@ class ContinuumService : Service() {
     }
 
     /** Tries the saved addresses; if they fail, looks the computer up by id on the LAN (its IP may have changed). */
-    private suspend fun connectKnownOrDiscovered(pc: PairedComputer): javax.net.ssl.SSLSocket {
+    private suspend fun connectKnownOrDiscovered(pc: PairedComputer, discover: Boolean): javax.net.ssl.SSLSocket {
         val fp = Crypto.unhex(pc.fingerprint)!!
         return try {
             connectAny(pc.hosts, pc.port, fp)
         } catch (e: Exception) {
-            if (causedByWrongComputer(e) || e is UnsupportedAndroidException) throw e
+            if (causedByWrongComputer(e) || e is UnsupportedAndroidException || !discover) throw e
             val (host, port) = Discovery.find(this, pc.id) ?: throw e
             if (host in pc.hosts && port == pc.port) throw e
             Log.i(TAG, "${pc.name} found at a new address")
@@ -357,11 +395,30 @@ class ContinuumService : Service() {
             Link.mutableState.value = LinkState.Connected(pc.name)
             Log.i(TAG, "connected to ${pc.name}")
             sendBatteryIfChanged()
+            screenshots?.update(true)
+            val presence = Protocol.CAP_PRESENCE in peerCaps
+            // Our own ping only when the line has been quiet (the computer pings us).
+            val quietMs = if (presence) Protocol.PING_IDLE_SLOW_MS else Protocol.PING_INTERVAL_MS
             val pinger = scope.launch {
                 while (isActive) {
-                    delay(Protocol.PING_INTERVAL_MS)
+                    val sinceMs = (System.nanoTime() - session.lastReceived) / 1_000_000
+                    if (sinceMs < quietMs) {
+                        delay(quietMs - sinceMs)
+                        continue
+                    }
                     runCatching { session.send(Envelope(MessageType.PING)) }.onFailure { session.close() }
+                    delay(quietMs)
                 }
+            }
+            // Tells the computer when nobody uses the phone, so it pings rarely then.
+            val presenceJob = if (presence) {
+                scope.launch {
+                    Presence.active.collect { active ->
+                        runCatching { session.send(Envelope.of(MessageType.PRESENCE, PresenceBody.serializer(), PresenceBody(active))) }
+                    }
+                }
+            } else {
+                null
             }
             val clip = ClipAssembler()
             val features = Features(this, scope, session, peerCaps, pc.name, { uris -> queueFiles(uris) }) { out, token ->
@@ -373,7 +430,7 @@ class ContinuumService : Service() {
                     val msg = session.receive()
                     when (msg.type) {
                         MessageType.UNPAIR -> throw UnpairedByComputer()
-                        MessageType.PING -> session.send(Envelope(MessageType.PONG))
+                        MessageType.PING -> session.sendPong()
                         MessageType.SHARE_ACCEPT, MessageType.SHARE_REJECT ->
                             msg.body["transfer_id"]?.jsonPrimitive?.contentOrNull?.let { offerReplies.remove(it)?.complete(msg) }
                         MessageType.SHARE_RESULT -> {
@@ -401,10 +458,12 @@ class ContinuumService : Service() {
             } finally {
                 features.stop()
                 pinger.cancel()
+                presenceJob?.cancel()
             }
         } finally {
             this.session = null
             session.close()
+            screenshots?.update(false)
         }
     }
 
@@ -626,7 +685,8 @@ class ContinuumService : Service() {
                     }
                 }
             }
-            delay(3_600_000)
+            // Sleep until the next check is due (Updater checks at most every 12 hours).
+            delay(Updater.untilNextCheck(this))
         }
     }
 
@@ -660,9 +720,13 @@ class ContinuumService : Service() {
         val battery = lastBattery ?: return
         val s = session ?: return
         if (battery == sentBattery) return
+        val now = SystemClock.elapsedRealtime()
+        if (!Charging.worthSending(sentBattery, battery, now - sentBatteryAt)) return
+        sentBattery = battery
+        sentBatteryAt = now
         scope.launch {
             runCatching { s.send(Envelope.of(MessageType.BATTERY_STATUS, BatteryStatus.serializer(), battery)) }
-                .onSuccess { sentBattery = battery }
+                .onFailure { if (sentBattery === battery) sentBattery = null }
         }
     }
 
@@ -689,7 +753,11 @@ class ContinuumService : Service() {
                 runCatching { it.receive(packet) }.onFailure { return }
                 val text = String(packet.data, 0, packet.length, Charsets.UTF_8)
                 val id = store.load()?.id ?: continue
-                if (text == "$WAKE_PREFIX$id" && session == null) wake.trySend(Unit)
+                if (text == "$WAKE_PREFIX$id" && session == null) {
+                    // The computer just started: its address may have changed too.
+                    discoverNext = true
+                    wake.trySend(Unit)
+                }
             }
         }
     }
@@ -739,7 +807,22 @@ class ContinuumService : Service() {
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
+            discoverNext = true
             wake.trySend(Unit)
+        }
+    }
+
+    /** Screen on or unlocked: the user may want the computer now, so retry at once; tell it too. */
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                Intent.ACTION_SCREEN_OFF -> Presence.screen(false)
+                Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> {
+                    val wasOff = !Presence.screenOn
+                    Presence.screen(true)
+                    if (wasOff && session == null) wake.trySend(Unit)
+                }
+            }
         }
     }
 
@@ -796,6 +879,12 @@ class ContinuumService : Service() {
 
         /** Retry at least this often while on a network; joining a network retries at once. */
         private const val MAX_BACKOFF_MS = 60_000L
+
+        /** The same with the screen off: turning it on retries at once. */
+        private const val MAX_BACKOFF_SCREEN_OFF_MS = 10 * 60_000L
+
+        /** Look the computer up on the LAN (about 4 s) only on every this many failed attempts. */
+        private const val DISCOVER_EVERY = 4
         const val ACTION_PAIR = "io.github.sharjeelmazhar.continuum.PAIR"
         const val ACTION_UNPAIR = "io.github.sharjeelmazhar.continuum.UNPAIR"
         const val EXTRA_URI = "uri"

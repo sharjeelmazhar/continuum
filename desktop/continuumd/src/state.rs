@@ -50,6 +50,7 @@ pub struct Live {
     pub tx: mpsc::Sender<Message>,
     pub kill: Arc<Notify>,
     pub caps: Vec<String>,
+    pub keepalive: Arc<crate::keepalive::Keepalive>,
 }
 
 struct Inner {
@@ -293,6 +294,20 @@ impl Daemon {
         }
     }
 
+    /// Something for this device is running (a request, download or file sent to it), so the
+    /// connection is watched closely.
+    pub fn busy(&self, id: &str) -> bool {
+        self.requests.has_pending(id) || self.outbox.has_jobs(id)
+    }
+
+    /// The desktop user is doing something with this device: if its keepalive is slow, the
+    /// session checks at once that the phone is still there.
+    pub fn poke(&self, id: &str) {
+        if let Some(l) = self.lock().live.get(id) {
+            l.keepalive.poke();
+        }
+    }
+
     /// Name, sender and capabilities of a paired device; the sender is `None` when offline.
     pub fn peer(&self, id: &str) -> Option<(String, Option<LiveLink>)> {
         let g = self.lock();
@@ -320,6 +335,7 @@ impl Daemon {
             return Err(format!("update Continuum on {name} to send files to it"));
         }
         let offer = self.outbox.add(id, paths)?;
+        self.poke(id);
         let tid = offer.transfer_id.clone();
         match live {
             Some((tx, _)) => {
@@ -339,6 +355,7 @@ impl Daemon {
         if !caps.iter().any(|c| c == cap) {
             return Err(format!("update Continuum on {name} to use this"));
         }
+        self.poke(id);
         Ok(tx)
     }
 

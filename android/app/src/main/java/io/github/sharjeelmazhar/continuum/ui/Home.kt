@@ -59,6 +59,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -227,11 +228,12 @@ private fun ComputerHero(state: LinkState) {
 /** "● Connected" with a soft pulse around the dot while the link is up. */
 @Composable
 private fun StatusPill(label: String, dot: Color, live: Boolean) {
-    val t = if (live) {
-        val pulse = rememberInfiniteTransition(label = "pulse")
-        pulse.animateFloat(0f, 1f, infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Restart), label = "t").value
+    // Read only while drawing, so the pulse redraws the dot without recomposing the pill.
+    val pulse: State<Float>? = if (live) {
+        rememberInfiniteTransition(label = "pulse")
+            .animateFloat(0f, 1f, infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Restart), label = "t")
     } else {
-        0f
+        null
     }
     Surface(
         shape = CircleShape,
@@ -241,7 +243,7 @@ private fun StatusPill(label: String, dot: Color, live: Boolean) {
         Row(Modifier.padding(start = 10.dp, end = 12.dp, top = 5.dp, bottom = 5.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier.size(10.dp).drawBehind {
-                    if (live) drawCircle(dot.copy(alpha = 0.35f * (1f - t)), radius = size.minDimension / 2 * (1f + 1.2f * t))
+                    pulse?.value?.let { t -> drawCircle(dot.copy(alpha = 0.35f * (1f - t)), radius = size.minDimension / 2 * (1f + 1.2f * t)) }
                     drawCircle(dot)
                 },
             )

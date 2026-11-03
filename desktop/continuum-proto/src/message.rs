@@ -15,6 +15,8 @@ pub const PAIR_REQUEST: &str = "pair.request";
 pub const PAIR_ACCEPT: &str = "pair.accept";
 pub const PAIR_REJECT: &str = "pair.reject";
 pub const BATTERY_STATUS: &str = "battery.status";
+/// Phone → desktop: whether someone is using the phone (cap `presence`, see [`Presence`]).
+pub const PRESENCE: &str = "presence";
 pub const SHARE_OFFER: &str = "share.offer";
 pub const SHARE_ACCEPT: &str = "share.accept";
 pub const SHARE_REJECT: &str = "share.reject";
@@ -71,6 +73,8 @@ pub const CAPS: &[&str] = &[
     "notif",
     "files",
     "find",
+    "presence",
+    "notif.icons",
 ];
 pub const CAP_PHOTOS: &str = "photos";
 pub const CAP_SMS: &str = "sms";
@@ -79,6 +83,10 @@ pub const CAP_FILES: &str = "files";
 /// Downloads can stream raw on a data connection (`*.fetch` with a `token`).
 pub const CAP_FETCH_RAW: &str = "fetch.raw";
 pub const CAP_FIND: &str = "find";
+/// The desktop understands `presence` and paces its keepalive by it.
+pub const CAP_PRESENCE: &str = "presence";
+/// The desktop remembers app icons, so the phone sends each app's icon once per connection.
+pub const CAP_NOTIF_ICONS: &str = "notif.icons";
 
 /// Capability of a peer that accepts `share.offer` (files sent to it).
 pub const CAP_SHARE_RECEIVE: &str = "share.receive";
@@ -188,6 +196,13 @@ pub struct BatteryStatus {
     /// Minutes until full while charging (-1 = unknown).
     #[serde(default = "unknown")]
     pub full_in: i32,
+}
+
+/// `presence { active }`: the phone's screen is on, its app is open or it is busy (a transfer,
+/// a ringing find). While it isn't, the desktop pings it less often to save its battery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Presence {
+    pub active: bool,
 }
 
 fn unknown() -> i32 {

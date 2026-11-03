@@ -2,15 +2,15 @@
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use continuum_proto::clipboard::Assembler;
 use continuum_proto::frame::{FrameDecoder, encode};
 use continuum_proto::identity::{Fingerprint, fingerprint};
 use continuum_proto::message::{
     self as m, BatteryStatus, ClipboardPart, DataHello, ErrorBody, Hello, Message, NotifKey,
-    PairAccept, PairReject, PairRequest, PhoneNotification, ShareAccept, ShareOffer, ShareReject,
-    ShareResult,
+    PairAccept, PairReject, PairRequest, PhoneNotification, Presence, ShareAccept, ShareOffer,
+    ShareReject, ShareResult,
 };
 use continuum_proto::pairing::verify_proof;
 use continuum_proto::{PROTOCOL_VERSION, tls};
@@ -21,16 +21,13 @@ use tokio::time::timeout;
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, info, warn};
 
+use crate::keepalive::{Keepalive, PROBE_TIMEOUT, Pace, deadline};
 use crate::state::{Daemon, Event, Live};
 use crate::store::PairedDevice;
 use crate::transfer::Progress;
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const PAIR_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-/// We ping the phone this often, so a phone that drops off Wi-Fi shows as gone within seconds.
-const PING_EVERY: Duration = Duration::from_secs(3);
-/// No frame for this long (pings answered, or the phone's own) means the connection is dead.
-pub const IDLE_TIMEOUT: Duration = Duration::from_secs(9);
 /// Open connections at once (sessions, file and photo transfers, handshakes in progress).
 const MAX_CONNECTIONS: usize = 128;
 
@@ -72,14 +69,22 @@ impl<R: AsyncRead + Unpin> Reader<R> {
     }
 
     async fn next(&mut self, wait: Duration) -> Result<Message, String> {
+        self.next_within(wait)
+            .await?
+            .ok_or_else(|| "timed out".to_owned())
+    }
+
+    /// The next message, or `None` if nothing complete arrived within `wait`. Cancel-safe:
+    /// bytes already read stay in the decoder.
+    async fn next_within(&mut self, wait: Duration) -> Result<Option<Message>, String> {
         loop {
             if let Some(msg) = self.dec.next_message().map_err(|e| e.to_string())? {
-                return Ok(msg);
+                return Ok(Some(msg));
             }
-            let n = timeout(wait, self.rd.read(&mut self.buf))
-                .await
-                .map_err(|_| "timed out".to_owned())?
-                .map_err(|e| e.to_string())?;
+            let Ok(read) = timeout(wait, self.rd.read(&mut self.buf)).await else {
+                return Ok(None);
+            };
+            let n = read.map_err(|e| e.to_string())?;
             if n == 0 {
                 return Err("closed by peer".into());
             }
@@ -162,6 +167,7 @@ async fn handle(
 
     let conn = daemon.next_conn_id();
     let kill = Arc::new(Notify::new());
+    let keepalive = Arc::new(Keepalive::default());
     let can_receive = hello.caps.iter().any(|c| c == m::CAP_SHARE_RECEIVE);
     daemon.connected(
         &device.id,
@@ -171,6 +177,7 @@ async fn handle(
             tx: tx.clone(),
             kill: kill.clone(),
             caps: hello.caps,
+            keepalive: keepalive.clone(),
         },
         addr.ip(),
         &hello.model,
@@ -194,7 +201,7 @@ async fn handle(
         send(&tx, Message::with_body(m::SHARE_OFFER, &offer)).await?;
     }
 
-    let result = session(&daemon, &device, &mut reader, &tx, &kill).await;
+    let result = session(&daemon, &device, &mut reader, &tx, &kill, &keepalive).await;
     daemon.disconnected(&device.id, conn);
     info!("{} disconnected", device.name);
     result
@@ -330,28 +337,57 @@ async fn session<R: AsyncRead + Unpin>(
     reader: &mut Reader<R>,
     tx: &mpsc::Sender<Message>,
     kill: &Notify,
+    keepalive: &Keepalive,
 ) -> Result<(), String> {
     let mut clip = Assembler::default();
-    let pinger = {
-        let tx = tx.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(PING_EVERY).await;
-                if tx.send(Message::new(m::PING)).await.is_err() {
-                    break;
-                }
-            }
-        })
-    };
-    let _stop_pinger = AbortOnDrop(pinger);
+    let mut pace = Pace::Fast;
+    let mut last_rx = Instant::now();
+    let mut next_ping = last_rx + pace.ping_every();
+    // Set when the user acted at the slow pace: the phone must answer by then.
+    let mut probe_until: Option<Instant> = None;
     loop {
+        let now = Instant::now();
+        if keepalive.take_probe() && pace == Pace::Slow {
+            let _ = tx.try_send(Message::new(m::PING));
+            probe_until.get_or_insert(now + PROBE_TIMEOUT);
+            next_ping = now + Pace::Fast.ping_every();
+        }
+        let want = Pace::choose(keepalive.presence(), daemon.busy(&device.id));
+        if want != pace {
+            info!("{}: keepalive {:?} -> {:?}", device.name, pace, want);
+            pace = want;
+            next_ping = next_ping.min(now + pace.ping_every());
+        }
+        let until = deadline(last_rx, pace, probe_until);
+        if now >= until {
+            return Err("timed out".into());
+        }
+        if now >= next_ping {
+            // A full queue means frames are going out anyway.
+            let _ = tx.try_send(Message::new(m::PING));
+            next_ping = now + pace.ping_every();
+        }
+        let wait = until.min(next_ping).saturating_duration_since(now);
         let msg = tokio::select! {
-            msg = reader.next(IDLE_TIMEOUT) => msg?,
+            msg = reader.next_within(wait) => match msg? {
+                Some(msg) => msg,
+                None => continue,
+            },
             _ = kill.notified() => return Ok(()),
+            _ = keepalive.wake.notified() => continue,
         };
+        last_rx = Instant::now();
+        probe_until = None;
         match msg.kind.as_str() {
             m::PING => send(tx, Ok(Message::new(m::PONG))).await?,
             m::PONG | m::ERROR => {}
+            m::PRESENCE => match msg.body::<Presence>() {
+                Ok(p) => {
+                    debug!("{} presence: active={}", device.name, p.active);
+                    keepalive.set_presence(p.active);
+                }
+                Err(_) => warn!("{} sent an invalid presence", device.name),
+            },
             m::BATTERY_STATUS => match msg.body::<BatteryStatus>() {
                 Ok(mut b) if b.level <= 100 => {
                     b.watts = b.watts.min(240);
@@ -462,6 +498,7 @@ async fn session<R: AsyncRead + Unpin>(
             m::NOTIF_POSTED => match msg.body::<PhoneNotification>().map(|n| n.sanitized()) {
                 Ok(Some(n)) if m::DESKTOP_MIRROR_APPS.contains(&n.pkg.as_str()) => {}
                 Ok(Some(mut n)) => {
+                    daemon.notifications.fill_icon(&mut n);
                     // Apps repost unchanged notifications (e.g. all chats on each new message).
                     if !daemon.notifications.posted(&device.id, n.clone()) {
                         n.silent = true;
@@ -516,13 +553,4 @@ async fn send(
     tx.send(msg)
         .await
         .map_err(|_| "connection closed".to_owned())
-}
-
-/// Stops a background task when the session ends, however it ends.
-struct AbortOnDrop(tokio::task::JoinHandle<()>);
-
-impl Drop for AbortOnDrop {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
 }

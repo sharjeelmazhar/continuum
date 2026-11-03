@@ -542,19 +542,31 @@ impl Notifier {
     }
 }
 
-/// Saves the app icon the phone sent (once per app) and returns its path.
-fn app_icon(n: &PhoneNotification) -> Option<String> {
-    use base64::Engine;
-    if n.icon.is_empty() || n.pkg.is_empty() {
-        return None;
-    }
-    let name: String = n
-        .pkg
+/// Where the icon of the phone app `pkg` is cached.
+pub fn icon_path(pkg: &str) -> Option<std::path::PathBuf> {
+    let name: String = pkg
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == '_')
         .collect();
-    let dir = crate::sysinfo::cache_dir().join("icons");
-    let path = dir.join(format!("{}.png", name.trim_start_matches('.')));
+    let name = name.trim_start_matches('.');
+    if name.is_empty() {
+        return None;
+    }
+    Some(
+        crate::sysinfo::cache_dir()
+            .join("icons")
+            .join(format!("{name}.png")),
+    )
+}
+
+/// Saves the app icon the phone sent (once per app) and returns its path. Newer phones send
+/// each app's icon once per connection: then the saved one is used.
+fn app_icon(n: &PhoneNotification) -> Option<String> {
+    use base64::Engine;
+    let path = icon_path(&n.pkg)?;
+    if n.icon.is_empty() {
+        return path.exists().then(|| path.to_string_lossy().into_owned());
+    }
     if !path.exists() {
         let png = base64::engine::general_purpose::STANDARD
             .decode(&n.icon)
@@ -562,7 +574,7 @@ fn app_icon(n: &PhoneNotification) -> Option<String> {
         if !png.starts_with(b"\x89PNG") {
             return None;
         }
-        std::fs::create_dir_all(&dir).ok()?;
+        std::fs::create_dir_all(path.parent()?).ok()?;
         crate::store::write_atomic(&path, &png).ok()?;
     }
     Some(path.to_string_lossy().into_owned())

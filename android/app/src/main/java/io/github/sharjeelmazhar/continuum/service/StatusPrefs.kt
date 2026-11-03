@@ -5,7 +5,9 @@ import androidx.core.content.edit
 
 /** Where the "Connected to …" notification appears; both on by default. */
 object StatusPrefs {
-    private fun prefs(context: Context) = context.getSharedPreferences("ui", Context.MODE_PRIVATE)
+    const val FILE = "ui"
+
+    private fun prefs(context: Context) = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
     fun inShade(context: Context) = prefs(context).getBoolean("status_shade", true)
 

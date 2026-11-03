@@ -65,6 +65,7 @@ class Features(
     private val sms = Sms(context)
     private val smsWatcher = Sms.Watcher(context) { scope.launch { send(FeatureType.SMS_CHANGED, Envelope(FeatureType.SMS_CHANGED)) } }
     private val inFlight = AtomicInteger()
+    private val notifOut = NotifOutbox(Protocol.CAP_NOTIF_ICONS in peerCaps)
 
     /** Downloads streaming at once; each holds a slot of [MAX_IN_FLIGHT] until done. */
     private val streams = Semaphore(MAX_STREAMS)
@@ -77,8 +78,13 @@ class Features(
                     .onSubscription { NotifBridge.listener?.snapshot()?.forEach { emit(NotifEvent.Posted(it)) } }
                     .collect { e ->
                         when (e) {
-                            is NotifEvent.Posted -> send(FeatureType.NOTIF_POSTED, Envelope.of(FeatureType.NOTIF_POSTED, NotifPosted.serializer(), e.n))
-                            is NotifEvent.Removed -> send(FeatureType.NOTIF_REMOVED, Envelope.of(FeatureType.NOTIF_REMOVED, NotifKey.serializer(), NotifKey(e.key)))
+                            is NotifEvent.Posted -> notifOut.posted(e.n)?.let {
+                                send(FeatureType.NOTIF_POSTED, Envelope.of(FeatureType.NOTIF_POSTED, NotifPosted.serializer(), it))
+                            }
+                            is NotifEvent.Removed -> {
+                                notifOut.removed(e.key)
+                                send(FeatureType.NOTIF_REMOVED, Envelope.of(FeatureType.NOTIF_REMOVED, NotifKey.serializer(), NotifKey(e.key)))
+                            }
                         }
                     }
             }

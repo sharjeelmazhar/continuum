@@ -28,6 +28,11 @@ class Sms(private val context: Context) {
         /** Contact photos are sent at this size, within this much of the threads reply. */
         const val PHOTO_PX = 96
         const val PHOTOS_BUDGET = 500_000
+
+        /** Contact photo URI → base64 JPEG, so refreshing the threads doesn't decode them again. */
+        val photoCache = object : LinkedHashMap<String, String>(64, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?) = size > 50
+        }
     }
 
     private val cr = context.contentResolver
@@ -63,8 +68,14 @@ class Sms(private val context: Context) {
 
     private data class Contact(val name: String, val photo: Uri?)
 
-    /** A contact's photo, shrunk to a small JPEG (base64). */
-    private fun photo(uri: Uri): String? = runCatching {
+    /** A contact's photo, shrunk to a small JPEG (base64); recent ones are kept (see [photoCache]). */
+    private fun photo(uri: Uri): String? {
+        val key = uri.toString()
+        synchronized(photoCache) { photoCache[key]?.let { return it } }
+        return decodePhoto(uri)?.also { synchronized(photoCache) { photoCache[key] = it } }
+    }
+
+    private fun decodePhoto(uri: Uri): String? = runCatching {
         val bmp = cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } ?: return null
         val small = Bitmap.createScaledBitmap(bmp, PHOTO_PX, PHOTO_PX, true)
         val jpeg = ByteArrayOutputStream().also { small.compress(Bitmap.CompressFormat.JPEG, 85, it) }.toByteArray()

@@ -20,6 +20,7 @@ object TransferLocks {
     @Synchronized
     fun acquire(context: Context) {
         if (count++ > 0) return
+        Presence.transfers(true)
         val app = context.applicationContext
         runCatching {
             val wm = app.getSystemService(WifiManager::class.java)
@@ -38,6 +39,7 @@ object TransferLocks {
     @Synchronized
     fun release() {
         if (count == 0 || --count > 0) return
+        Presence.transfers(false)
         runCatching { wifi?.takeIf { it.isHeld }?.release() }
         runCatching { cpu?.takeIf { it.isHeld }?.release() }
         wifi = null

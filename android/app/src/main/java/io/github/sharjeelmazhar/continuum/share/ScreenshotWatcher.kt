@@ -1,5 +1,6 @@
 package io.github.sharjeelmazhar.continuum.share
 
+import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
 import android.database.ContentObserver
@@ -22,25 +23,59 @@ class ScreenshotWatcher(private val context: Context) {
     // Reading a screenshot takes a moment: keep it off the main thread.
     private val thread = HandlerThread("screenshots").apply { start() }
     private val handler = Handler(thread.looper)
-    private var lastId = newestId()
+    private var lastId = 0L
+    @Volatile private var registered = false
+    /** Images inserted but maybe still pending (being written): their publishing update counts. */
+    private val inserted = LinkedHashSet<Long>()
     private val check = Runnable { sendNew() }
     private val observer = object : ContentObserver(handler) {
-        override fun onChange(selfChange: Boolean) {
-            // A screenshot is written in steps; wait until it has settled.
-            handler.removeCallbacks(check)
-            handler.postDelayed(check, SETTLE_MS)
+        override fun onChange(selfChange: Boolean) = settle()
+
+        override fun onChange(selfChange: Boolean, uris: Collection<Uri>, flags: Int) {
+            // Android 11+: only new pictures matter, not edits or thumbnails of old ones. A
+            // screenshot is inserted pending and published by an update: follow that one too.
+            val ids = uris.mapNotNull { runCatching { ContentUris.parseId(it) }.getOrNull()?.takeIf { id -> id > 0 } }
+            if (flags and ContentResolver.NOTIFY_INSERT != 0) {
+                inserted += ids
+                while (inserted.size > 32) inserted.remove(inserted.first())
+                settle()
+            } else if (flags and ContentResolver.NOTIFY_UPDATE != 0 && ids.any { it in inserted }) {
+                settle()
+            }
         }
     }
 
-    fun start() {
-        runCatching {
-            context.contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, observer)
+    private fun settle() {
+        // A screenshot is written in steps; wait until it has settled.
+        handler.removeCallbacks(check)
+        handler.postDelayed(check, SETTLE_MS)
+    }
+
+    /**
+     * Watches the gallery only while [connected] and the switch is on. Screenshots taken while
+     * not watching are never sent later.
+     */
+    @Synchronized
+    fun update(connected: Boolean) {
+        val want = connected && StatusPrefs.screenshotsToClipboard(context)
+        if (want == registered) return
+        registered = want
+        if (want) {
+            handler.post {
+                lastId = newestId()
+                inserted.clear()
+            }
+            runCatching {
+                context.contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, observer)
+            }
+        } else {
+            runCatching { context.contentResolver.unregisterContentObserver(observer) }
+            handler.removeCallbacks(check)
         }
     }
 
     fun stop() {
-        handler.removeCallbacks(check)
-        context.contentResolver.unregisterContentObserver(observer)
+        update(false)
         thread.quitSafely()
     }
 
@@ -53,7 +88,7 @@ class ScreenshotWatcher(private val context: Context) {
 
     private fun sendNew() {
         Log.d("Continuum", "gallery changed, checking for screenshots after $lastId")
-        if (!StatusPrefs.screenshotsToClipboard(context)) {
+        if (!registered || !StatusPrefs.screenshotsToClipboard(context)) {
             lastId = newestId()
             return
         }
@@ -69,6 +104,7 @@ class ScreenshotWatcher(private val context: Context) {
                 while (c.moveToNext()) {
                     val id = c.getLong(0)
                     lastId = maxOf(lastId, id)
+                    inserted.remove(id)
                     val fresh = System.currentTimeMillis() / 1000 - c.getLong(3) < MAX_AGE_S
                     if (fresh && isScreenshot(c.getString(1).orEmpty())) {
                         newest = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id) to c.getString(2).orEmpty()

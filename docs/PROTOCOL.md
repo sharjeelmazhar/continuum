@@ -60,10 +60,20 @@ continuum://pair?v=1&h=<ip>[,<ip>…]&p=<port>&fp=<64 hex>&s=<secret>&n=<desktop
   right after connecting or after `pair.accept`; the desktop in reply). Features are used only
   if both `caps` lists contain them. Phones from 0.5.2 also send `"model": "<manufacturer>
   <model>"` (at most 64 printable characters kept), which the desktop uses to pick a picture.
-- Keepalive: the phone sends `ping {}` every 20 s and the desktop (0.5.1+) every 3 s; each side
-  answers `pong {}`. The desktop drops a session after 9 s without any frame (so a phone that
-  leaves Wi-Fi shows as gone within seconds); the phone after 60 s, then reconnects with backoff
-  (1, 2, 4 … 30 s).
+- Keepalive: each side answers `ping {}` with `pong {}`. The desktop (0.5.1+) pings every 3 s
+  and drops a session after 9 s without any frame (so a phone that leaves Wi-Fi shows as gone
+  within seconds); the phone drops it after 60 s, then reconnects with backoff (1, 2, 4 … s, at
+  most 60 s with the screen on and 10 minutes with it off; screen on, opening the app, a new
+  network and the wake nudge retry at once). The phone pings only after 20 s without any frame
+  (40 s to a desktop with the `presence` cap).
+- **Presence (cap `presence`, 0.5.4+):** `presence { "active": bool }`, phone → desktop, sent
+  right after `hello` and on every change, only to a desktop that lists `presence`. `active` is
+  true while the screen is on, the app is open, a transfer runs or the phone rings (find). While
+  the phone is not active and the desktop has no request, download or file transfer to it
+  running, the desktop pings every 30 s and drops the session after 75 s without a frame, so the
+  phone's Wi-Fi can stay in power save. When the desktop user acts on the phone at that pace
+  (request, download, sending files, a command), the desktop pings at once and drops the
+  session if nothing arrives within 4 s. A phone that never sends `presence` keeps the 3 s pace.
 - **Wake nudge (UDP):** when the desktop daemon starts, it sends the UTF-8 datagram
   `continuum-wake 1 <desktop id>` to UDP port 47820 at the last address of each paired phone
   that isn't connected (at 0, 2, 5, 10, 20 and 40 s). A phone that's paired with that id and
@@ -75,7 +85,8 @@ continuum://pair?v=1&h=<ip>[,<ip>…]&p=<port>&fp=<64 hex>&s=<secret>&n=<desktop
 ## Messages by plugin
 | Type | Direction | Body |
 |---|---|---|
-| `battery.status` | phone → desktop | `level` 0–100, `charging` bool; while charging (0.5.1+) also `watts` (0–240, 0 = unknown), `fast` (fast charger) and `full_in` (minutes to full, -1 = unknown). Sent after `hello` and on every change. |
+| `battery.status` | phone → desktop | `level` 0–100, `charging` bool; while charging (0.5.1+) also `watts` (0–240, 0 = unknown), `fast` (fast charger) and `full_in` (minutes to full, -1 = unknown). Sent after `hello` and when `level`, `charging` or `fast` change; changes of `watts` (≥ 2 W) or `full_in` (≥ 5 min) at most every 45 s (0.5.4+). |
+| `presence` | phone → desktop | `active` bool; see "Session". Needs the `presence` cap on the desktop. |
 | `clipboard` | both ways | A copied text or image; see "Clipboard". Needs the `clipboard` cap on both sides. |
 
 Later plugins (`call`, `mirror`, `find`, `media`) add their rows here when they're built.
@@ -143,7 +154,7 @@ as `[MMS]` snippets).
 
 ### Notifications (cap `notif`)
 Phone → desktop, needs notification access on the phone (an explicit system setting):
-- `notif.posted { "key", "pkg", "app", "title", "text", "time" (ms), "icon" (base64 PNG ≤ 96 px, may be ""), "reply" (bool: has a reply field), "actions" ([titles], ≤ 3), "silent" (bool) }`.
+- `notif.posted { "key", "pkg", "app", "title", "text", "time" (ms), "icon" (base64 PNG ≤ 96 px, may be ""; to a desktop with the `notif.icons` cap, phones from 0.5.4 send each app's icon once per connection and `""` after that, and the desktop reuses the one it got), "reply" (bool: has a reply field), "actions" ([titles], ≤ 3), "silent" (bool) }`.
   Sent for every new or updated notification, and for all current ones right after `hello`
   (those with `silent: true`, so the desktop lists them without popping them up). Updates of
   an "alert once" notification are silent too, and the desktop also pops up only notifications

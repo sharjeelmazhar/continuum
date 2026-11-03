@@ -12,6 +12,7 @@ import io.github.sharjeelmazhar.continuum.proto.Crypto
 import io.github.sharjeelmazhar.continuum.service.ContinuumService
 import io.github.sharjeelmazhar.continuum.service.Link
 import io.github.sharjeelmazhar.continuum.service.LinkState
+import io.github.sharjeelmazhar.continuum.service.Presence
 import io.github.sharjeelmazhar.continuum.ui.App
 import io.github.sharjeelmazhar.continuum.ui.theme.ContinuumTheme
 import io.github.sharjeelmazhar.continuum.update.Updater
@@ -32,6 +33,16 @@ class MainActivity : ComponentActivity() {
             ContinuumService.start(this)
         }
         setContent { ContinuumTheme { App(externalLink, resumeTick.intValue) } }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        Presence.ui(true)
+    }
+
+    override fun onStop() {
+        Presence.ui(false)
+        super.onStop()
     }
 
     override fun onResume() {

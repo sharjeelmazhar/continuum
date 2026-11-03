@@ -30,13 +30,16 @@ object Clip {
     const val TEXT = "text/plain"
     val IMAGE_TYPES = listOf("image/png", "image/jpeg", "image/webp", "image/gif")
 
-    /** Splits content into frame-sized parts, or null if it can't be sent. */
-    fun split(c: ClipContent): List<ClipboardPart>? {
+    /**
+     * Splits content into frame-sized parts, or null if it can't be sent. Parts are encoded one at
+     * a time as the sequence is read, so only one is in memory.
+     */
+    fun split(c: ClipContent): Sequence<ClipboardPart>? {
         if (!c.valid) return null
         val id = c.digest.take(16)
         val parts = (c.data.size + PART_BYTES - 1) / PART_BYTES
         val enc = Base64.getEncoder()
-        return (0 until parts).map { i ->
+        return (0 until parts).asSequence().map { i ->
             val from = i * PART_BYTES
             val to = minOf(from + PART_BYTES, c.data.size)
             ClipboardPart(id, c.mime, c.data.size.toLong(), i, parts, enc.encodeToString(c.data.copyOfRange(from, to)))

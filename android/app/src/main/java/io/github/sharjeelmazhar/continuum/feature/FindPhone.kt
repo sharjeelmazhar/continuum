@@ -24,6 +24,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import io.github.sharjeelmazhar.continuum.R
 import io.github.sharjeelmazhar.continuum.service.Channels
+import io.github.sharjeelmazhar.continuum.service.Presence
 
 /**
  * Find my phone (PROTOCOL.md, "Find my phone"): rings at full alarm volume, even on silent, and
@@ -70,6 +71,7 @@ object FindPhone {
         notify(context, computer)
         if (ringing) return // already ringing: just restart the 60 s
         ringing = true
+        Presence.ringing(true)
         val audio = context.getSystemService(AudioManager::class.java).also { this.audio = it }
         // A lost phone is usually on Do Not Disturb: switch it off while ringing (allowed for
         // notification-listener apps), and put it back exactly as it was afterwards. Android 15+
@@ -145,6 +147,7 @@ object FindPhone {
         main.removeCallbacks(timeout)
         if (!ringing) return
         ringing = false
+        Presence.ringing(false)
         player?.let { runCatching { it.stop() }; it.release() }
         player = null
         tone?.let { runCatching { it.stopTone() }; it.release() }

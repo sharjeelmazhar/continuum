@@ -145,6 +145,13 @@ impl Requests {
         (req, waiter)
     }
 
+    /// A request or download to `device` is waiting for its answer.
+    pub fn has_pending(&self, device: &str) -> bool {
+        self.lock().values().any(|p| match p {
+            Pending::Reply { device: d, .. } | Pending::Fetch { device: d, .. } => d == device,
+        })
+    }
+
     pub fn cancel(&self, req: u32) {
         if let Some(Pending::Fetch {
             download: Some(d), ..
@@ -371,11 +378,47 @@ async fn read_raw<R: AsyncRead + Unpin>(
 #[derive(Default)]
 pub struct Notifications {
     by_device: Mutex<HashMap<String, Vec<PhoneNotification>>>,
+    /// App icons (base64 PNG) by package: newer phones send each one once per connection.
+    icons: Mutex<HashMap<String, String>>,
 }
+
+/// App icons kept in memory (each at most 64 KiB of base64).
+const MAX_ICONS: usize = 256;
 
 impl Notifications {
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Vec<PhoneNotification>>> {
         self.by_device.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Remembers the app icon a notification carries, or fills in the one sent before (in
+    /// memory, else the copy saved on disk by the popups).
+    pub fn fill_icon(&self, n: &mut PhoneNotification) {
+        if n.pkg.is_empty() {
+            return;
+        }
+        let mut icons = self.icons.lock().unwrap_or_else(|e| e.into_inner());
+        if !n.icon.is_empty() {
+            if icons.len() >= MAX_ICONS && !icons.contains_key(&n.pkg) {
+                icons.clear();
+            }
+            icons.insert(n.pkg.clone(), n.icon.clone());
+            return;
+        }
+        if let Some(icon) = icons.get(&n.pkg) {
+            n.icon = icon.clone();
+            return;
+        }
+        use base64::Engine;
+        let saved = crate::notify::icon_path(&n.pkg)
+            .and_then(|p| std::fs::read(p).ok())
+            .filter(|png| png.starts_with(b"\x89PNG") && png.len() <= 48 * 1024);
+        if let Some(png) = saved {
+            n.icon = base64::engine::general_purpose::STANDARD.encode(png);
+            if icons.len() >= MAX_ICONS {
+                icons.clear();
+            }
+            icons.insert(n.pkg.clone(), n.icon.clone());
+        }
     }
 
     /// Stores it; true if it's new or its title or text changed (worth popping up).
@@ -619,5 +662,34 @@ mod tests {
         }
         assert_eq!(n.list("p").len(), MAX_NOTIFICATIONS);
         assert_eq!(n.list("p")[0].key, "1");
+    }
+
+    #[test]
+    fn icons_sent_once_are_filled_in() {
+        let n = Notifications::default();
+        let mk = |icon: &str| PhoneNotification {
+            key: "k".into(),
+            pkg: "com.example.never.installed.zz".into(),
+            app: String::new(),
+            title: "t".into(),
+            text: String::new(),
+            time: 0,
+            icon: icon.into(),
+            reply: false,
+            actions: vec![],
+            silent: false,
+        };
+        let mut first = mk("aWNvbg==");
+        n.fill_icon(&mut first);
+        assert_eq!(first.icon, "aWNvbg==");
+        let mut later = mk("");
+        n.fill_icon(&mut later);
+        assert_eq!(later.icon, "aWNvbg==");
+        let mut unknown = PhoneNotification {
+            pkg: "com.example.other.zz".into(),
+            ..mk("")
+        };
+        n.fill_icon(&mut unknown);
+        assert!(unknown.icon.is_empty());
     }
 }

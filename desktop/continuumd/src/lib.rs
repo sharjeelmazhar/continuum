@@ -3,6 +3,7 @@
 pub mod activity;
 pub mod clipboard;
 pub mod dbus;
+pub mod keepalive;
 pub mod mdns;
 pub mod notify;
 pub mod outbox;
