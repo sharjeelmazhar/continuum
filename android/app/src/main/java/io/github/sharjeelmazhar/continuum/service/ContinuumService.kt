@@ -464,8 +464,10 @@ class ContinuumService : Service() {
                 val meter = Meter(job.totalBytes, ok.offsets.sum())
                 val title = if (job.files.size == 1) getString(R.string.sending_one, job.files[0].name, pc.name)
                 else resources.getQuantityString(R.plurals.sending_many, job.files.size, job.files.size, pc.name)
-                FileSender.stream(this, s.socket.inetAddress.hostAddress!!, s.socket.port, Crypto.unhex(pc.fingerprint)!!, job, ok.token, ok.offsets) { sent ->
-                    if (meter.due()) nm.notify(notifId, progressNotification(title, meter, sent, upload = true))
+                TransferLocks.held(this) {
+                    FileSender.stream(this, s.socket.inetAddress.hostAddress!!, s.socket.port, Crypto.unhex(pc.fingerprint)!!, job, ok.token, ok.offsets) { sent ->
+                        if (meter.due()) nm.notify(notifId, progressNotification(title, meter, sent, upload = true))
+                    }
                 }
                 val r = withTimeout(120_000) { result.await() }
                 if (r.ok) {
@@ -500,9 +502,9 @@ class ContinuumService : Service() {
         val title = getString(R.string.sending_one, out.name, pc.name)
         try {
             withContext(Dispatchers.IO) {
-                FileSender.streamRaw(s.socket.inetAddress.hostAddress!!, s.socket.port, Crypto.unhex(pc.fingerprint)!!, token, out.input, out.size) { sent ->
+                TransferLocks.held(this@ContinuumService) { FileSender.streamRaw(s.socket.inetAddress.hostAddress!!, s.socket.port, Crypto.unhex(pc.fingerprint)!!, token, out.input, out.size) { sent ->
                     if (meter.due()) nm.notify(notifId, progressNotification(title, meter, sent, upload = true))
-                }
+                } }
             }
         } finally {
             nm.cancel(notifId)
@@ -587,9 +589,9 @@ class ContinuumService : Service() {
         nm.notify(notifId, progressNotification(title, meter, offsets.sum(), upload = false))
         val result = runCatching {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) throw IOException("needs Android 10")
-            receiver.receive(s.socket.inetAddress.hostAddress!!, s.socket.port, Crypto.unhex(pc.fingerprint)!!, offer, token, offsets) { done ->
+            TransferLocks.held(this) { receiver.receive(s.socket.inetAddress.hostAddress!!, s.socket.port, Crypto.unhex(pc.fingerprint)!!, offer, token, offsets) { done ->
                 if (meter.due()) nm.notify(notifId, progressNotification(title, meter, done, upload = false))
-            }
+            } }
         }
         val report = result.fold(
             { saved -> ShareResult(offer.transferId, true, saved.map { it.name }) },
