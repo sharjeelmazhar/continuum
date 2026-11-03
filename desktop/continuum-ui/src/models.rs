@@ -323,7 +323,7 @@ mod tests {
     #[test]
     fn names_and_longest_match() {
         assert_eq!(
-            art("samsung SM-X999", "NY S24 Ultra"),
+            art("samsung SM-X999", "My S24 Ultra"),
             Some("galaxy-s24-ultra")
         );
         assert_eq!(art("", "Galaxy S24"), Some("galaxy-s24"));
