@@ -37,7 +37,7 @@ packages() {
   # The video sink is optional (videos then open in the video player), so it can't fail the rest.
   # A stalled mirror can hang dnf for good: give up after 20 minutes and try another mirror.
   fedora) echo "for i in 1 2 3; do timeout 1200 dnf -y --setopt=timeout=60 install gnome-shell gdm gnome-session-wayland-session nautilus ptyxis gnome-extensions-app gstreamer1-plugins-good curl tar && break; done; dnf -y install gstreamer1-plugin-gtk4 || true" ;;
-  arch) echo "pacman-key --init && pacman-key --populate archlinux && pacman -Syu --noconfirm gnome-shell gdm nautilus gnome-console gst-plugins-good gst-plugin-gtk4 curl" ;;
+  arch) echo "pacman-key --init && pacman-key --populate archlinux && for i in 1 2 3 4; do pacman -Syu --noconfirm --needed gnome-shell gdm nautilus gnome-console gst-plugins-good gst-plugin-gtk4 curl && break; done" ;;
   ubuntu) echo "DEBIAN_FRONTEND=noninteractive apt-get install -y gnome-shell gdm3 gnome-session nautilus gnome-terminal gstreamer1.0-plugins-good curl; DEBIAN_FRONTEND=noninteractive apt-get install -y gstreamer1.0-gtk4 || true" ;;
   esac
 }
