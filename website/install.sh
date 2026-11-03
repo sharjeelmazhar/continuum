@@ -24,7 +24,9 @@ command -v gpg >/dev/null && ! gpg --show-keys --with-colons "$T/key.asc" 2>/dev
 if command -v apt-get >/dev/null; then
   say "Adding the Continuum repository (apt)"
   sudo install -D -m 644 "$T/key.asc" /etc/apt/keyrings/continuum.asc
-  echo "deb [signed-by=/etc/apt/keyrings/continuum.asc] $SITE/apt ./" | sudo tee /etc/apt/sources.list.d/continuum.list >/dev/null
+  # The deb822 format (the one-line .list format is deprecated).
+  printf 'Types: deb\nURIs: %s/apt/\nSuites: ./\nSigned-By: /etc/apt/keyrings/continuum.asc\n' "$SITE" |
+    sudo tee /etc/apt/sources.list.d/continuum.sources >/dev/null
   sudo apt-get update -qq
   say "Installing"
   sudo apt-get install -y continuum
