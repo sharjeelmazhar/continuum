@@ -8,6 +8,7 @@ import android.content.pm.PackageInstaller
 import android.os.Build
 import android.util.Log
 import androidx.core.content.IntentCompat
+import androidx.core.content.edit
 import io.github.sharjeelmazhar.continuum.BuildConfig
 import java.io.File
 import java.io.IOException
@@ -25,6 +26,9 @@ import kotlinx.serialization.json.long
 
 /** A newer release on GitHub. */
 data class Release(val version: String, val apkUrl: String, val shaUrl: String, val size: Long, val notes: String)
+
+/** The answer to "Check for updates" in Settings. */
+enum class CheckOutcome { UpToDate, Available, Failed, DevelopmentBuild }
 
 sealed interface UpdateState {
     data object None : UpdateState
@@ -67,6 +71,21 @@ object Updater {
             return release
         }
         return null
+    }
+
+    /** Asks GitHub right now (Settings › Check for updates). Blocking; run off the main thread. */
+    fun checkNow(context: Context): CheckOutcome {
+        if (BuildConfig.DEBUG) return CheckOutcome.DevelopmentBuild
+        val raw = runCatching { fetchLatestRaw() }
+            .onFailure { Log.i(TAG, "update check failed: $it") }
+            .getOrElse { return CheckOutcome.Failed }
+        context.getSharedPreferences("update", Context.MODE_PRIVATE).edit {
+            putLong("checked", System.currentTimeMillis()).putString("found", raw?.toString())
+        }
+        val release = raw?.let { parse(it) }
+        if (release == null || !isNewer(release.version, BuildConfig.VERSION_NAME)) return CheckOutcome.UpToDate
+        if (state.value is UpdateState.None || state.value is UpdateState.Failed) mutableState.value = UpdateState.Available(release)
+        return CheckOutcome.Available
     }
 
     /** The newest published release that has an APK, as GitHub describes it. */

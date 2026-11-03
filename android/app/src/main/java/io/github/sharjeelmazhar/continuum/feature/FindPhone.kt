@@ -1,6 +1,5 @@
 package io.github.sharjeelmazhar.continuum.feature
 
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
@@ -24,6 +23,7 @@ import android.service.notification.NotificationListenerService
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import io.github.sharjeelmazhar.continuum.R
+import io.github.sharjeelmazhar.continuum.service.Channels
 
 /**
  * Find my phone (PROTOCOL.md, "Find my phone"): rings at full alarm volume, even on silent, and
@@ -33,7 +33,7 @@ import io.github.sharjeelmazhar.continuum.R
  */
 object FindPhone {
     private const val TAG = "Continuum"
-    private const val CHANNEL = "find"
+    private const val CHANNEL = Channels.FIND
     private const val NOTIFICATION_ID = 40
     private const val RING_MS = 60_000L
     private const val ACTION_STOP = "io.github.sharjeelmazhar.continuum.FIND_STOP"
@@ -165,12 +165,7 @@ object FindPhone {
 
     private fun notify(context: Context, computer: String) {
         val nm = context.getSystemService(NotificationManager::class.java).also { notifications = it }
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, context.getString(R.string.channel_find), NotificationManager.IMPORTANCE_HIGH).apply {
-                setSound(null, null) // we play the sound ourselves, on the alarm stream
-                enableVibration(false)
-            },
-        )
+        Channels.ensure(context)
         val stop = PendingIntent.getBroadcast(
             context, 0, Intent(context, StopReceiver::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,

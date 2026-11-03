@@ -28,7 +28,6 @@
 
     <string name="channel_connection">Connection status</string>
     <string name="channel_connection_hidden">Connection status (hidden)</string>
-    <string name="status_title">Connection status</string>
     <string name="status_body">The “Connected to your computer” notification. Turning it off doesn’t stop the connection or your other notifications.</string>
     <string name="status_shade">In the notification shade</string>
     <string name="status_lock">On the lock screen</string>
@@ -41,8 +40,6 @@
     <string name="notif_offline">%1$s is out of reach</string>
 
     <string name="keep_connected_title">Stay connected in the background</string>
-    <string name="keep_connected_body">Allow Continuum to keep running when the app is closed, so your phone and computer stay connected.</string>
-    <string name="keep_connected_body_xiaomi">Xiaomi phones close background apps. Allow Continuum to run in the background, and turn on “Autostart” for it, so it stays connected.</string>
     <string name="allow_background">Allow</string>
     <string name="open_autostart">Open Autostart settings</string>
     <string name="no_network">Waiting for Wi-Fi. It reconnects by itself when you\'re back on the same network.</string>
@@ -58,7 +55,6 @@
     <string name="share_unreadable">The app you shared from didn\'t allow Continuum to read these files.</string>
     <string name="share_files_only">Only files can be sent for now.</string>
     <string name="share_sending">Sending to %1$s…</string>
-    <string name="channel_transfers">File transfers</string>
     <string name="sending_one">Sending %1$s to %2$s</string>
     <plurals name="sending_many">
         <item quantity="one">Sending %1$d file to %2$s</item>
@@ -99,11 +95,8 @@
     <string name="copy_watcher_summary">Whatever you copy on this phone appears on your computer\'s clipboard.</string>
     <string name="copy_watcher_description">Android lets only the app on screen read the clipboard. With this on, Continuum notices when you copy (a tap on “Copy” or the “Copied” message), reads the clipboard for a split second, and sends it to your paired computer over your Wi-Fi. It doesn\'t read or store anything on your screen, and nothing leaves your home network.</string>
     <string name="auto_clip_title">Copy on phone, paste on computer</string>
-    <string name="auto_clip_body">Everything you copy on this phone appears on your computer, no buttons. Set it up once:
-1. Tap Turn on.
-2. Open “Downloaded apps” (or “Installed apps”), tap “Continuum: send copies to your computer” and switch it on.</string>
-    <string name="auto_clip_restricted">3. Switch greyed out? Android does this for apps not from the Play Store. Tap App info below › ⋮ (top right) › “Allow restricted settings”, then repeat step 2.
-Tip: Android then says “Continuum pasted from your clipboard” after each copy. To hide that, search Settings for “clipboard” and turn off “Show clipboard access”.</string>
+    <string name="auto_clip_body">Everything you copy on this phone appears on your computer, no buttons. Set it up once:\n1. Tap Turn on.\n2. Open “Downloaded apps” (or “Installed apps”), tap “Continuum: send copies to your computer” and switch it on.</string>
+    <string name="auto_clip_restricted">3. Switch greyed out? Android does this for apps not from the Play Store. Tap App info below › ⋮ (top right) › “Allow restricted settings”, then repeat step 2.\nTip: Android then says “Continuum pasted from your clipboard” after each copy. To hide that, search Settings for “clipboard” and turn off “Show clipboard access”.</string>
     <string name="turn_on">Turn on</string>
     <string name="open_app_info">App info</string>
     <string name="channel_updates">App updates</string>
@@ -117,7 +110,6 @@ Tip: Android then says “Continuum pasted from your clipboard” after each cop
 
     <string name="features_title">On your computer</string>
     <string name="feature_photos">Gallery</string>
-    <string name="screenshots_title">Screenshots</string>
     <string name="screenshots_switch">Copy new screenshots to the computer</string>
     <string name="screenshots_hint">Take a screenshot here, then press Ctrl+V on the computer. Needs Gallery access.</string>
     <string name="feature_photos_body">See your photos and videos on the computer</string>
@@ -127,7 +119,6 @@ Tip: Android then says “Continuum pasted from your clipboard” after each cop
     <string name="feature_notifs_body">See phone notifications on the computer</string>
     <string name="feature_files">Files</string>
     <string name="feature_files_body">Browse phone storage from the computer</string>
-    <string name="feature_allow">Allow</string>
     <string name="feature_allowed">Allowed</string>
     <string name="feature_some">Some</string>
     <string name="feature_blocked">Android won\'t ask again. Tap App info › Permissions and allow it there.</string>
@@ -138,4 +129,75 @@ Tip: Android then says “Continuum pasted from your clipboard” after each cop
     <string name="find_ringing">Ringing from %1$s</string>
     <string name="find_ringing_body">Your computer is looking for this phone.</string>
     <string name="find_stop">Stop</string>
+
+    <!-- Notification channels (Android settings › Apps › Continuum › Notifications). -->
+    <string name="channel_group_files">File transfers</string>
+    <string name="channel_group_connection">Connection</string>
+    <string name="channel_group_phone">Phone and app</string>
+    <string name="channel_transfer_progress">Transfers in progress</string>
+    <string name="channel_transfer_progress_desc">A progress bar while files go to or come from your computer.</string>
+    <string name="channel_files_received">Files received</string>
+    <string name="channel_files_received_desc">When files from your computer have arrived. Tap one to open it.</string>
+    <string name="channel_files_sent">Files sent</string>
+    <string name="channel_files_sent_desc">When files from this phone have reached your computer.</string>
+    <string name="channel_transfer_problems">Transfer problems</string>
+    <string name="channel_transfer_problems_desc">When files couldn\'t be sent or received.</string>
+    <string name="channel_connection_desc">“Connected to your computer” while Continuum runs.</string>
+    <string name="channel_connection_hidden_desc">A small, silent version of the connection notification. Switch it off to hide it completely.</string>
+    <string name="channel_updates_desc">When a new version of Continuum is ready.</string>
+    <string name="channel_find_desc">Rings this phone when you look for it from your computer.</string>
+
+    <!-- Home -->
+    <string name="settings">Settings</string>
+    <string name="back">Back</string>
+    <string name="send_files">Files</string>
+    <string name="send_photos">Photos</string>
+    <string name="send_clip_short">Clipboard</string>
+    <string name="send_files_desc">Send files to %1$s</string>
+    <string name="send_photos_desc">Send photos and videos to %1$s</string>
+    <string name="send_clip_desc">Send the clipboard to %1$s</string>
+    <string name="features_count">%1$d of %2$d on</string>
+    <string name="feature_tap_allow">Tap to allow</string>
+    <string name="needs_attention">Needs your attention</string>
+    <string name="auto_clip_short">Everything you copy here shows up on your computer. Takes a minute to set up.</string>
+    <string name="set_up">Set up</string>
+    <string name="not_now">Not now</string>
+    <string name="keep_connected_short">Allow Continuum to run when the app is closed, so your phone and computer stay connected.</string>
+    <string name="keep_connected_short_xiaomi">Xiaomi phones close background apps. Allow background running and turn on “Autostart” for Continuum.</string>
+
+    <!-- Settings -->
+    <string name="settings_computer">Your computer</string>
+    <string name="settings_background">Run in the background</string>
+    <string name="settings_background_on">Allowed. Continuum stays connected with the app closed.</string>
+    <string name="settings_background_off">Not allowed. Tap to allow.</string>
+    <string name="settings_autostart">Autostart</string>
+    <string name="settings_autostart_body">Xiaomi phones need this on to reconnect after a restart.</string>
+    <string name="settings_clipboard">Clipboard and screenshots</string>
+    <string name="settings_auto_clip">Send copies automatically</string>
+    <string name="settings_auto_clip_on">On. What you copy here appears on your computer.</string>
+    <string name="settings_auto_clip_off">Off. Tap to set up.</string>
+    <string name="settings_status">Connection status notification</string>
+    <string name="settings_notifications">Notifications</string>
+    <string name="settings_notifications_hint">Choose which notifications you get. Each one opens Android\'s settings for it.</string>
+    <string name="settings_notifs_all_off">Notifications are off for Continuum</string>
+    <string name="settings_notifs_all_off_body">You won\'t see any of the ones below. Tap to turn them on.</string>
+    <string name="settings_all_notifs">All notification settings</string>
+    <string name="notif_on">On</string>
+    <string name="notif_off">Off</string>
+    <string name="settings_updates">Updates</string>
+    <string name="check_updates">Check for updates</string>
+    <string name="check_updates_idle">You have version %1$s</string>
+    <string name="check_updates_checking">Checking…</string>
+    <string name="check_updates_up_to_date">You have the latest version (%1$s)</string>
+    <string name="check_updates_available">A new version is ready. See below.</string>
+    <string name="check_updates_failed">Couldn\'t reach GitHub. Check your internet and try again.</string>
+    <string name="check_updates_dev">This is a development build. It doesn\'t update itself.</string>
+    <string name="settings_about">About</string>
+    <string name="about_version">Version</string>
+    <string name="about_website">Website</string>
+    <string name="about_source">Source code</string>
+    <string name="about_source_body">Free and open source (GPL-3.0) on GitHub</string>
+    <string name="website_url" translatable="false">https://sharjeelmazhar.github.io/continuum/</string>
+    <string name="website_label" translatable="false">sharjeelmazhar.github.io/continuum</string>
+    <string name="opens_in_android_settings">Opens Android settings</string>
 </resources>

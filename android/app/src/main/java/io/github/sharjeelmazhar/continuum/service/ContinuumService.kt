@@ -30,7 +30,6 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
@@ -124,29 +123,7 @@ class ContinuumService : Service() {
         store = PairedStore(this)
         NotifBridge.rebindIfNeeded(this)
         val nm = getSystemService(NotificationManager::class.java)
-        // "Connected to …": default importance (without sound or vibration), because Android
-        // folds silent ones into a dot on the lock screen; a blocked twin for when the user
-        // turns it off (the foreground service still needs a notification).
-        listOf("connection", "status", "status_hidden").forEach { nm.deleteNotificationChannel(it) } // older builds
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, getString(R.string.channel_connection), NotificationManager.IMPORTANCE_DEFAULT).apply {
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-                setSound(null, null)
-                enableVibration(false)
-                setShowBadge(false)
-            },
-        )
-        nm.createNotificationChannel(
-            // Apps can't create a switched-off channel; MIN is the quietest (no status-bar icon,
-            // one folded line). The user can switch it off in Android settings (StatusCard).
-            NotificationChannel(HIDDEN_CHANNEL, getString(R.string.channel_connection_hidden), NotificationManager.IMPORTANCE_MIN).apply {
-                lockscreenVisibility = Notification.VISIBILITY_SECRET
-                setShowBadge(false)
-            },
-        )
-        nm.createNotificationChannel(
-            NotificationChannel(TRANSFER_CHANNEL, getString(R.string.channel_transfers), NotificationManager.IMPORTANCE_LOW),
-        )
+        Channels.ensure(this)
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(Link.state.value), type)
         scope.launch { Link.state.collect { nm.notify(NOTIFICATION_ID, notification(it)) } }
@@ -163,9 +140,6 @@ class ContinuumService : Service() {
             }
         }
         receiver = FileReceiver(this)
-        nm.createNotificationChannel(
-            NotificationChannel(UPDATE_CHANNEL, getString(R.string.channel_updates), NotificationManager.IMPORTANCE_DEFAULT),
-        )
         scope.launch { checkForUpdates() }
         scope.launch { for (c in ClipSync.outgoing) sendClipboard(c) }
         screenshots = ScreenshotWatcher(this).also { it.start() }
@@ -460,7 +434,7 @@ class ContinuumService : Service() {
                 s.send(Envelope.of(MessageType.SHARE_OFFER, ShareOffer.serializer(), ShareOffer(job.transferId, job.files)))
                 val reply = withTimeout(15_000) { accept.await() }
                 if (reply.type == MessageType.SHARE_REJECT) {
-                    notifyDone(nm, notifId, getString(R.string.send_failed, pc.name), reply.body(ShareReject.serializer()).reason)
+                    notifyDone(nm, notifId, getString(R.string.send_failed, pc.name), reply.body(ShareReject.serializer()).reason, TransferEvent.Failed)
                     return
                 }
                 val ok = reply.body(ShareAccept.serializer())
@@ -476,7 +450,7 @@ class ContinuumService : Service() {
                 if (r.ok) {
                     Shortcuts.reportUsed(this, pc.id)
                     val title = if (job.files.size == 1) getString(R.string.sent_one, job.files[0].name) else resources.getQuantityString(R.plurals.sent_many, job.files.size, job.files.size)
-                    notifyDone(nm, notifId, title, getString(R.string.sent_to, pc.name))
+                    notifyDone(nm, notifId, title, getString(R.string.sent_to, pc.name), TransferEvent.Sent)
                     return
                 }
                 r.error ?: "unknown error"
@@ -489,7 +463,7 @@ class ContinuumService : Service() {
                 shareResults.remove(job.transferId)
             }
             if (job.attempts >= 5) {
-                notifyDone(nm, notifId, getString(R.string.send_failed, pc.name), failure)
+                notifyDone(nm, notifId, getString(R.string.send_failed, pc.name), failure, TransferEvent.Failed)
                 return
             }
             nm.notify(notifId, waitingNotification(pc.name, job))
@@ -542,7 +516,7 @@ class ContinuumService : Service() {
             val left = (meter.total - done).coerceAtLeast(0) / speed
             text += " · " + timeLeft(left)
         }
-        return NotificationCompat.Builder(this, TRANSFER_CHANNEL)
+        return NotificationCompat.Builder(this, Channels.forTransfer(TransferEvent.Progress))
             .setSmallIcon(if (upload) android.R.drawable.stat_sys_upload else android.R.drawable.stat_sys_download)
             .setContentTitle(title)
             .setContentText(text)
@@ -562,7 +536,7 @@ class ContinuumService : Service() {
     private fun waitingNotification(computer: String, job: Outgoing): Notification {
         val title = if (job.files.size == 1) getString(R.string.sending_one, job.files[0].name, computer)
         else resources.getQuantityString(R.plurals.sending_many, job.files.size, job.files.size, computer)
-        return NotificationCompat.Builder(this, TRANSFER_CHANNEL)
+        return NotificationCompat.Builder(this, Channels.forTransfer(TransferEvent.Waiting))
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setContentTitle(title)
             .setContentText(getString(R.string.waiting_for, computer))
@@ -580,7 +554,7 @@ class ContinuumService : Service() {
             runCatching {
                 s.send(Envelope.of(MessageType.SHARE_REJECT, ShareReject.serializer(), ShareReject(offer.transferId, e.message ?: "refused")))
             }
-            notifyDone(nm, notifId, getString(R.string.receive_failed, pc.name), e.message.orEmpty(), download = true)
+            notifyDone(nm, notifId, getString(R.string.receive_failed, pc.name), e.message.orEmpty(), TransferEvent.Failed, download = true)
             return
         }
         val token = Crypto.hex(ByteArray(16).also { java.security.SecureRandom().nextBytes(it) })
@@ -620,7 +594,7 @@ class ContinuumService : Service() {
         else resources.getQuantityString(R.plurals.received_many, saved.size, saved.size)
         nm.notify(
             id,
-            NotificationCompat.Builder(this, TRANSFER_CHANNEL)
+            NotificationCompat.Builder(this, Channels.forTransfer(TransferEvent.Received))
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
                 .setContentTitle(title)
                 .setContentText(getString(R.string.received_from, computer))
@@ -641,7 +615,7 @@ class ContinuumService : Service() {
                         val open = PendingIntent.getActivity(this, 3, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
                         getSystemService(NotificationManager::class.java).notify(
                             UPDATE_NOTIFICATION_ID,
-                            NotificationCompat.Builder(this, UPDATE_CHANNEL)
+                            NotificationCompat.Builder(this, Channels.UPDATES)
                                 .setSmallIcon(R.drawable.ic_stat_continuum)
                                 .setContentTitle(getString(R.string.update_title, release.version))
                                 .setContentText(getString(R.string.update_tap))
@@ -670,10 +644,10 @@ class ContinuumService : Service() {
             .onFailure { Log.i(TAG, "clipboard not sent: $it") }
     }
 
-    private fun notifyDone(nm: NotificationManager, id: Int, title: String, text: String, download: Boolean = false) {
+    private fun notifyDone(nm: NotificationManager, id: Int, title: String, text: String, event: TransferEvent, download: Boolean = false) {
         nm.notify(
             id,
-            NotificationCompat.Builder(this, TRANSFER_CHANNEL)
+            NotificationCompat.Builder(this, Channels.forTransfer(event))
                 .setSmallIcon(if (download) android.R.drawable.stat_sys_download_done else android.R.drawable.stat_sys_upload_done)
                 .setContentTitle(title)
                 .setContentText(text)
@@ -815,8 +789,8 @@ class ContinuumService : Service() {
 
     companion object {
         private const val TAG = "Continuum"
-        private const val CHANNEL = "connection_status"
-        const val HIDDEN_CHANNEL = "status_minimised"
+        private const val CHANNEL = Channels.CONNECTION
+        const val HIDDEN_CHANNEL = Channels.CONNECTION_HIDDEN
         const val ACTION_REFRESH_STATUS = "io.github.sharjeelmazhar.continuum.REFRESH_STATUS"
         private const val NOTIFICATION_ID = 1
 
@@ -827,8 +801,6 @@ class ContinuumService : Service() {
         const val EXTRA_URI = "uri"
         const val ACTION_SEND = "io.github.sharjeelmazhar.continuum.SEND"
         const val EXTRA_URIS = "uris"
-        private const val TRANSFER_CHANNEL = "transfers"
-        private const val UPDATE_CHANNEL = "updates"
         private const val UPDATE_NOTIFICATION_ID = 2
         private const val WAKE_PREFIX = "continuum-wake 1 "
 
