@@ -83,7 +83,7 @@ users:
 runcmd:
   - [sh, -c, "$( [ "$d" = ubuntu ] && echo 'apt-get update &&' ) $(packages "$d")"]
   - [sh, -c, "mkdir -p $(dirname "$(gdm_conf "$d")") && printf '[daemon]\nAutomaticLoginEnable=True\nAutomaticLogin=tester\nWaylandEnable=true\n' > $(gdm_conf "$d")"]
-  - [sh, -c, "systemctl set-default graphical.target && touch /var/tmp/continuum-ready && systemctl reboot"]
+  - [sh, -c, "systemctl enable gdm 2>/dev/null; systemctl set-default graphical.target && touch /var/tmp/continuum-ready && systemctl reboot"]
 EOF
     printf 'instance-id: continuum-%s\nlocal-hostname: continuum-%s\n' "$d" "$d" > "$dir/meta-data"
     genisoimage -quiet -o "$dir/seed.iso" -V cidata -r -J "$dir/user-data" "$dir/meta-data" || return 1
