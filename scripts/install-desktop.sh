@@ -5,7 +5,8 @@
 #   scripts/install-desktop.sh              # build, install, start
 #   scripts/install-desktop.sh --uninstall  # stop and remove (keeps your pairing data)
 #
-# Until there's a Flatpak (M11), this is how to install from source.
+# Works from a source checkout (builds first) and from the prebuilt bundle on the website
+# (Continuum-desktop-*.tar.gz, which runs this script as ./install.sh).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -37,10 +38,13 @@ if [ "${1:-}" = "--uninstall" ]; then
   exit 0
 fi
 
-# shellcheck disable=SC1091
-[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
-echo "==> Building (release)"
-(cd "$ROOT/desktop" && cargo build --release --locked -p continuumd -p continuum-ui)
+# From a source checkout: build. From the downloaded bundle: the binaries are already there.
+if [ -f "$ROOT/desktop/Cargo.toml" ]; then
+  # shellcheck disable=SC1091
+  [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+  echo "==> Building (release)"
+  (cd "$ROOT/desktop" && cargo build --release --locked -p continuumd -p continuum-ui)
+fi
 
 echo "==> Installing"
 put "$ROOT/desktop/target/release/continuumd" "$BIN/continuumd" 755

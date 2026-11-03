@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Continuum: your Android phone on Linux</title>
+<meta name="description" content="Continuum connects your Android phone to your Linux desktop: photos, messages, notifications with quick reply, files and a shared clipboard. Open source, private, no cloud.">
+<meta property="og:title" content="Continuum: your Android phone on Linux">
+<meta property="og:description" content="Photos, messages, notifications, files and clipboard between Android and Linux. Open source, private, no cloud.">
+<meta property="og:image" content="img/photos.webp">
+<link rel="icon" href="img/logo.png">
+<style>
+  :root {
+    --bg: #0b0c10;
+    --bg2: #12141b;
+    --card: #171a23;
+    --line: #262a36;
+    --text: #eef0f5;
+    --dim: #9aa1b2;
+    --accent: #7c6cff;
+    --accent2: #29b6f6;
+    --green: #34c759;
+    --radius: 18px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7fb;
+      --bg2: #ffffff;
+      --card: #ffffff;
+      --line: #e3e6ee;
+      --text: #12141b;
+      --dim: #5b6274;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.55 -apple-system, BlinkMacSystemFont, "Inter", "Cantarell", "Ubuntu", "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+
+  nav { position: sticky; top: 0; z-index: 10; backdrop-filter: saturate(1.4) blur(14px);
+        background: color-mix(in srgb, var(--bg) 78%, transparent); border-bottom: 1px solid var(--line); }
+  nav .wrap { display: flex; align-items: center; gap: 12px; height: 60px; }
+  nav img { width: 30px; height: 30px; }
+  nav b { font-size: 18px; letter-spacing: -0.01em; }
+  nav .links { margin-left: auto; display: flex; gap: 22px; font-size: 15px; }
+  nav .links a { text-decoration: none; color: var(--dim); }
+  nav .links a:hover { color: var(--text); }
+  @media (max-width: 640px) { nav .links a:not(.gh) { display: none; } }
+
+  header { text-align: center; padding: 84px 0 40px; position: relative; overflow: hidden; }
+  header::before { content: ""; position: absolute; inset: -40% -10% auto; height: 560px; z-index: -1;
+    background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 38%, transparent), transparent),
+                radial-gradient(closest-side at 70% 60%, color-mix(in srgb, var(--accent2) 26%, transparent), transparent); }
+  header img.logo { width: 112px; height: 112px; filter: drop-shadow(0 12px 40px rgba(124,108,255,.45)); }
+  h1 { font-size: clamp(38px, 6.4vw, 68px); line-height: 1.05; letter-spacing: -0.035em; margin: 22px 0 14px; }
+  h1 span { background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lead { color: var(--dim); font-size: clamp(18px, 2.2vw, 21px); max-width: 720px; margin: 0 auto; }
+
+  .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; margin: 34px 0 10px; }
+  .btn { display: inline-flex; align-items: center; gap: 10px; padding: 14px 22px; border-radius: 999px;
+         text-decoration: none; font-weight: 650; border: 1px solid var(--line); background: var(--card); }
+  .btn svg { width: 20px; height: 20px; }
+  .btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: white; border: 0;
+                 box-shadow: 0 10px 30px rgba(124,108,255,.35); }
+  .btn:hover { transform: translateY(-1px); }
+  .meta { color: var(--dim); font-size: 14px; min-height: 22px; }
+
+  .shot { margin: 44px auto 0; max-width: 1040px; border-radius: 16px; overflow: hidden;
+          border: 1px solid var(--line); box-shadow: 0 30px 80px rgba(0,0,0,.45); }
+  .shot img { display: block; width: 100%; height: auto; }
+
+  section { padding: 84px 0 0; }
+  h2 { font-size: clamp(28px, 4vw, 40px); letter-spacing: -0.025em; margin: 0 0 10px; text-align: center; }
+  .sub { text-align: center; color: var(--dim); max-width: 640px; margin: 0 auto 40px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+  .card .ico { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; font-size: 22px;
+               background: color-mix(in srgb, var(--accent) 16%, transparent); margin-bottom: 12px; }
+  .card h3 { margin: 0 0 6px; font-size: 18px; letter-spacing: -0.01em; }
+  .card p { margin: 0; color: var(--dim); font-size: 15px; }
+
+  .tabs { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-bottom: 18px; }
+  .tabs button { font: inherit; font-size: 15px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--line);
+                 background: var(--card); color: var(--dim); cursor: pointer; }
+  .tabs button[aria-selected="true"] { color: white; background: var(--accent); border-color: transparent; }
+
+  .steps { counter-reset: s; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .steps .card { position: relative; padding-top: 52px; }
+  .steps .card::before { counter-increment: s; content: counter(s); position: absolute; top: 18px; left: 22px;
+                         width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+                         font-weight: 700; font-size: 14px; color: white; background: var(--accent); }
+  code, pre { font-family: ui-monospace, "JetBrains Mono", "Ubuntu Mono", monospace; font-size: 14px; }
+  pre { background: var(--bg2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+        overflow-x: auto; margin: 10px 0 0; white-space: pre-wrap; word-break: break-all; }
+
+  .privacy { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+  footer { margin: 96px 0 0; padding: 30px 0 50px; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; }
+</style>
+</head>
+<body>
+<nav>
+  <div class="wrap">
+    <img src="img/logo.png" alt="">
+    <b>Continuum</b>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#setup">Setup</a>
+      <a href="#privacy">Privacy</a>
+      <a class="gh" href="https://github.com/sharjeelmazhar/continuum">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header>
+  <div class="wrap">
+    <img class="logo" src="img/logo.png" alt="Continuum logo">
+    <h1>Your Android phone,<br><span>at home on Linux.</span></h1>
+    <p class="lead">Photos, messages, notifications with quick reply, files and one clipboard across your phone and your Ubuntu desktop. Like Phone Link and Apple Continuity, but open source and private.</p>
+    <div class="cta">
+      <a class="btn primary" id="dl-apk" href="https://github.com/sharjeelmazhar/continuum/releases">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.6 9.48l1.84-3.18a.38.38 0 0 0-.66-.38l-1.86 3.22a11.5 11.5 0 0 0-9.84 0L5.22 5.92a.38.38 0 0 0-.66.38L6.4 9.48A10.8 10.8 0 0 0 1 18h22a10.8 10.8 0 0 0-5.4-8.52zM7 15.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5zm10 0a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5z"/></svg>
+        Download for Android
+      </a>
+      <a class="btn" href="#setup">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        Get the desktop app
+      </a>
+    </div>
+    <div class="meta" id="release-meta">Free and open source (GPL-3.0)</div>
+    <div class="shot"><img src="img/photos.webp" alt="Continuum on Ubuntu showing the phone's photo gallery" width="1180" height="780"></div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Everything on your phone, one click away</h2>
+    <p class="sub">Open the app, or use the Quick Settings tile next to Wi-Fi and Bluetooth.</p>
+    <div class="grid">
+      <div class="card"><div class="ico">🖼️</div><h3>Photos &amp; videos</h3><p>Browse your whole gallery, portrait and landscape. Open, copy or save any photo; videos play in your video player.</p></div>
+      <div class="card"><div class="ico">💬</div><h3>Messages</h3><p>Read your SMS conversations and reply from the keyboard you're already typing on.</p></div>
+      <div class="card"><div class="ico">🔔</div><h3>Notifications</h3><p>Phone notifications pop up on the desktop with Reply and their own buttons. Do Not Disturb is respected.</p></div>
+      <div class="card"><div class="ico">📋</div><h3>Universal clipboard</h3><p>Copy on one device, paste on the other: text and images, automatically.</p></div>
+      <div class="card"><div class="ico">📸</div><h3>Screenshots, ready to paste</h3><p>Share photos or files to your PC: they're saved and already on the clipboard, ready for chat apps, the terminal or Files.</p></div>
+      <div class="card"><div class="ico">📁</div><h3>Phone storage</h3><p>Browse every folder on the phone and download any file. Drop files on the window to send them back.</p></div>
+      <div class="card"><div class="ico">🔊</div><h3>Find my phone</h3><p>Ring it at full volume, even on silent, from the app or Quick Settings.</p></div>
+      <div class="card"><div class="ico">🔋</div><h3>Battery at a glance</h3><p>Level and charging state in the app and in Quick Settings.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="look">
+  <div class="wrap">
+    <h2>A native GNOME app</h2>
+    <p class="sub">Built with GTK 4 and libadwaita, so it fits right in, in light and dark.</p>
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-img="photos">Photos</button>
+      <button role="tab" aria-selected="false" data-img="messages">Messages</button>
+      <button role="tab" aria-selected="false" data-img="notifications">Notifications</button>
+      <button role="tab" aria-selected="false" data-img="storage">Phone Storage</button>
+    </div>
+    <div class="shot" style="margin-top:0"><img id="tab-img" src="img/photos.webp" alt="Continuum screenshot" width="1180" height="780"></div>
+  </div>
+</section>
+
+<section id="setup">
+  <div class="wrap">
+    <h2>Set up in two minutes</h2>
+    <p class="sub">No accounts, no IP addresses, no config files.</p>
+    <div class="steps">
+      <div class="card">
+        <h3>Install on your PC</h3>
+        <p>Ubuntu 24.04 or newer with GNOME (other desktops work too). Paste this into a terminal:</p>
+        <pre id="install-cmd">curl -L https://github.com/sharjeelmazhar/continuum/releases → download Continuum-desktop-…-x86_64.tar.gz, unpack it, then run ./install.sh</pre>
+      </div>
+      <div class="card">
+        <h3>Install on your phone</h3>
+        <p>Download the Android app (Android 10 or newer) and open it. It updates itself from then on.</p>
+        <p style="margin-top:10px"><a class="btn" id="dl-apk-2" href="https://github.com/sharjeelmazhar/continuum/releases" style="padding:10px 16px">Download APK</a></p>
+      </div>
+      <div class="card">
+        <h3>Scan the code</h3>
+        <p>Open Continuum on the PC, click <b>Pair a Phone</b>, and scan the QR code with the phone. Done.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="privacy">
+  <div class="wrap">
+    <h2>Private by design</h2>
+    <p class="sub">Your phone talks to your computer directly, on your own Wi-Fi.</p>
+    <div class="privacy">
+      <div class="card"><h3>No cloud</h3><p>Nothing goes through anyone's server. There's no account to create.</p></div>
+      <div class="card"><h3>Encrypted</h3><p>Every connection is TLS 1.3 with certificates pinned when you pair.</p></div>
+      <div class="card"><h3>You're in control</h3><p>Each feature asks for its own permission, and you can turn any of them off.</p></div>
+      <div class="card"><h3>Open source</h3><p>GPL-3.0. Read the code, build it yourself, or help make it better.</p></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Continuum is free software under the GPL-3.0-or-later.</span>
+    <span><a href="https://github.com/sharjeelmazhar/continuum">Source code</a> · <a href="https://github.com/sharjeelmazhar/continuum/releases">All releases</a> · <a href="https://github.com/sharjeelmazhar/continuum/issues">Report a problem</a></span>
+  </div>
+</footer>
+
+<script>
+  // Screenshot tabs.
+  for (const b of document.querySelectorAll('.tabs button')) {
+    b.addEventListener('click', () => {
+      for (const o of document.querySelectorAll('.tabs button')) o.setAttribute('aria-selected', o === b);
+      document.getElementById('tab-img').src = 'img/' + b.dataset.img + '.webp';
+    });
+  }
+
+  // Newest release (0.x versions are pre-releases, which /releases/latest skips).
+  fetch('https://api.github.com/repos/sharjeelmazhar/continuum/releases?per_page=10')
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(list => {
+      const rel = list.find(r => !r.draft);
+      if (!rel) return;
+      const asset = re => rel.assets.find(a => re.test(a.name));
+      const apk = asset(/\.apk$/), desk = asset(/^Continuum-desktop-.*\.tar\.gz$/);
+      const v = rel.tag_name.replace(/^v/, '');
+      if (apk) for (const id of ['dl-apk', 'dl-apk-2']) document.getElementById(id).href = apk.browser_download_url;
+      const date = new Date(rel.published_at).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+      document.getElementById('release-meta').textContent =
+        `Version ${v} · ${date}` + (apk ? ` · ${(apk.size / 1e6).toFixed(1)} MB` : '') + ' · Free and open source';
+      if (desk) {
+        const dir = desk.name.replace(/-x86_64\.tar\.gz$/, '');
+        document.getElementById('install-cmd').textContent =
+          `curl -L ${desk.browser_download_url} | tar xz && ./${dir}/install.sh`;
+      }
+    })
+    .catch(() => {});
+</script>
+</body>
+</html>

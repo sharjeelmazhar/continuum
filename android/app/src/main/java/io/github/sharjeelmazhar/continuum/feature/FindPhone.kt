@@ -72,8 +72,10 @@ object FindPhone {
         ringing = true
         val audio = context.getSystemService(AudioManager::class.java).also { this.audio = it }
         // A lost phone is usually on Do Not Disturb: switch it off while ringing (allowed for
-        // notification-listener apps), and put it back exactly as it was afterwards.
-        NotifBridge.listener?.let { l ->
+        // notification-listener apps), and put it back exactly as it was afterwards. Android 15+
+        // turned this into an app-owned DND mode that can't lift the user's DND, so it's skipped
+        // there (alarms still ring through the default "Priority" DND).
+        NotifBridge.listener?.takeIf { Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM }?.let { l ->
             runCatching {
                 val current = l.currentInterruptionFilter
                 if (current != NotificationListenerService.INTERRUPTION_FILTER_ALL &&

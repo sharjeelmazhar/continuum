@@ -3,24 +3,27 @@
 > Read this first in every session. Update it before ending a session.
 
 ## Current
-- **Milestone:** Phone Link-style app (photos, messages, notifications = M7 + part of M12 "SMS"),
-  built 3 November 2026. v0.5.0 not tagged yet.
-- **Next task:** test the new features on the real Redmi (MIUI: restricted settings for SMS and
-  notification access, battery killing), then tag v0.5.0. Then, in order of value:
-  1. Desktop: photo viewer next/previous and multi-select "Save", message search, contact photos.
-  2. Notification allowlist (per-app mute, from PC and phone), and hide content while locked.
+- **Milestone:** v0.5.0 (3 November 2026): Phone Link-style app (photos/videos, messages,
+  notifications with quick reply, phone storage, ring, files-to-clipboard, GNOME Quick Settings
+  tile), website on GitHub Pages (`website/`, `.github/workflows/pages.yml`), prebuilt desktop
+  bundle in releases.
+- **Next task:** update the real Redmi through the in-app updater and test everything there
+  (MIUI: restricted settings for SMS/notification access, autostart). Then, in order of value:
+  1. Notification allowlist (per-app mute, from PC and phone); hide content while locked.
+  2. Photo viewer next/previous, multi-select save; message search; contact photos.
   3. Calls (M8), then phone mirroring (M9).
-  4. Leftovers: MIUI service restart watchdog; Android 8-9 TLS (Conscrypt); 6-digit pairing
-     without a camera; re-announce after suspend; battery measurement; transfer speed plan in
-     `docs/benchmarks/transfer-speed.md` (re-run: `scripts/bench-transfer.sh`).
-- **Verified on the emulator (Android 17) with the daemon on the PC, 3 November 2026:** photo grid
-  (18 photos, thumbnails, full-size download), SMS threads and conversation, sending an SMS from
-  the PC, incoming SMS → live update + GNOME popup (once, not per repost), notification list with
-  app icons, quick reply through Google Messages, dismiss. Dev aids: `CONTINUUM_SNAPSHOT=/x.png
-  continuum-ui` saves the window every 2 s; app actions `show-page` / `select-device` over
-  `org.gtk.Actions` on the session bus.
-- **Verified on the real phone earlier:** PC → phone 150 MB byte-identical; Wi-Fi off mid-transfer →
-  resumed; clipboard both ways.
+  4. Leftovers: MIUI watchdog; Android 8-9 TLS; 6-digit pairing; re-announce after suspend;
+     transfer speed plan (`docs/benchmarks/transfer-speed.md`).
+- **Known limits:** Ring can lift the phone's Do Not Disturb only up to Android 14 (Android 15+
+  forbids it; alarms still ring through the default "Priority" DND, not "Total silence").
+  Android won't let an app hide its own foreground notification: "In the notification shade" off
+  minimises it and links to Android settings to switch it off.
+- **Testing aids:** `CONTINUUM_SNAPSHOT=/x.png continuum-ui` saves window pictures every 2 s
+  (`/x.reply.png` for the quick-reply window); app actions `show-page`, `select-device`,
+  `quick-reply`, `send-files`, `present` over `org.gtk.Actions`. The Quick Settings tile was tested
+  in a nested `gnome-shell --devkit` with isolated XDG dirs and a D-Bus bridge.
+- **Emulator note:** the emulator crashed once in its GPU layer (gfxstream) and restored an old
+  snapshot; a snapshot `pre_ring` exists now.
 
 ## Milestones
 | # | Milestone | Status |
@@ -32,7 +35,7 @@
 | M4 | Send files phone → PC (share sheet, device icon) | ✅ |
 | M5 | Send files PC → phone (Nautilus right-click) | ✅ |
 | M6 | Universal clipboard | ✅ (real-phone check of auto copy pending) |
-| M7 | Notifications (allowlist, quick reply) | 🟡 mirror, reply, dismiss done; allowlist next |
+| M7 | Notifications (allowlist, quick reply) | 🟡 mirror, popup Reply, dismiss done; allowlist next |
 | M8 | Calls (iOS-style banner, accept/decline) | ☐ |
 | M9 | Phone mirroring (borderless rounded window) | ☐ |
 | M10 | Settings, shell tile, find phone, media | ☐ |
@@ -40,6 +43,12 @@
 | M11 | Hardening and release | ☐ |
 
 ## Log (newest first)
+- 3 November 2026: v0.5.0. Phone storage browser, videos (streamed to disk, up to 4 GiB), Ring
+  (alarm stream, max volume), quick reply from desktop popups, received files on the clipboard
+  (gnome-copied-files, uri-list, image, paths), GNOME Quick Settings extension, Apple-style
+  battery/status, square/whole-photo grid and EXIF-upright viewer, connection-notification switches,
+  website + desktop bundle in releases. Fixed: Android 15+ DND mode left on by Ring (now skipped,
+  leftover cleared).
 - 3 November 2026: Phone Link-style desktop app: sidebar with the phone (picture, battery) and
   Photos (lazy grid, disk-cached thumbnails, viewer with copy/save/open), Messages (threads,
   bubbles, send, new conversation), Notifications (icons, quick reply, actions, dismiss, clear all),

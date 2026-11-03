@@ -58,3 +58,30 @@ jobs:
             --notes-file "$GITHUB_WORKSPACE/.github/release-notes/$GITHUB_REF_NAME.md" \
             "$RUNNER_TEMP/Continuum-${{ steps.ver.outputs.name }}.apk" \
             "$RUNNER_TEMP/Continuum-${{ steps.ver.outputs.name }}.apk.sha256"
+
+  # Prebuilt desktop bundle (Ubuntu 24.04 or newer, x86_64): unpack, run ./install.sh.
+  desktop:
+    needs: android
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libgtk-4-dev libadwaita-1-dev libdbus-1-dev pkg-config
+          cd desktop && cargo build --release --locked -p continuumd -p continuum-ui
+      - name: Bundle and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"; d="Continuum-desktop-$v"
+          mkdir -p "$d/desktop/target/release" "$d/scripts"
+          cp desktop/target/release/continuumd desktop/target/release/continuum-ui "$d/desktop/target/release/"
+          cp -r desktop/data "$d/desktop/"
+          cp scripts/install-desktop.sh "$d/scripts/"
+          cp LICENSE "$d/"
+          printf '#!/usr/bin/env bash\nexec "$(dirname "$0")/scripts/install-desktop.sh" "$@"\n' > "$d/install.sh"
+          chmod +x "$d/install.sh" "$d/scripts/install-desktop.sh"
+          tar czf "$d-x86_64.tar.gz" "$d"
+          sha256sum "$d-x86_64.tar.gz" > "$d-x86_64.tar.gz.sha256"
+          gh release upload "$GITHUB_REF_NAME" "$d-x86_64.tar.gz" "$d-x86_64.tar.gz.sha256"

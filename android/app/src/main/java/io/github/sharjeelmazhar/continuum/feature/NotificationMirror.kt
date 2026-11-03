@@ -64,6 +64,11 @@ class NotificationMirror : NotificationListenerService() {
     }
 
     override fun onListenerConnected() {
+        // Android 15+: a "Do Not Disturb (Continuum)" mode left on by an early 0.5 test build
+        // (find-my-phone restoring DND). On 15+ this only switches off Continuum's own mode.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            runCatching { requestInterruptionFilter(INTERRUPTION_FILTER_ALL) }
+        }
         shown.clear()
         runCatching { activeNotifications }.getOrNull()?.filter { mirrored(it) }?.forEach { shown[it.key] = it }
         NotifBridge.listener = this
