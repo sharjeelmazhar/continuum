@@ -62,6 +62,7 @@ impl ClipHub {
 
     /// Content copied on a phone: put it on the desktop clipboard.
     pub fn from_device(&self, c: Content) {
+        let c = as_png(c);
         *self.last.lock().unwrap_or_else(|e| e.into_inner()) = Some(c.digest());
         self.set(Owned::Copied(c));
     }
@@ -469,6 +470,37 @@ impl X11 {
     }
 }
 
+/// JPEG and WebP pictures (Xiaomi, some Samsung and vivo phones save screenshots as JPEG) become
+/// PNG: many apps paste only PNG images. Anything that fails to decode is passed on unchanged.
+fn as_png(c: Content) -> Content {
+    if c.mime != IMAGE_TYPES[1] && c.mime != IMAGE_TYPES[2] {
+        return c;
+    }
+    let decoded = (|| {
+        let mut reader = image::ImageReader::new(std::io::Cursor::new(&c.data))
+            .with_guessed_format()
+            .ok()?;
+        // A hostile picture can't make us allocate more than this.
+        let mut limits = image::Limits::default();
+        limits.max_image_width = Some(16_384);
+        limits.max_image_height = Some(16_384);
+        limits.max_alloc = Some(256 << 20);
+        reader.limits(limits);
+        let img = reader.decode().ok()?;
+        let mut png = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .ok()?;
+        Some(png)
+    })();
+    match decoded {
+        Some(data) => Content {
+            mime: IMAGE_TYPES[0].into(),
+            data,
+        },
+        None => c,
+    }
+}
+
 /// The X11 target for an image (by its MIME type) and its bytes.
 fn image_offer(a: &Atoms, c: &Content) -> Option<(Atom, Vec<u8>)> {
     [
@@ -560,6 +592,31 @@ fn xauth_cookie(mut b: &[u8], display: u16) -> Option<(Vec<u8>, Vec<u8>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn jpeg_screenshots_become_png() {
+        let img = image::RgbImage::from_pixel(40, 80, image::Rgb([200, 30, 90]));
+        let mut jpeg = Vec::new();
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        let out = as_png(Content {
+            mime: "image/jpeg".into(),
+            data: jpeg,
+        });
+        assert_eq!(out.mime, "image/png");
+        assert!(out.data.starts_with(b"\x89PNG"));
+        // Garbage and other types pass through untouched.
+        let bad = as_png(Content {
+            mime: "image/jpeg".into(),
+            data: vec![1, 2, 3],
+        });
+        assert_eq!(bad.mime, "image/jpeg");
+        assert_eq!(as_png(Content::text("hi")).mime, TEXT);
+    }
 
     #[test]
     fn xauth_picks_matching_display() {

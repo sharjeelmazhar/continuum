@@ -85,7 +85,10 @@ class ScreenshotWatcher(private val context: Context) {
             return
         }
         val folder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Images.Media.RELATIVE_PATH else @Suppress("DEPRECATION") MediaStore.Images.Media.DATA
-        val cols = arrayOf(MediaStore.Images.Media._ID, folder, MediaStore.Images.Media.MIME_TYPE, MediaStore.Images.Media.DATE_ADDED)
+        val cols = arrayOf(
+            MediaStore.Images.Media._ID, folder, MediaStore.Images.Media.MIME_TYPE, MediaStore.Images.Media.DATE_ADDED,
+            MediaStore.Images.Media.DISPLAY_NAME,
+        )
         var newest: Pair<Uri, String>? = null
         runCatching {
             context.contentResolver.query(
@@ -97,7 +100,7 @@ class ScreenshotWatcher(private val context: Context) {
                     val id = c.getLong(0)
                     lastId = maxOf(lastId, id)
                     val fresh = System.currentTimeMillis() / 1000 - c.getLong(3) < MAX_AGE_S
-                    if (fresh && isScreenshot(c.getString(1).orEmpty())) {
+                    if (fresh && isScreenshot(c.getString(1).orEmpty(), c.getString(4).orEmpty())) {
                         newest = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id) to c.getString(2).orEmpty()
                     }
                 }
@@ -105,12 +108,28 @@ class ScreenshotWatcher(private val context: Context) {
         }.onFailure { Log.i("Continuum", "screenshot check failed: $it") }
         val (uri, mime) = newest ?: return
         if (mime !in Clip.IMAGE_TYPES) return
-        val bytes = runCatching {
+        val raw = runCatching {
             context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
         }.getOrNull() ?: return
-        if (bytes.size > Clip.MAX_BYTES) return
-        Log.i("Continuum", "new screenshot to the computer: $mime, ${bytes.size} bytes")
-        ClipSync.send(ClipContent(mime, bytes))
+        // A very large screenshot (a busy screen on a 1440p phone) goes as a sharp JPEG instead.
+        val (type, bytes) = if (raw.size <= Clip.MAX_BYTES) mime to raw else ("image/jpeg" to (shrink(raw) ?: return))
+        Log.i("Continuum", "new screenshot to the computer: $type, ${bytes.size} bytes")
+        ClipSync.send(ClipContent(type, bytes))
+    }
+
+    /** Re-encodes a picture as JPEG (quality 92, halving its size until it fits), or null. */
+    private fun shrink(raw: ByteArray): ByteArray? {
+        for (sample in intArrayOf(1, 2, 4)) {
+            val bmp = runCatching {
+                android.graphics.BitmapFactory.decodeByteArray(raw, 0, raw.size,
+                    android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+            }.getOrNull() ?: return null
+            val out = java.io.ByteArrayOutputStream()
+            bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, out)
+            bmp.recycle()
+            if (out.size() <= Clip.MAX_BYTES) return out.toByteArray()
+        }
+        return null
     }
 
     companion object {
@@ -118,7 +137,14 @@ class ScreenshotWatcher(private val context: Context) {
         /** Only screenshots taken just now; not ones restored or synced in later. */
         private const val MAX_AGE_S = 60
 
-        /** "Pictures/Screenshots/", "DCIM/Screenshots/", ".../Screenshots/foo.png" on old phones. */
-        fun isScreenshot(path: String) = path.split('/').any { it.equals("Screenshots", ignoreCase = true) || it.equals("Screenshot", ignoreCase = true) }
+        /**
+         * A Screenshots folder ("Pictures/Screenshots/" on Pixel, Huawei, Motorola; "DCIM/Screenshots/"
+         * on Xiaomi, Samsung, OnePlus, OPPO; "Screenshots/" on older vivo; the full path on Android 9
+         * and older), or a file named like one ("Screenshot_20261103-…", which nearly every maker uses
+         * whatever the folder).
+         */
+        fun isScreenshot(path: String, name: String = "") =
+            path.split('/').any { it.equals("Screenshots", ignoreCase = true) || it.equals("Screenshot", ignoreCase = true) } ||
+                name.startsWith("screenshot", ignoreCase = true)
     }
 }
