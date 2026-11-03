@@ -52,7 +52,7 @@ allowlist and media controls. See the [roadmap](docs/ROADMAP.md).
 ```sh
 curl -fsSL https://sharjeelmazhar.github.io/continuum/install.sh | sh
 ```
-Works on Ubuntu, Debian, Linux Mint, Pop!_OS, Fedora, Arch, Manjaro and EndeavourOS with GNOME,
+Works on Ubuntu, Debian, Linux Mint, Fedora, Arch, Manjaro and EndeavourOS with GNOME,
 on 64-bit PCs (x86_64). Tested on Ubuntu 26.04, Fedora 45 and Arch with GNOME 50 and 51.
 
 The script adds Continuum's signed package repository and installs the app plus a background

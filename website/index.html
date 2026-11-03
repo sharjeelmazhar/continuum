@@ -106,6 +106,16 @@
   .tabs button:hover { color: var(--text); }
   .tabs button[aria-selected="true"] { color: white; background: var(--accent); border-color: transparent; }
 
+  /* Light / dark switch for the app screenshots. */
+  .mode-row { display: flex; justify-content: center; margin: -6px 0 18px; }
+  .mode { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); }
+  .mode button { font: inherit; font-size: 14px; min-height: 38px; min-width: 44px; padding: 6px 14px; border: 0; border-radius: 999px;
+                 background: transparent; color: var(--dim); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .mode button:hover { color: var(--text); }
+  .mode button[aria-pressed="true"] { background: var(--text); color: var(--bg); }
+  .mode svg { width: 16px; height: 16px; }
+  .phone .mode-row { margin: 22px 0 0; }
+
   .phone { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: center; }
   .phone .pics { display: flex; justify-content: center; gap: 18px; }
   .phone .pics picture { width: min(46%, 270px); }
@@ -181,7 +191,7 @@
       </a>
     </div>
     <div class="meta" id="release-meta">Free and open source (GPL-3.0)</div>
-    <div class="shot"><img src="img/photos.webp" alt="Continuum on GNOME showing a phone's photo gallery" width="1180" height="780" fetchpriority="high"></div>
+    <div class="shot"><img id="hero-img" src="img/photos.webp" alt="Continuum on GNOME showing a phone's photo gallery" width="1180" height="780" fetchpriority="high"></div>
   </div>
 </header>
 
@@ -216,6 +226,10 @@
       <button role="tab" aria-selected="false" aria-controls="tab-img" data-img="notifications" data-alt="Notifications: phone notifications with quick reply">Notifications</button>
       <button role="tab" aria-selected="false" aria-controls="tab-img" data-img="storage" data-alt="Phone Storage: the phone's folders">Phone Storage</button>
     </div>
+    <div class="mode-row"><div class="mode" role="group" aria-label="Show the app in light or dark style">
+      <button type="button" data-mode="light" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>Light</button>
+      <button type="button" data-mode="dark" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>Dark</button>
+    </div></div>
     <div class="shot" style="margin-top:0"><img id="tab-img" role="tabpanel" src="img/photos.webp" alt="Gallery: the phone's photos and videos" width="1180" height="780" loading="lazy"></div>
   </div>
 </section>
@@ -225,13 +239,17 @@
     <div class="pics">
       <picture>
         <source srcset="img/phone-home-dark.webp" media="(prefers-color-scheme: dark)">
-        <img src="img/phone-home.webp" alt="The Continuum phone app: the connected computer with quick actions and features" width="540" height="1202" loading="lazy">
+        <img data-phone="phone-home" src="img/phone-home.webp" alt="The Continuum phone app: the connected computer with quick actions and features" width="540" height="1202" loading="lazy">
       </picture>
       <picture>
         <source srcset="img/phone-settings-dark.webp" media="(prefers-color-scheme: dark)">
-        <img src="img/phone-settings.webp" alt="The Continuum phone app's settings" width="540" height="1202" loading="lazy">
+        <img data-phone="phone-settings" src="img/phone-settings.webp" alt="The Continuum phone app's settings" width="540" height="1202" loading="lazy">
       </picture>
     </div>
+    <div class="mode-row phone-mode"><div class="mode" role="group" aria-label="Show the app in light or dark style">
+      <button type="button" data-mode="light" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>Light</button>
+      <button type="button" data-mode="dark" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>Dark</button>
+    </div></div>
     <div class="text">
       <h2>A phone app that stays out of the way</h2>
       <p class="sub">Set it up once. After that it reconnects by itself whenever you're home, even after a reboot.</p>
@@ -259,7 +277,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
           </button>
         </div>
-        <div class="chips" aria-label="Supported systems"><span>Ubuntu</span><span>Debian</span><span>Mint</span><span>Pop!_OS</span><span>Fedora</span><span>Arch</span><span>Manjaro</span><span>EndeavourOS</span></div>
+        <div class="chips" aria-label="Supported systems"><span>Ubuntu</span><span>Debian</span><span>Mint</span><span>Fedora</span><span>Arch</span><span>Manjaro</span><span>EndeavourOS</span></div>
         <p class="small" style="margin-top:12px">With GNOME, on 64-bit PCs (x86_64). Tested on Ubuntu 26.04, Fedora 45 and Arch with GNOME 50 and 51. Updates come through Software, <code>sudo apt upgrade</code>, <code>sudo dnf upgrade</code> or <code>sudo pacman -Syu</code>.</p>
       </div>
       <div class="card">
@@ -296,14 +314,34 @@
 </footer>
 
 <script>
+  // Light or dark app screenshots: follows the visitor's system, and the Light/Dark buttons switch it.
+  // Desktop shots are dark by default (name-light.webp for light); phone shots the other way round.
+  let mode = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  const desktopImg = name => 'img/' + name + (mode === 'light' ? '-light' : '') + '.webp';
+  const phoneImg = name => 'img/' + name + (mode === 'dark' ? '-dark' : '') + '.webp';
+  document.querySelectorAll('.pics source').forEach(s => s.remove());
+  const applyMode = () => {
+    document.getElementById('hero-img').src = desktopImg('photos');
+    const sel = document.querySelector('.tabs button[aria-selected="true"]');
+    if (sel) document.getElementById('tab-img').src = desktopImg(sel.dataset.img);
+    document.querySelectorAll('img[data-phone]').forEach(i => { i.src = phoneImg(i.dataset.phone); });
+    document.querySelectorAll('.mode button').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === mode));
+  };
+  document.querySelectorAll('.mode button').forEach(b => b.addEventListener('click', () => {
+    mode = b.dataset.mode;
+    applyMode();
+    tabs.forEach(t => { new Image().src = desktopImg(t.dataset.img); });
+  }));
+
   // Screenshot tabs (arrow keys move between them, as in any tab list).
   const tabs = [...document.querySelectorAll('.tabs button')];
   const tabImg = document.getElementById('tab-img');
   const select = b => {
     for (const o of tabs) { o.setAttribute('aria-selected', o === b); o.tabIndex = o === b ? 0 : -1; }
-    tabImg.src = 'img/' + b.dataset.img + '.webp';
+    tabImg.src = desktopImg(b.dataset.img);
     tabImg.alt = b.dataset.alt;
   };
+  applyMode();
   tabs.forEach((b, i) => {
     b.tabIndex = i ? -1 : 0;
     b.addEventListener('click', () => select(b));
@@ -315,7 +353,7 @@
     });
   });
   // Preload the other screenshots once the page is idle, so switching tabs is instant.
-  addEventListener('load', () => tabs.slice(1).forEach(b => { new Image().src = 'img/' + b.dataset.img + '.webp'; }));
+  addEventListener('load', () => tabs.forEach(b => { new Image().src = desktopImg(b.dataset.img); }));
 
   // Copy the install command.
   const copy = document.querySelector('.copy');
