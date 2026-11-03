@@ -1,0 +1,10 @@
+# Restarts the background service when a system update replaces it (apt, dnf, pacman).
+[Unit]
+Description=Restart Continuum after an update
+
+[Path]
+PathChanged=/usr/bin/continuumd
+Unit=continuumd-update.service
+
+[Install]
+WantedBy=default.target

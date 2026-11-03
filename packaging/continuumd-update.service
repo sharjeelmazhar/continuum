@@ -1,0 +1,8 @@
+[Unit]
+Description=Restart Continuum after an update
+
+[Service]
+Type=oneshot
+# Give the package manager a moment to finish writing the other files.
+ExecStartPre=/usr/bin/sleep 2
+ExecStart=/usr/bin/systemctl --user try-restart continuumd.service

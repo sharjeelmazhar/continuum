@@ -1,0 +1,19 @@
+# Packs the prebuilt files in ./stage (see packaging/build-packages.sh); not for the AUR.
+pkgname=continuum
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="@SUMMARY@"
+arch=(x86_64)
+url="@URL@"
+license=(GPL-3.0-or-later)
+depends=(gtk4 libadwaita gstreamer)
+optdepends=('gst-plugin-gtk4: play videos inside the app'
+            'gst-plugins-base: play videos inside the app'
+            'gst-plugins-good: more video formats'
+            'python-nautilus: "Send to phone" in the Files right-click menu')
+install=continuum.install
+options=(!strip !debug)
+
+package() {
+  cp -a "$startdir/stage/." "$pkgdir/"
+}

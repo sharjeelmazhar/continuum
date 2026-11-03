@@ -1,0 +1,6 @@
+#!/bin/sh
+# Start the background service at every user's login (each user's own copy).
+set -e
+if [ "$1" = configure ]; then
+  systemctl --global enable continuumd.service continuumd-update.path >/dev/null 2>&1 || true
+fi
