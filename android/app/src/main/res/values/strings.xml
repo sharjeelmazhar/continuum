@@ -103,4 +103,19 @@ Tip: Android then says “Continuum pasted from your clipboard” after each cop
     <string name="update_failed">The update didn\'t finish: %1$s</string>
     <string name="update_allow">Allow updates</string>
     <string name="update_allow_body">Android needs your OK once: switch on “Allow from this source” for Continuum, then come back and tap Update.</string>
+
+    <string name="features_title">On your computer</string>
+    <string name="feature_photos">Photos</string>
+    <string name="feature_photos_body">See your photos on the computer</string>
+    <string name="feature_messages">Messages</string>
+    <string name="feature_messages_body">Read and send texts from the computer</string>
+    <string name="feature_notifs">Notifications</string>
+    <string name="feature_notifs_body">See phone notifications on the computer</string>
+    <string name="feature_allow">Allow</string>
+    <string name="feature_allowed">Allowed</string>
+    <string name="feature_some">Some</string>
+    <string name="feature_blocked">Android won\'t ask again. Tap App info › Permissions and allow it there.</string>
+    <string name="feature_restricted">Blocked? Tap App info › ⋮ (top right) › “Allow restricted settings”, then Permissions › SMS.</string>
+    <string name="feature_notifs_hint">Switch greyed out? Tap App info › ⋮ (top right) › “Allow restricted settings”, then try again.</string>
+    <string name="notif_listener_label">Continuum: show notifications on your computer</string>
 </resources>

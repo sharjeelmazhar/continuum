@@ -8,6 +8,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import io.github.sharjeelmazhar.continuum.data.PairedStore
+import io.github.sharjeelmazhar.continuum.proto.Crypto
 import io.github.sharjeelmazhar.continuum.service.ContinuumService
 import io.github.sharjeelmazhar.continuum.service.Link
 import io.github.sharjeelmazhar.continuum.service.LinkState
@@ -49,6 +50,14 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         val data = intent?.data ?: return
-        if (intent.action == Intent.ACTION_VIEW && data.scheme == "continuum") externalLink.value = data.toString()
+        if (intent.action != Intent.ACTION_VIEW || data.scheme != "continuum") return
+        // Android hands the original link back when it recreates the task (from Recents, after
+        // an update). Each link has a one-time secret, so a link seen before is never asked again.
+        val link = data.toString()
+        val prefs = getSharedPreferences("ui", MODE_PRIVATE)
+        val digest = Crypto.hex(java.security.MessageDigest.getInstance("SHA-256").digest(link.toByteArray()))
+        if (prefs.getString("last_pair_link", null) == digest) return
+        prefs.edit().putString("last_pair_link", digest).apply()
+        externalLink.value = link
     }
 }

@@ -75,8 +75,55 @@ continuum://pair?v=1&h=<ip>[,<ip>…]&p=<port>&fp=<64 hex>&s=<secret>&n=<desktop
 | `battery.status` | phone → desktop | `level` 0–100, `charging` bool. Sent after `hello` and on every change. |
 | `clipboard` | both ways | A copied text or image; see "Clipboard". Needs the `clipboard` cap on both sides. |
 
-Later plugins (`share`, `clip`, `notif`, `call`, `mirror`, `find`, `media`) add their rows here
-when they're built.
+Later plugins (`call`, `mirror`, `find`, `media`) add their rows here when they're built.
+
+## Requests (phone as a data source)
+The desktop asks the phone for data (photos, messages) with **requests**: the body carries
+`req` (u32, chosen by the desktop, unique among its open requests) and the phone answers with
+`<type>.reply { "req", … }` exactly once. A reply with `error` (string) failed; the special value
+`"permission"` means the user has to allow access in the Continuum app on the phone. The desktop
+gives up after 20 s (photo downloads: 120 s) and ignores late replies. Other errors the phone
+may send: `"busy"` (more than 8 requests at once), `"bad request"`, `"not found"`,
+`"too large"`, `"empty file"`, or a plain message.
+
+### Photos (cap `photos`)
+| Type | Body | Reply |
+|---|---|---|
+| `photos.list` | `req`, `offset` ≥ 0, `limit` 1–200 | `items`: `[{ "id" (i64), "name", "mime", "date" (ms since epoch), "size", "w", "h", "dur" (ms, 0 for images) }]`, newest first; `total` |
+| `photos.thumbs` | `req`, `ids` (≤ 24), `size` (longest side, 64–320 px) | `items`: `[{ "id", "data" (base64 JPEG) }]`. Ids that no longer exist, or don't fit in the 900 KB budget, are left out (ask again). |
+| `photos.fetch` | `req`, `id` | `name`, `mime`, `size`, `parts`; then `parts` × `photos.part { "req", "part", "data" }` (512 KiB raw per part, base64, in order). Images only, at most 50 MiB; formats other than JPEG/PNG/WebP/GIF (e.g. HEIC) are converted to JPEG first. |
+| `photos.send` | `req`, `ids` (≤ 100) | `{}`. The phone sends those photos/videos as a normal file transfer (`share.offer`), so they land in the download folder. |
+
+Photos and videos come from the phone's MediaStore (all albums), ids are MediaStore ids.
+
+### Messages (cap `sms`)
+| Type | Body | Reply |
+|---|---|---|
+| `sms.threads` | `req`, `limit` 1–200 | `threads`: `[{ "thread" (i64), "address", "name" (contact name or ""), "snippet", "date" (ms), "unread" (count), "out" (last message was sent by the phone) }]`, newest first |
+| `sms.messages` | `req`, `thread`, `before` (ms, 0 = newest), `limit` 1–200 | `messages`: `[{ "id", "address", "body", "date", "out", "status" ("sent", "sending", "failed", "received") }]`, **oldest first** (the newest `limit` messages older than `before`) |
+| `sms.send` | `req`, `address`, `body` (1–5000 characters) | `{}` once the phone has handed it to the modem |
+
+A `sms.messages` page may hold fewer than `limit` messages: the phone keeps the reply under
+about 800 KB (each body at most 20,000 bytes) by leaving out the oldest, so paging with `before`
+still works. MMS appear as `[MMS]` messages with negative ids.
+
+Phone → desktop: `sms.changed {}` whenever the phone's SMS database changes (a message
+arrived, was sent or read). The desktop reloads what it shows. Text SMS only for now (MMS show
+as `[MMS]` snippets).
+
+### Notifications (cap `notif`)
+Phone → desktop, needs notification access on the phone (an explicit system setting):
+- `notif.posted { "key", "pkg", "app", "title", "text", "time" (ms), "icon" (base64 PNG ≤ 96 px, may be ""), "reply" (bool: has a reply field), "actions" ([titles], ≤ 3), "silent" (bool) }`.
+  Sent for every new or updated notification, and for all current ones right after `hello`
+  (those with `silent: true`, so the desktop lists them without popping them up). Updates of
+  an "alert once" notification are silent too, and the desktop also pops up only notifications
+  that are new or whose title or text changed (apps repost unchanged ones). Ongoing,
+  group-summary, media and Continuum's own notifications are not sent.
+- `notif.removed { "key" }`: dismissed or gone on the phone.
+
+Desktop → phone:
+- `notif.dismiss { "key" }`, `notif.reply { "key", "text" }` (quick reply through the
+  notification's reply action), `notif.action { "key", "index" }`.
 
 ## File transfer (share)
 Paired devices accept files automatically (they're your own devices, like AirDrop between

@@ -18,10 +18,16 @@ pub trait Daemon {
     fn cancel_pairing(&self) -> zbus::Result<()>;
     fn unpair(&self, id: &str) -> zbus::Result<()>;
     fn send_files(&self, id: &str, paths: &[&str]) -> zbus::Result<String>;
+    fn request(&self, id: &str, kind: &str, body: &str) -> zbus::Result<String>;
+    fn fetch_photo(&self, id: &str, photo: i64) -> zbus::Result<String>;
+    fn list_notifications(&self, id: &str) -> zbus::Result<String>;
+    fn notification_command(&self, id: &str, kind: &str, body: &str) -> zbus::Result<()>;
     #[zbus(property)]
     fn name(&self) -> zbus::Result<String>;
     #[zbus(signal)]
     fn devices_changed(&self) -> zbus::Result<()>;
+    #[zbus(signal)]
+    fn phone_event(&self, id: &str, kind: &str, body: &str) -> zbus::Result<()>;
     #[zbus(signal)]
     fn paired(&self, id: &str, name: &str) -> zbus::Result<()>;
 }

@@ -1,0 +1,87 @@
+/* Continuum: a few touches on top of libadwaita. Colors come from the theme, so light,
+   dark and accent colors all work. */
+
+.phone-hero image {
+  -gtk-icon-shadow: none;
+}
+
+.photo-grid {
+  background: none;
+  padding: 6px;
+}
+
+.photo-grid > child {
+  padding: 3px;
+  border-radius: 10px;
+}
+
+.thumb {
+  border-radius: 8px;
+  background-color: alpha(currentColor, 0.06);
+}
+
+.photo-grid > child:hover .thumb {
+  filter: brightness(1.08);
+}
+
+.video-badge {
+  background-color: rgba(0, 0, 0, 0.6);
+  color: white;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.8em;
+  font-weight: bold;
+}
+
+.badge {
+  background-color: var(--accent-bg-color, @accent_bg_color);
+  color: var(--accent-fg-color, @accent_fg_color);
+  border-radius: 999px;
+  min-width: 20px;
+  padding: 0 6px;
+  font-size: 0.8em;
+  font-weight: bold;
+}
+
+.thread-pane {
+  background-color: alpha(currentColor, 0.02);
+}
+
+.threads row {
+  border-radius: 10px;
+}
+
+.unread {
+  font-weight: bold;
+}
+
+.bubble {
+  padding: 8px 14px;
+  border-radius: 18px;
+  margin-top: 1px;
+}
+
+.bubble.in {
+  background-color: alpha(currentColor, 0.09);
+  border-bottom-left-radius: 6px;
+}
+
+.bubble.out {
+  background-color: var(--accent-bg-color, @accent_bg_color);
+  color: var(--accent-fg-color, @accent_fg_color);
+  border-bottom-right-radius: 6px;
+}
+
+.bubble.out selection {
+  background-color: alpha(white, 0.3);
+}
+
+.notif-card {
+  border-radius: 14px;
+}
+
+button.small {
+  min-height: 24px;
+  padding: 2px 12px;
+  font-size: 0.9em;
+}

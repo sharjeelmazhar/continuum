@@ -89,3 +89,14 @@ pub fn download_dir() -> std::path::PathBuf {
         .filter(|p| p.is_absolute())
         .unwrap_or_else(|| home.join("Downloads"))
 }
+
+/// `$XDG_CACHE_HOME/continuum` (photo downloads, app icons): safe to delete at any time.
+pub fn cache_dir() -> std::path::PathBuf {
+    std::env::var_os("XDG_CACHE_HOME")
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache")
+        })
+        .join("continuum")
+}

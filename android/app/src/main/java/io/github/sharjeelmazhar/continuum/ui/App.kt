@@ -6,6 +6,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -122,7 +124,7 @@ fun App(externalLink: MutableState<String?>, resumeTick: Int) {
 private fun HomeScreen(state: LinkState, exempt: Boolean, resumeTick: Int, onScan: () -> Unit, onRemove: () -> Unit) {
     Scaffold { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(24.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -139,6 +141,8 @@ private fun HomeScreen(state: LinkState, exempt: Boolean, resumeTick: Int, onSca
                 KeepConnectedCard(exempt, resumeTick)
                 Spacer(Modifier.height(16.dp))
                 AutoClipboardCard(resumeTick)
+                Spacer(Modifier.height(16.dp))
+                FeaturesCard(resumeTick)
             }
         }
     }

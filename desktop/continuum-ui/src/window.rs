@@ -1,4 +1,5 @@
-//! Main window: device list, the empty "pair your phone" state, and the QR pairing dialog.
+//! Main window, Phone Link style: a sidebar with the phone (picture, battery) and its
+//! features, and the selected feature on the right. Also the QR pairing dialog.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -7,36 +8,72 @@ use std::time::Duration;
 use adw::prelude::*;
 use futures_util::StreamExt;
 
-use crate::daemon::{self, DaemonProxy, DeviceRow};
-use crate::qr;
+use crate::ctx::{self, Ctx, Device};
+use crate::daemon::{self, DaemonProxy};
+use crate::{messages, notifications, photos, qr};
+
+/// The feature pages, in sidebar order: (stack name, title, icons to try).
+const PAGES: &[(&str, &str, &[&str])] = &[
+    ("photos", "Photos", &["image-x-generic-symbolic"]),
+    (
+        "messages",
+        "Messages",
+        &["chat-bubble-text-symbolic", "mail-unread-symbolic"],
+    ),
+    (
+        "notifications",
+        "Notifications",
+        &["preferences-system-notifications-symbolic"],
+    ),
+    ("files", "Send Files", &["document-send-symbolic"]),
+];
 
 struct Ui {
+    ctx: Rc<Ctx>,
     window: adw::ApplicationWindow,
-    stack: gtk::Stack,
-    page: adw::PreferencesPage,
-    group: RefCell<Option<adw::PreferencesGroup>>,
     toasts: adw::ToastOverlay,
-    add_button: gtk::Button,
+    stack: gtk::Stack,
     error_page: adw::StatusPage,
-    proxy: RefCell<Option<DaemonProxy<'static>>>,
     pair_dialog: RefCell<Option<adw::Dialog>>,
     /// Bumped whenever a pairing dialog opens or closes, so stale countdowns stop.
     pair_generation: Cell<u64>,
+    devices: RefCell<Vec<Device>>,
+    // Sidebar
+    picture: gtk::Image,
+    phone_name: gtk::Label,
+    phone_status: gtk::Label,
+    switcher: gtk::DropDown,
+    nav: gtk::ListBox,
+    // Content
+    pages: gtk::Stack,
+    page_title: adw::WindowTitle,
+    split: adw::NavigationSplitView,
+    refresh: gtk::Button,
+    files_page: adw::StatusPage,
+    photos: Rc<photos::Photos>,
+    messages: Rc<messages::Messages>,
+    notifications: Rc<notifications::Notifications>,
+    /// (page, device id) each page last loaded, so a page reloads only when needed.
+    loaded: RefCell<Vec<(String, String)>>,
+    /// Set while `refresh` fills the switcher, whose selection changes as a side effect.
+    filling: Cell<bool>,
 }
 
 pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
+    load_css();
     let stack = gtk::Stack::builder()
         .transition_type(gtk::StackTransitionType::Crossfade)
         .build();
-
-    let spinner = gtk::Spinner::builder()
-        .spinning(true)
-        .width_request(32)
-        .height_request(32)
-        .halign(gtk::Align::Center)
-        .valign(gtk::Align::Center)
-        .build();
-    stack.add_named(&spinner, Some("loading"));
+    stack.add_named(
+        &gtk::Spinner::builder()
+            .spinning(true)
+            .width_request(32)
+            .height_request(32)
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Center)
+            .build(),
+        Some("loading"),
+    );
 
     let pair_button = gtk::Button::builder()
         .label("Pair a Phone")
@@ -44,15 +81,12 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         .css_classes(["pill", "suggested-action"])
         .build();
     let empty = adw::StatusPage::builder()
-        .icon_name("phone-symbolic")
+        .paintable(&device_texture("phone"))
         .title("Pair Your Phone")
-        .description("Install Continuum on your Android phone, then scan a code to connect it to this computer.")
+        .description("Install Continuum on your Android phone, then scan a code to see your photos, messages and notifications here.")
         .child(&pair_button)
         .build();
     stack.add_named(&empty, Some("empty"));
-
-    let page = adw::PreferencesPage::new();
-    stack.add_named(&page, Some("list"));
 
     let error_page = adw::StatusPage::builder()
         .icon_name("dialog-error-symbolic")
@@ -60,49 +94,424 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         .build();
     stack.add_named(&error_page, Some("error"));
 
-    let add_button = gtk::Button::builder()
-        .icon_name("list-add-symbolic")
-        .tooltip_text("Pair a Phone")
-        .visible(false)
-        .build();
-    let header = adw::HeaderBar::new();
-    header.pack_start(&add_button);
-
     let toasts = adw::ToastOverlay::new();
     toasts.set_child(Some(&stack));
-    let view = adw::ToolbarView::new();
-    view.add_top_bar(&header);
-    view.set_content(Some(&toasts));
-
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title("Continuum")
-        .default_width(520)
-        .default_height(600)
-        .content(&view)
+        .default_width(1180)
+        .default_height(780)
+        .width_request(360)
+        .height_request(400)
+        .content(&toasts)
         .build();
 
-    let ui = Rc::new(Ui {
+    let ctx = Rc::new(Ctx {
         window: window.clone(),
-        stack,
-        page,
-        group: RefCell::new(None),
-        toasts,
-        add_button: add_button.clone(),
-        error_page,
+        toasts: toasts.clone(),
         proxy: RefCell::new(None),
-        pair_dialog: RefCell::new(None),
-        pair_generation: Cell::new(0),
+        device: RefCell::new(None),
     });
 
-    for button in [&pair_button, &add_button] {
-        let ui = ui.clone();
-        button.connect_clicked(move |_| open_pairing(&ui));
+    // Sidebar: the phone, then the features.
+    let picture = gtk::Image::builder().pixel_size(112).margin_top(12).build();
+    let phone_name = gtk::Label::builder()
+        .css_classes(["title-2"])
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .build();
+    let phone_status = gtk::Label::builder().css_classes(["dim-label"]).build();
+    let switcher = gtk::DropDown::builder()
+        .visible(false)
+        .halign(gtk::Align::Center)
+        .css_classes(["flat"])
+        .build();
+    let hero = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(4)
+        .margin_bottom(18)
+        .css_classes(["phone-hero"])
+        .build();
+    hero.append(&picture);
+    hero.append(&phone_name);
+    hero.append(&phone_status);
+    hero.append(&switcher);
+
+    let photos = photos::build(&ctx);
+    let messages = messages::build(&ctx);
+    let notifications = notifications::build(&ctx);
+
+    let nav = gtk::ListBox::builder()
+        .css_classes(["navigation-sidebar"])
+        .build();
+    for (_, title, icons) in PAGES {
+        let row = gtk::Box::builder()
+            .spacing(12)
+            .margin_top(10)
+            .margin_bottom(10)
+            .margin_start(6)
+            .build();
+        row.append(&gtk::Image::from_icon_name(ctx::icon(icons)));
+        row.append(
+            &gtk::Label::builder()
+                .label(*title)
+                .hexpand(true)
+                .xalign(0.0)
+                .build(),
+        );
+        if *title == "Notifications" {
+            row.append(&notifications.badge);
+        }
+        nav.append(&row);
     }
+    let menu = gtk::gio::Menu::new();
+    menu.append(Some("Pair a Phone…"), Some("win.pair"));
+    menu.append(Some("Remove This Phone…"), Some("win.unpair"));
+    let menu_button = gtk::MenuButton::builder()
+        .icon_name("open-menu-symbolic")
+        .menu_model(&menu)
+        .tooltip_text("Menu")
+        .build();
+    let side_header = adw::HeaderBar::new();
+    side_header.pack_end(&menu_button);
+    let side_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    side_box.append(&hero);
+    side_box.append(&nav);
+    let side_view = adw::ToolbarView::new();
+    side_view.add_top_bar(&side_header);
+    side_view.set_content(Some(
+        &gtk::ScrolledWindow::builder()
+            .child(&side_box)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .build(),
+    ));
+    let sidebar = adw::NavigationPage::builder()
+        .title("Continuum")
+        .child(&side_view)
+        .build();
+
+    // Content: one page per feature.
+    let pages = gtk::Stack::builder()
+        .transition_type(gtk::StackTransitionType::Crossfade)
+        .vexpand(true)
+        .build();
+    pages.add_named(&photos.widget, Some("photos"));
+    pages.add_named(&messages.widget, Some("messages"));
+    pages.add_named(&notifications.widget, Some("notifications"));
+    let choose = gtk::Button::builder()
+        .label("Choose Files…")
+        .halign(gtk::Align::Center)
+        .css_classes(["pill", "suggested-action"])
+        .build();
+    let files_page = adw::StatusPage::builder()
+        .icon_name("document-send-symbolic")
+        .title("Send Files")
+        .description("Drop files anywhere in this window, or choose them. They're saved in Downloads/Continuum on the phone.")
+        .child(&choose)
+        .build();
+    pages.add_named(&files_page, Some("files"));
+
+    let page_title = adw::WindowTitle::new("", "");
+    {
+        let (title, pages) = (page_title.clone(), pages.clone());
+        photos.subtitle.connect_label_notify(move |l| {
+            if pages.visible_child_name().as_deref() == Some("photos") {
+                title.set_subtitle(&l.label());
+            }
+        });
+    }
+    let refresh = gtk::Button::builder()
+        .icon_name("view-refresh-symbolic")
+        .tooltip_text("Refresh")
+        .action_name("win.reload")
+        .build();
+    let content_header = adw::HeaderBar::builder().title_widget(&page_title).build();
+    content_header.pack_end(&refresh);
+    content_header.pack_end(&notifications.clear);
+    let content_view = adw::ToolbarView::new();
+    content_view.add_top_bar(&content_header);
+    content_view.set_content(Some(&pages));
+    let content = adw::NavigationPage::builder()
+        .title("Photos")
+        .child(&content_view)
+        .build();
+    let split = adw::NavigationSplitView::builder()
+        .sidebar(&sidebar)
+        .content(&content)
+        .min_sidebar_width(260.0)
+        .max_sidebar_width(300.0)
+        .build();
+    stack.add_named(&split, Some("main"));
+    // Narrow windows show one pane at a time.
+    let bp = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
+        adw::BreakpointConditionLengthType::MaxWidth,
+        720.0,
+        adw::LengthUnit::Sp,
+    ));
+    bp.add_setter(&split, "collapsed", Some(&true.to_value()));
+    window.add_breakpoint(bp);
+
+    let ui = Rc::new(Ui {
+        ctx,
+        window: window.clone(),
+        toasts,
+        stack,
+        error_page,
+        pair_dialog: RefCell::new(None),
+        pair_generation: Cell::new(0),
+        devices: RefCell::default(),
+        picture,
+        phone_name,
+        phone_status,
+        switcher: switcher.clone(),
+        nav: nav.clone(),
+        pages,
+        page_title,
+        split: split.clone(),
+        refresh,
+        files_page,
+        photos,
+        messages,
+        notifications,
+        loaded: RefCell::default(),
+        filling: Cell::new(false),
+    });
+
+    {
+        let ui = ui.clone();
+        nav.connect_row_selected(move |_, row| {
+            if let Some(row) = row {
+                show_page(&ui, PAGES[row.index() as usize].0, false);
+                ui.split.set_show_content(true);
+            }
+        });
+    }
+    {
+        let ui = ui.clone();
+        switcher.connect_selected_notify(move |dd| {
+            if ui.filling.get() {
+                return;
+            }
+            let d = ui.devices.borrow().get(dd.selected() as usize).cloned();
+            if let Some(d) = d
+                && ui.ctx.device().map(|c| c.id) != Some(d.id.clone())
+            {
+                select_device(&ui, d);
+            }
+        });
+    }
+    {
+        let ui = ui.clone();
+        pair_button.connect_clicked(move |_| open_pairing(&ui));
+    }
+    {
+        let ui = ui.clone();
+        choose.connect_clicked(move |_| {
+            let Some(d) = ui.ctx.device() else { return };
+            let ui = ui.clone();
+            glib::spawn_future_local(async move { pick_and_send(&ui, &d.id, &d.name).await });
+        });
+    }
+    add_actions(&ui);
+    add_drop_target(&ui);
 
     let ui2 = ui.clone();
     glib::spawn_future_local(async move { start(ui2).await });
+    dev_snapshots(&window);
     window
+}
+
+/// Development aid: with `CONTINUUM_SNAPSHOT=/path.png`, saves a picture of the window every
+/// two seconds (GNOME doesn't let scripts take screenshots).
+fn dev_snapshots(window: &adw::ApplicationWindow) {
+    let Some(path) = std::env::var_os("CONTINUUM_SNAPSHOT") else {
+        return;
+    };
+    let window = window.downgrade();
+    glib::timeout_add_local(Duration::from_secs(2), move || {
+        let Some(w) = window.upgrade() else {
+            return glib::ControlFlow::Break;
+        };
+        let paintable = gtk::WidgetPaintable::new(Some(&w));
+        let (width, height) = (w.width() as f64, w.height() as f64);
+        let snap = gtk::Snapshot::new();
+        paintable.snapshot(&snap, width, height);
+        if let (Some(node), Some(renderer)) =
+            (snap.to_node(), w.native().and_then(|n| n.renderer()))
+        {
+            let tmp = std::path::PathBuf::from(&path).with_extension("part.png");
+            if renderer
+                .render_texture(&node, None)
+                .save_to_png(&tmp)
+                .is_ok()
+            {
+                let _ = std::fs::rename(&tmp, &path);
+            }
+        }
+        glib::ControlFlow::Continue
+    });
+}
+
+fn load_css() {
+    let css = gtk::CssProvider::new();
+    css.load_from_string(include_str!("style.css"));
+    if let Some(display) = gtk::gdk::Display::default() {
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &css,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
+}
+
+fn add_actions(ui: &Rc<Ui>) {
+    let reload = gtk::gio::SimpleAction::new("reload", None);
+    {
+        let ui = ui.clone();
+        reload.connect_activate(move |_, _| {
+            if let Some(name) = ui.pages.visible_child_name() {
+                show_page(&ui, &name, true);
+            }
+        });
+    }
+    let pair = gtk::gio::SimpleAction::new("pair", None);
+    {
+        let ui = ui.clone();
+        pair.connect_activate(move |_, _| open_pairing(&ui));
+    }
+    let unpair = gtk::gio::SimpleAction::new("unpair", None);
+    {
+        let ui = ui.clone();
+        unpair.connect_activate(move |_, _| {
+            if let Some(d) = ui.ctx.device() {
+                confirm_unpair(&ui, &d.id, &d.name);
+            }
+        });
+    }
+    // Also reachable from outside (org.gtk.Actions on the session bus), e.g. a notification
+    // that opens Messages, or tests.
+    let page = gtk::gio::SimpleAction::new("show-page", Some(glib::VariantTy::STRING));
+    {
+        let ui = ui.clone();
+        page.connect_activate(move |_, arg| {
+            if let Some(name) = arg.and_then(|a| a.str()) {
+                show_page(&ui, name, false);
+                ui.split.set_show_content(true);
+            }
+        });
+    }
+    let device = gtk::gio::SimpleAction::new("select-device", Some(glib::VariantTy::STRING));
+    {
+        let ui = ui.clone();
+        device.connect_activate(move |_, arg| {
+            let Some(id) = arg.and_then(|a| a.str()) else {
+                return;
+            };
+            let i = ui.devices.borrow().iter().position(|d| d.id == id);
+            if let Some(i) = i {
+                ui.switcher.set_selected(i as u32);
+            }
+        });
+    }
+    if let Some(app) = ui.window.application() {
+        app.add_action(&page);
+        app.add_action(&device);
+    }
+    ui.window.add_action(&reload);
+    ui.window.add_action(&pair);
+    ui.window.add_action(&unpair);
+}
+
+/// Files dropped anywhere on the window go to the selected phone.
+fn add_drop_target(ui: &Rc<Ui>) {
+    let target = gtk::DropTarget::new(
+        gtk::gdk::FileList::static_type(),
+        gtk::gdk::DragAction::COPY,
+    );
+    ui.stack.add_controller(target.clone());
+    let ui = ui.clone();
+    target.connect_drop(move |_, value, _, _| {
+        let (Ok(list), Some(d)) = (value.get::<gtk::gdk::FileList>(), ui.ctx.device()) else {
+            return false;
+        };
+        let paths: Vec<String> = list
+            .files()
+            .iter()
+            .filter_map(|f| f.path())
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        if paths.is_empty() {
+            return false;
+        }
+        let ui = ui.clone();
+        glib::spawn_future_local(async move { send_paths(&ui, &d.id, &d.name, paths).await });
+        true
+    });
+}
+
+/// Shows a feature page, loading it if it hasn't been loaded for this phone (or `force`).
+fn show_page(ui: &Rc<Ui>, name: &str, force: bool) {
+    let Some(i) = PAGES.iter().position(|p| p.0 == name) else {
+        return;
+    };
+    ui.pages.set_visible_child_name(name);
+    ui.page_title.set_title(PAGES[i].1);
+    ui.refresh.set_visible(name != "files");
+    ui.notifications
+        .clear
+        .set_visible(name == "notifications" && ui.notifications.badge.is_visible());
+    if ui.nav.selected_row().map(|r| r.index()) != Some(i as i32)
+        && let Some(row) = ui.nav.row_at_index(i as i32)
+    {
+        ui.nav.select_row(Some(&row));
+    }
+    let device = ui.ctx.device().map(|d| d.id).unwrap_or_default();
+    let key = (name.to_owned(), device);
+    let fresh = !ui.loaded.borrow().contains(&key);
+    match name {
+        "photos" => {
+            ui.page_title.set_subtitle(&ui.photos.subtitle.label());
+            if fresh || force {
+                photos::reload(&ui.photos);
+            }
+        }
+        "messages" => {
+            ui.page_title.set_subtitle("");
+            if fresh || force {
+                messages::reload(&ui.messages, true);
+            }
+        }
+        "notifications" => {
+            ui.page_title.set_subtitle("");
+            notifications::reload(&ui.notifications);
+        }
+        _ => ui.page_title.set_subtitle(""),
+    }
+    let mut loaded = ui.loaded.borrow_mut();
+    loaded.retain(|(p, _)| p != name);
+    loaded.push(key);
+}
+
+fn select_device(ui: &Rc<Ui>, d: Device) {
+    ui.ctx.device.replace(Some(d.clone()));
+    save_last_device(&d.id);
+    ui.loaded.borrow_mut().clear();
+    update_hero(ui, &d);
+    let page = ui
+        .pages
+        .visible_child_name()
+        .map(|s| s.to_string())
+        .unwrap_or("photos".into());
+    show_page(ui, &page, false);
+    notifications::reload(&ui.notifications);
+}
+
+fn update_hero(ui: &Ui, d: &Device) {
+    ui.picture.set_paintable(Some(&device_texture(&d.ty)));
+    ui.phone_name.set_label(&d.name);
+    ui.phone_status
+        .set_label(&status_text(d.connected, d.battery, d.charging));
+    ui.files_page
+        .set_title(&format!("Send Files to {}", d.name));
 }
 
 async fn start(ui: Rc<Ui>) {
@@ -115,7 +524,7 @@ async fn start(ui: Rc<Ui>) {
             return;
         }
     };
-    *ui.proxy.borrow_mut() = Some(proxy.clone());
+    *ui.ctx.proxy.borrow_mut() = Some(proxy.clone());
     refresh(&ui).await;
 
     if let Ok(mut changed) = proxy.receive_devices_changed().await {
@@ -123,6 +532,25 @@ async fn start(ui: Rc<Ui>) {
         glib::spawn_future_local(async move {
             while changed.next().await.is_some() {
                 refresh(&ui).await;
+            }
+        });
+    }
+    if let Ok(mut events) = proxy.receive_phone_event().await {
+        let ui = ui.clone();
+        glib::spawn_future_local(async move {
+            while let Some(signal) = events.next().await {
+                let Ok(args) = signal.args() else { continue };
+                if ui.ctx.device().map(|d| d.id) != Some(args.id.to_string()) {
+                    continue;
+                }
+                if args.kind == "sms.changed" {
+                    let open = ui.loaded.borrow().iter().any(|(p, _)| p == "messages");
+                    if open {
+                        messages::reload(&ui.messages, false);
+                    }
+                } else {
+                    notifications::reload(&ui.notifications);
+                }
             }
         });
     }
@@ -144,12 +572,12 @@ async fn start(ui: Rc<Ui>) {
 }
 
 fn proxy(ui: &Ui) -> Option<DaemonProxy<'static>> {
-    ui.proxy.borrow().clone()
+    ui.ctx.proxy()
 }
 
 async fn refresh(ui: &Rc<Ui>) {
     let Some(proxy) = proxy(ui) else { return };
-    let devices = match proxy.list_devices().await {
+    let rows = match proxy.list_devices().await {
         Ok(d) => d,
         Err(e) => {
             ui.error_page
@@ -158,38 +586,88 @@ async fn refresh(ui: &Rc<Ui>) {
             return;
         }
     };
-    ui.add_button.set_visible(!devices.is_empty());
+    let devices: Vec<Device> = rows
+        .into_iter()
+        .map(|(id, name, ty, connected, battery, charging)| Device {
+            id,
+            name,
+            ty,
+            connected,
+            battery,
+            charging,
+        })
+        .collect();
     if devices.is_empty() {
+        ui.ctx.device.replace(None);
+        ui.devices.borrow_mut().clear();
         ui.stack.set_visible_child_name("empty");
         return;
     }
-    let group = adw::PreferencesGroup::builder().title("Devices").build();
-    for d in &devices {
-        group.add(&device_row(ui, d));
+    let names: Vec<&str> = devices.iter().map(|d| d.name.as_str()).collect();
+    *ui.devices.borrow_mut() = devices.clone();
+    ui.filling.set(true);
+    ui.switcher.set_model(Some(&gtk::StringList::new(&names)));
+    ui.switcher.set_visible(devices.len() > 1);
+
+    let current = ui.ctx.device();
+    // Keep the phone that was selected (or last time's); otherwise prefer one that's connected.
+    let wanted = current.as_ref().map(|c| c.id.clone()).or_else(last_device);
+    let pick = wanted
+        .and_then(|id| devices.iter().position(|d| d.id == id))
+        .or_else(|| devices.iter().position(|d| d.connected))
+        .unwrap_or(0);
+    let d = devices[pick].clone();
+    ui.switcher.set_selected(pick as u32);
+    ui.filling.set(false);
+    ui.stack.set_visible_child_name("main");
+    match current {
+        Some(c) if c.id == d.id => {
+            ui.ctx.device.replace(Some(d.clone()));
+            update_hero(ui, &d);
+            // Just reconnected: what the pages show may be out of date.
+            if d.connected && !c.connected {
+                ui.loaded.borrow_mut().clear();
+                if let Some(name) = ui.pages.visible_child_name() {
+                    show_page(ui, &name, false);
+                }
+            }
+        }
+        _ => select_device(ui, d),
     }
-    if let Some(old) = ui.group.replace(Some(group.clone())) {
-        ui.page.remove(&old);
-    }
-    ui.page.add(&group);
-    ui.stack.set_visible_child_name("list");
 }
 
-/// AirDrop-style picture of the device (rendered by scripts/render-device-icons.py).
-fn device_picture(ty: &str) -> gtk::Image {
+fn last_device_file() -> std::path::PathBuf {
+    glib::user_config_dir()
+        .join("continuum")
+        .join("last-device")
+}
+
+fn last_device() -> Option<String> {
+    std::fs::read_to_string(last_device_file())
+        .ok()
+        .map(|s| s.trim().to_owned())
+}
+
+fn save_last_device(id: &str) {
+    if last_device().as_deref() == Some(id) {
+        return;
+    }
+    let path = last_device_file();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let tmp = path.with_extension("part");
+    let _ = std::fs::write(&tmp, id).and_then(|_| std::fs::rename(&tmp, &path));
+}
+
+fn device_texture(ty: &str) -> gtk::gdk::Texture {
     let png: &'static [u8] = match ty {
         "tablet" => include_bytes!("../data/device-tablet.png"),
         "laptop" => include_bytes!("../data/device-laptop.png"),
         "desktop" => include_bytes!("../data/device-desktop.png"),
         _ => include_bytes!("../data/device-phone.png"),
     };
-    let image = match gtk::gdk::Texture::from_bytes(&glib::Bytes::from_static(png)) {
-        Ok(t) => gtk::Image::from_paintable(Some(&t)),
-        Err(_) => gtk::Image::from_icon_name("phone-symbolic"),
-    };
-    image.set_pixel_size(48);
-    image.set_margin_top(6);
-    image.set_margin_bottom(6);
-    image
+    gtk::gdk::Texture::from_bytes(&glib::Bytes::from_static(png)).expect("bundled PNG")
 }
 
 fn status_text(connected: bool, battery: i32, charging: bool) -> String {
@@ -199,49 +677,6 @@ fn status_text(connected: bool, battery: i32, charging: bool) -> String {
         (true, b) if charging => format!("Connected · {b}% battery, charging"),
         (true, b) => format!("Connected · {b}% battery"),
     }
-}
-
-fn device_row(
-    ui: &Rc<Ui>,
-    (id, name, ty, connected, battery, charging): &DeviceRow,
-) -> adw::ActionRow {
-    let row = adw::ActionRow::builder()
-        .title(name)
-        .use_markup(false)
-        .subtitle(status_text(*connected, *battery, *charging))
-        .build();
-    row.add_prefix(&device_picture(ty));
-    let dot = gtk::Image::from_icon_name(if *connected {
-        "object-select-symbolic"
-    } else {
-        "network-offline-symbolic"
-    });
-    dot.add_css_class(if *connected { "success" } else { "dim-label" });
-    row.add_suffix(&dot);
-    let send = gtk::Button::builder()
-        .icon_name("document-send-symbolic")
-        .tooltip_text(format!("Send files to {name}"))
-        .valign(gtk::Align::Center)
-        .css_classes(["flat"])
-        .build();
-    {
-        let (ui, id, name) = (ui.clone(), id.clone(), name.clone());
-        send.connect_clicked(move |_| {
-            let (ui, id, name) = (ui.clone(), id.clone(), name.clone());
-            glib::spawn_future_local(async move { pick_and_send(&ui, &id, &name).await });
-        });
-    }
-    row.add_suffix(&send);
-    let remove = gtk::Button::builder()
-        .icon_name("user-trash-symbolic")
-        .tooltip_text("Remove this device")
-        .valign(gtk::Align::Center)
-        .css_classes(["flat"])
-        .build();
-    let (ui, id, name) = (ui.clone(), id.clone(), name.clone());
-    remove.connect_clicked(move |_| confirm_unpair(&ui, &id, &name));
-    row.add_suffix(&remove);
-    row
 }
 
 async fn pick_and_send(ui: &Rc<Ui>, id: &str, name: &str) {
@@ -256,9 +691,12 @@ async fn pick_and_send(ui: &Rc<Ui>, id: &str, name: &str) {
         .filter_map(|i| files.item(i)?.downcast::<gtk::gio::File>().ok()?.path())
         .map(|p| p.to_string_lossy().into_owned())
         .collect();
-    if paths.is_empty() {
-        return;
+    if !paths.is_empty() {
+        send_paths(ui, id, name, paths).await;
     }
+}
+
+async fn send_paths(ui: &Rc<Ui>, id: &str, name: &str, paths: Vec<String>) {
     let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
     let Some(proxy) = proxy(ui) else { return };
     let text = match proxy.send_files(id, &refs).await {

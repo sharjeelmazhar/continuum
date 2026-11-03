@@ -15,6 +15,27 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- In-app updates from GitHub Releases (update/Updater.kt); Android asks the user once. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Photos on the computer (feature/Photos.kt). Asked only when the user turns it on. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- Texts on the computer (feature/Sms.kt). Contacts only to show names. -->
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+
+    <!-- Names and icons of the apps whose notifications are mirrored (feature/NotificationMirror.kt). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
@@ -97,6 +118,17 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/copy_watcher" />
+        </service>
+
+        <!-- Phone notifications on the computer. Off until the user allows notification access. -->
+        <service
+            android:name=".feature.NotificationMirror"
+            android:exported="true"
+            android:label="@string/notif_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
         </service>
 
         <!-- Shares images the computer copied with the app you paste into. -->

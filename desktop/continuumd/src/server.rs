@@ -8,8 +8,9 @@ use continuum_proto::clipboard::Assembler;
 use continuum_proto::frame::{FrameDecoder, encode};
 use continuum_proto::identity::{Fingerprint, fingerprint};
 use continuum_proto::message::{
-    self as m, BatteryStatus, ClipboardPart, DataHello, ErrorBody, Hello, Message, PairAccept,
-    PairReject, PairRequest, ShareAccept, ShareOffer, ShareReject, ShareResult,
+    self as m, BatteryStatus, ClipboardPart, DataHello, ErrorBody, Hello, Message, NotifKey,
+    PairAccept, PairReject, PairRequest, PhoneNotification, ShareAccept, ShareOffer, ShareReject,
+    ShareResult,
 };
 use continuum_proto::pairing::verify_proof;
 use continuum_proto::{PROTOCOL_VERSION, tls};
@@ -404,6 +405,41 @@ async fn session<R: AsyncRead + Unpin>(
                 }
                 Err(e) => warn!("{} sent an invalid clipboard part: {e}", device.name),
             },
+            kind if kind.ends_with(".reply") || kind == m::PHOTOS_PART => {
+                daemon.requests.deliver(&device.id, msg);
+            }
+            m::NOTIF_POSTED => match msg.body::<PhoneNotification>().map(|n| n.sanitized()) {
+                Ok(Some(mut n)) => {
+                    // Apps repost unchanged notifications (e.g. all chats on each new message).
+                    if !daemon.notifications.posted(&device.id, n.clone()) {
+                        n.silent = true;
+                    }
+                    let body = serde_json::to_string(&n).unwrap_or_default();
+                    daemon.emit(Event::Phone {
+                        device: device.id.clone(),
+                        kind: msg.kind,
+                        body,
+                    });
+                }
+                _ => warn!("{} sent an invalid notif.posted", device.name),
+            },
+            m::NOTIF_REMOVED => {
+                if let Ok(k) = msg.body::<NotifKey>()
+                    && daemon.notifications.removed(&device.id, &k.key)
+                {
+                    let body = serde_json::to_string(&k).unwrap_or_default();
+                    daemon.emit(Event::Phone {
+                        device: device.id.clone(),
+                        kind: msg.kind,
+                        body,
+                    });
+                }
+            }
+            m::SMS_CHANGED => daemon.emit(Event::Phone {
+                device: device.id.clone(),
+                kind: msg.kind,
+                body: "{}".into(),
+            }),
             m::UNPAIR => {
                 info!("{} removed the pairing", device.name);
                 daemon.unpair(&device.id).map_err(|e| e.to_string())?;

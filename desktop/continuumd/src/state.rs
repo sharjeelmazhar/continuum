@@ -9,13 +9,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use continuum_proto::identity::{Fingerprint, Identity};
 use continuum_proto::message::{
-    BatteryStatus, CAP_SHARE_RECEIVE, DeviceType, Message, SHARE_OFFER,
+    self as m, BatteryStatus, CAP_SHARE_RECEIVE, DeviceType, Message, SHARE_OFFER,
 };
 use continuum_proto::pairing::{PairUri, Secret, random_secret};
 use tokio::sync::{Notify, broadcast, mpsc};
 
 use crate::clipboard::ClipHub;
 use crate::outbox::Outbox;
+use crate::phone::{self, Fetched, Notifications, Requests, Waiter};
 use crate::store::{PairedDevice, Store};
 use crate::transfer::{Progress, Transfers};
 
@@ -26,8 +27,17 @@ const MAX_PAIR_FAILURES_PER_MINUTE: usize = 5;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     DevicesChanged,
-    Paired { id: String, name: String },
+    Paired {
+        id: String,
+        name: String,
+    },
     Transfer(Progress),
+    /// Something the phone reported on its own (`notif.*`, `sms.changed`), body as JSON.
+    Phone {
+        device: String,
+        kind: String,
+        body: String,
+    },
 }
 
 /// Sender and capabilities of a connected peer.
@@ -61,6 +71,8 @@ pub struct Daemon {
     pub transfers: Transfers,
     pub outbox: Outbox,
     pub clip: ClipHub,
+    pub requests: Requests,
+    pub notifications: Notifications,
     pub identity: Identity,
     pub name: String,
     pub device_type: DeviceType,
@@ -86,6 +98,8 @@ impl Daemon {
             transfers,
             outbox: Outbox::default(),
             clip: ClipHub::default(),
+            requests: Requests::default(),
+            notifications: Notifications::default(),
             identity,
             name,
             device_type,
@@ -225,6 +239,8 @@ impl Daemon {
 
     /// Registers a live connection; an older connection from the same device is closed.
     pub fn connected(&self, id: &str, live: Live, ip: IpAddr) {
+        // The phone sends its current notifications again right after hello.
+        self.notifications.clear(id);
         let mut g = self.lock();
         if let Some(old) = g.live.insert(id.to_owned(), live) {
             old.kill.notify_one();
@@ -298,6 +314,105 @@ impl Daemon {
             None => self.emit(Event::Transfer(Progress::SendQueued { device: name })),
         }
         Ok(tid)
+    }
+
+    /// The sender for a connected device that has `cap`, or a message for the user.
+    fn link_with(&self, id: &str, cap: &str) -> Result<mpsc::Sender<Message>, String> {
+        let (name, live) = self.peer(id).ok_or("that device isn't paired")?;
+        let (tx, caps) = live.ok_or_else(|| format!("{name} isn't connected"))?;
+        if !caps.iter().any(|c| c == cap) {
+            return Err(format!("update Continuum on {name} to use this"));
+        }
+        Ok(tx)
+    }
+
+    /// Sends a request (`photos.list`, `sms.send`, …) and waits for its reply body.
+    /// Errors are user-facing text, or `"permission"` (allow access on the phone).
+    pub async fn request(
+        &self,
+        id: &str,
+        kind: &str,
+        mut body: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        let cap = m::REQUESTS
+            .iter()
+            .find(|(k, _)| *k == kind && kind != "photos.fetch")
+            .map(|(_, c)| *c)
+            .ok_or_else(|| format!("unknown request {kind}"))?;
+        let tx = self.link_with(id, cap)?;
+        let obj = body
+            .as_object_mut()
+            .ok_or("the request body must be an object")?;
+        let (req, waiter) = self.requests.register(id, false);
+        obj.insert("req".into(), req.into());
+        let Waiter::Reply(rx) = waiter else {
+            unreachable!()
+        };
+        let msg = Message {
+            kind: kind.to_owned(),
+            body,
+        };
+        if tx.send(msg).await.is_err() {
+            self.requests.cancel(req);
+            return Err("the phone disconnected".into());
+        }
+        let reply = match tokio::time::timeout(phone::REQUEST_TIMEOUT, rx).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(_)) => return Err("the phone disconnected".into()),
+            Err(_) => {
+                self.requests.cancel(req);
+                return Err("the phone didn't answer in time".into());
+            }
+        };
+        match reply.body.get("error").and_then(|e| e.as_str()) {
+            Some(e) => Err(e.to_owned()),
+            None => Ok(reply.body),
+        }
+    }
+
+    /// Downloads one photo from the phone.
+    pub async fn fetch_photo(&self, id: &str, photo: i64) -> Result<Fetched, String> {
+        let tx = self.link_with(id, m::CAP_PHOTOS)?;
+        let (req, waiter) = self.requests.register(id, true);
+        let Waiter::Fetch(rx) = waiter else {
+            unreachable!()
+        };
+        let msg = Message {
+            kind: "photos.fetch".into(),
+            body: serde_json::json!({ "req": req, "id": photo }),
+        };
+        if tx.send(msg).await.is_err() {
+            self.requests.cancel(req);
+            return Err("the phone disconnected".into());
+        }
+        match tokio::time::timeout(phone::FETCH_TIMEOUT, rx).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(_)) => Err("the phone disconnected".into()),
+            Err(_) => {
+                self.requests.cancel(req);
+                Err("the download took too long".into())
+            }
+        }
+    }
+
+    /// Dismiss, reply to or act on a phone notification.
+    pub async fn notification_command(
+        &self,
+        id: &str,
+        kind: &str,
+        body: serde_json::Value,
+    ) -> Result<(), String> {
+        if !m::NOTIF_COMMANDS.contains(&kind) || !body.is_object() {
+            return Err(format!("unknown command {kind}"));
+        }
+        let tx = self.link_with(id, m::CAP_NOTIF)?;
+        let msg = Message {
+            kind: kind.to_owned(),
+            body,
+        };
+        tx.send(msg)
+            .await
+            .map_err(|_| "the phone disconnected".to_owned())
     }
 
     pub fn set_battery(&self, id: &str, b: BatteryStatus) {

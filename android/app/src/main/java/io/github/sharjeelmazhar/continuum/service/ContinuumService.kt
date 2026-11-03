@@ -11,6 +11,7 @@ import io.github.sharjeelmazhar.continuum.share.FileSender
 import io.github.sharjeelmazhar.continuum.share.Outgoing
 import io.github.sharjeelmazhar.continuum.share.Shortcuts
 import io.github.sharjeelmazhar.continuum.share.ClipSync
+import io.github.sharjeelmazhar.continuum.feature.Features
 import io.github.sharjeelmazhar.continuum.update.Updater
 import io.github.sharjeelmazhar.continuum.share.FileReceiver
 import io.github.sharjeelmazhar.continuum.share.Received
@@ -163,10 +164,7 @@ class ContinuumService : Service() {
             ACTION_UNPAIR -> unpair()
             ACTION_SEND -> {
                 val uris = IntentCompat.getParcelableArrayListExtra(intent, EXTRA_URIS, Uri::class.java).orEmpty()
-                scope.launch {
-                    // Sharing the same files again while they're still going is a no-op.
-                    Outgoing.resolve(this@ContinuumService, uris)?.takeIf { queued.add(it.transferId) }?.let { outgoing.send(it) }
-                }
+                scope.launch { queueFiles(uris) }
                 if (loop?.isActive != true) restart(null) else wake.trySend(Unit)
             }
             // A plain start (app opened, boot) also means "try now" if we're waiting.
@@ -362,6 +360,8 @@ class ContinuumService : Service() {
                 }
             }
             val clip = ClipAssembler()
+            val features = Features(this, scope, session, peerCaps) { uris -> queueFiles(uris) }
+            features.start()
             try {
                 while (true) {
                     val msg = session.receive()
@@ -389,16 +389,24 @@ class ContinuumService : Service() {
                         MessageType.CLIPBOARD -> runCatching { msg.body(ClipboardPart.serializer()) }.getOrNull()
                             ?.let { clip.push(it) }
                             ?.let { ClipSync.apply(this, it) }
-                        else -> {}
+                        else -> features.handle(msg)
                     }
                 }
             } finally {
+                features.stop()
                 pinger.cancel()
             }
         } finally {
             this.session = null
             session.close()
         }
+    }
+
+    /** Queues files to send; false if none could be read. Sharing files still going is a no-op. */
+    private suspend fun queueFiles(uris: List<Uri>): Boolean {
+        val job = Outgoing.resolve(this, uris) ?: return false
+        if (queued.add(job.transferId)) outgoing.send(job)
+        return true
     }
 
     /** Sends one queued transfer, waiting for a connection and resuming after drops (up to 5 tries). */

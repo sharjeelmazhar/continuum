@@ -5,6 +5,7 @@ pub mod dbus;
 pub mod mdns;
 pub mod notify;
 pub mod outbox;
+pub mod phone;
 pub mod server;
 pub mod state;
 pub mod store;

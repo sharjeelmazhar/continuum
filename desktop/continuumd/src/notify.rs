@@ -10,6 +10,7 @@ use zbus::Variant as Value;
 use zbus::{Connection, proxy};
 
 use crate::transfer::Progress;
+use continuum_proto::message::PhoneNotification;
 
 const APP_ID: &str = "io.github.sharjeelmazhar.Continuum";
 
@@ -32,6 +33,8 @@ trait Notifications {
         expire_timeout: i32,
     ) -> zbus::Result<u32>;
 
+    fn close_notification(&self, id: u32) -> zbus::Result<()>;
+
     #[zbus(signal)]
     fn action_invoked(&self, id: u32, action_key: &str) -> zbus::Result<()>;
 }
@@ -52,6 +55,8 @@ pub struct Notifier {
     files: Mutex<HashMap<u32, Vec<PathBuf>>>,
     /// Device name → its "Receiving…" notification, replaced when the transfer ends.
     in_progress: Mutex<HashMap<String, u32>>,
+    /// "device/key" of a phone notification → our popup for it.
+    phone: Mutex<HashMap<String, u32>>,
 }
 
 impl Notifier {
@@ -62,6 +67,7 @@ impl Notifier {
             proxy: proxy.clone(),
             files: Mutex::new(HashMap::new()),
             in_progress: Mutex::new(HashMap::new()),
+            phone: Mutex::new(HashMap::new()),
         });
         let mut actions = proxy.receive_action_invoked().await?;
         let weak = Arc::downgrade(&me);
@@ -78,6 +84,8 @@ impl Notifier {
                     .cloned();
                 if let Some(files) = files {
                     me.act(args.action_key, &files).await;
+                } else if me.is_phone_popup(args.id) {
+                    me.open_app_page("notifications").await;
                 }
             }
         });
@@ -136,6 +144,100 @@ impl Notifier {
             .unwrap_or_else(|e| e.into_inner())
             .remove(key)
             .unwrap_or(0)
+    }
+
+    fn is_phone_popup(&self, id: u32) -> bool {
+        let g = self.phone.lock().unwrap_or_else(|e| e.into_inner());
+        g.values().any(|v| *v == id)
+    }
+
+    /// Shows a page of the Continuum window, starting the app if needed.
+    async fn open_app_page(&self, page: &str) {
+        let arg = Value::from(page);
+        let call = self
+            .conn
+            .call_method(
+                Some(APP_ID),
+                "/io/github/sharjeelmazhar/Continuum",
+                Some("org.gtk.Actions"),
+                "Activate",
+                &("show-page", vec![arg], HashMap::<&str, Value<'_>>::new()),
+            )
+            .await;
+        if call.is_err() {
+            let ui = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.join("continuum-ui")))
+                .filter(|p| p.exists())
+                .map(PathBuf::into_os_string)
+                .unwrap_or_else(|| "continuum-ui".into());
+            let _ = std::process::Command::new(ui).spawn();
+        }
+    }
+
+    /// Closes our popup for a phone notification that went away on the phone.
+    pub async fn on_phone_notification_removed(&self, device: &str, key: &str) {
+        let id = self
+            .phone
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&format!("{device}/{key}"));
+        if let Some(id) = id {
+            let _ = self.proxy.close_notification(id).await;
+        }
+    }
+
+    /// Pops up a notification that arrived on a phone (not the ones it lists after connecting,
+    /// nor unchanged reposts), replacing our earlier popup for the same one.
+    pub async fn on_phone_notification(
+        &self,
+        device_id: &str,
+        device: &str,
+        n: &PhoneNotification,
+    ) {
+        if n.silent {
+            return;
+        }
+        let slot = format!("{device_id}/{}", n.key);
+        let replaces = self
+            .phone
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&slot)
+            .copied()
+            .unwrap_or(0);
+        let icon = app_icon(n).unwrap_or_else(|| APP_ID.to_owned());
+        let summary = match (n.app.as_str(), n.title.as_str()) {
+            (app, "") => app.to_owned(),
+            (_, title) => title.to_owned(),
+        };
+        let body = format!(
+            "{} · {device}\n{}",
+            glib_escape(&n.app),
+            glib_escape(&n.text)
+        );
+        let hints = HashMap::from([("desktop-entry", Value::from(APP_ID))]);
+        let actions = ["default", "Open"];
+        if let Ok(id) = self
+            .proxy
+            .notify(
+                "Continuum",
+                replaces,
+                &icon,
+                &summary,
+                &body,
+                &actions,
+                hints,
+                -1,
+            )
+            .await
+        {
+            let mut g = self.phone.lock().unwrap_or_else(|e| e.into_inner());
+            if g.len() > 500 {
+                g.clear();
+            }
+            g.insert(slot, id);
+        }
     }
 
     pub async fn on_transfer(&self, p: &Progress) {
@@ -251,6 +353,39 @@ impl Notifier {
             }
         }
     }
+}
+
+/// Saves the app icon the phone sent (once per app) and returns its path.
+fn app_icon(n: &PhoneNotification) -> Option<String> {
+    use base64::Engine;
+    if n.icon.is_empty() || n.pkg.is_empty() {
+        return None;
+    }
+    let name: String = n
+        .pkg
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == '_')
+        .collect();
+    let dir = crate::sysinfo::cache_dir().join("icons");
+    let path = dir.join(format!("{}.png", name.trim_start_matches('.')));
+    if !path.exists() {
+        let png = base64::engine::general_purpose::STANDARD
+            .decode(&n.icon)
+            .ok()?;
+        if !png.starts_with(b"\x89PNG") {
+            return None;
+        }
+        std::fs::create_dir_all(&dir).ok()?;
+        crate::store::write_atomic(&path, &png).ok()?;
+    }
+    Some(path.to_string_lossy().into_owned())
+}
+
+/// Notification bodies may contain markup; phone text is shown as plain text.
+fn glib_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 fn open(path: &Path) {

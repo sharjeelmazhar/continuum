@@ -3,22 +3,24 @@
 > Read this first in every session. Update it before ending a session.
 
 ## Current
-- **Milestone:** M5 ✅, M6 ✅ (clipboard automatic both ways; phone side via the accessibility
-  copy watcher, ADR-0016). v0.4.1.
-- **Next task:** verify the copy watcher on the real Redmi (MIUI toolbar/toasts may differ:
-  check `adb logcat -s Continuum` with `setprop log.tag.Continuum DEBUG`), including copying an
-  image. Then M7 notifications. Leftovers, in order of value:
-  1. MIUI: after a crash or an update, the service isn't restarted until the app is opened
-     (MIUI's background broadcast queue was 400+ deep). Consider WorkManager as a watchdog.
-  2. Android 8-9: bundle Conscrypt for TLS 1.3 (`net/Tls.kt` TODO); test on an API 26 image.
-  3. Pairing without a camera (6-digit code), and re-announce after the PC wakes from suspend.
-  4. Battery measurement on the real phone (ping every 20 s).
-  5. Speed: now on gigabit + 5 GHz (the 100 Mbps link was a faulty cable). Benchmarked 3 November
-     2026: Continuum ≈ GSConnect, ~40 MB/s each. Read `docs/benchmarks/transfer-speed.md` and
-     follow its plan (step 1: time the phone receive loop). Re-run: `scripts/bench-transfer.sh`.
-- **Verified on the real phone:** PC → phone 150 MB byte-identical (~7.5 MB/s; a raw netcat copy
-  only managed 4.2 MB/s); Wi-Fi off mid-transfer → resumed from the checkpoint, byte-identical;
-  PC copies text and PNG → phone clipboard; phone shares text → PC clipboard.
+- **Milestone:** Phone Link-style app (photos, messages, notifications = M7 + part of M12 "SMS"),
+  built 3 November 2026. v0.5.0 not tagged yet.
+- **Next task:** test the new features on the real Redmi (MIUI: restricted settings for SMS and
+  notification access, battery killing), then tag v0.5.0. Then, in order of value:
+  1. Desktop: photo viewer next/previous and multi-select "Save", message search, contact photos.
+  2. Notification allowlist (per-app mute, from PC and phone), and hide content while locked.
+  3. Calls (M8), then phone mirroring (M9).
+  4. Leftovers: MIUI service restart watchdog; Android 8-9 TLS (Conscrypt); 6-digit pairing
+     without a camera; re-announce after suspend; battery measurement; transfer speed plan in
+     `docs/benchmarks/transfer-speed.md` (re-run: `scripts/bench-transfer.sh`).
+- **Verified on the emulator (Android 17) with the daemon on the PC, 3 November 2026:** photo grid
+  (18 photos, thumbnails, full-size download), SMS threads and conversation, sending an SMS from
+  the PC, incoming SMS → live update + GNOME popup (once, not per repost), notification list with
+  app icons, quick reply through Google Messages, dismiss. Dev aids: `CONTINUUM_SNAPSHOT=/x.png
+  continuum-ui` saves the window every 2 s; app actions `show-page` / `select-device` over
+  `org.gtk.Actions` on the session bus.
+- **Verified on the real phone earlier:** PC → phone 150 MB byte-identical; Wi-Fi off mid-transfer →
+  resumed; clipboard both ways.
 
 ## Milestones
 | # | Milestone | Status |
@@ -30,7 +32,7 @@
 | M4 | Send files phone → PC (share sheet, device icon) | ✅ |
 | M5 | Send files PC → phone (Nautilus right-click) | ✅ |
 | M6 | Universal clipboard | ✅ (real-phone check of auto copy pending) |
-| M7 | Notifications (allowlist, quick reply) | ☐ |
+| M7 | Notifications (allowlist, quick reply) | 🟡 mirror, reply, dismiss done; allowlist next |
 | M8 | Calls (iOS-style banner, accept/decline) | ☐ |
 | M9 | Phone mirroring (borderless rounded window) | ☐ |
 | M10 | Settings, shell tile, find phone, media | ☐ |
@@ -38,6 +40,14 @@
 | M11 | Hardening and release | ☐ |
 
 ## Log (newest first)
+- 3 November 2026: Phone Link-style desktop app: sidebar with the phone (picture, battery) and
+  Photos (lazy grid, disk-cached thumbnails, viewer with copy/save/open), Messages (threads,
+  bubbles, send, new conversation), Notifications (icons, quick reply, actions, dismiss, clear all),
+  Send Files (drop anywhere). Daemon: generic request/reply routing (`Request`, `FetchPhoto`,
+  `ListNotifications`, `NotificationCommand`, `PhoneEvent` on D-Bus), GNOME popups for phone
+  notifications that close when dismissed on the phone. Android: MediaStore, SMS (read/send,
+  contact names, change observer), NotificationListenerService, "On your computer" permission
+  section. Fixed: a pairing link was asked again after an app update.
 - 30 October 2026: in-app updater (GitHub release list → SHA-256-checked download →
   PackageInstaller session; Android 12+ later updates can skip the prompt). Verified on the
   emulator: 0.4.0 updated itself to 0.4.1. Distribution decided: GitHub only, no Play Store. v0.4.2.

@@ -21,9 +21,39 @@ pub const SHARE_REJECT: &str = "share.reject";
 pub const SHARE_RESULT: &str = "share.result";
 pub const DATA_HELLO: &str = "data.hello";
 pub const CLIPBOARD: &str = "clipboard";
+pub const PHOTOS_PART: &str = "photos.part";
+pub const SMS_CHANGED: &str = "sms.changed";
+pub const NOTIF_POSTED: &str = "notif.posted";
+pub const NOTIF_REMOVED: &str = "notif.removed";
+
+/// Requests the desktop may send to the phone, with the capability each needs
+/// (see "Requests" in `docs/PROTOCOL.md`). Replies are `<type>.reply`.
+pub const REQUESTS: &[(&str, &str)] = &[
+    ("photos.list", CAP_PHOTOS),
+    ("photos.thumbs", CAP_PHOTOS),
+    ("photos.fetch", CAP_PHOTOS),
+    ("photos.send", CAP_PHOTOS),
+    ("sms.threads", CAP_SMS),
+    ("sms.messages", CAP_SMS),
+    ("sms.send", CAP_SMS),
+];
+
+/// Fire-and-forget messages the desktop may send about phone notifications.
+pub const NOTIF_COMMANDS: &[&str] = &["notif.dismiss", "notif.reply", "notif.action"];
 
 /// Capabilities this build understands.
-pub const CAPS: &[&str] = &["battery", "share", "share.receive", "clipboard"];
+pub const CAPS: &[&str] = &[
+    "battery",
+    "share",
+    "share.receive",
+    "clipboard",
+    "photos",
+    "sms",
+    "notif",
+];
+pub const CAP_PHOTOS: &str = "photos";
+pub const CAP_SMS: &str = "sms";
+pub const CAP_NOTIF: &str = "notif";
 
 /// Capability of a peer that accepts `share.offer` (files sent to it).
 pub const CAP_SHARE_RECEIVE: &str = "share.receive";
@@ -184,6 +214,90 @@ pub struct ClipboardPart {
     pub data: String,
 }
 
+/// First reply to `photos.fetch`: what follows in `parts` × `photos.part`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PhotoFetchReply {
+    pub req: u32,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub mime: String,
+    #[serde(default)]
+    pub size: u64,
+    #[serde(default)]
+    pub parts: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PhotoPart {
+    pub req: u32,
+    pub part: u32,
+    /// Standard base64 of this part's bytes (512 KiB raw, the last one may be shorter).
+    pub data: String,
+}
+
+/// A notification on the phone (`notif.posted`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PhoneNotification {
+    pub key: String,
+    #[serde(default)]
+    pub pkg: String,
+    #[serde(default)]
+    pub app: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub time: i64,
+    /// Base64 PNG of the app icon, may be empty.
+    #[serde(default)]
+    pub icon: String,
+    #[serde(default)]
+    pub reply: bool,
+    #[serde(default)]
+    pub actions: Vec<String>,
+    #[serde(default)]
+    pub silent: bool,
+}
+
+impl PhoneNotification {
+    /// Caps every peer-supplied field; `None` if the key is unusable.
+    pub fn sanitized(mut self) -> Option<Self> {
+        fn cut(s: &mut String, max: usize) {
+            if s.len() > max {
+                let mut end = max;
+                while !s.is_char_boundary(end) {
+                    end -= 1;
+                }
+                s.truncate(end);
+            }
+        }
+        if self.key.is_empty() || self.key.len() > 512 {
+            return None;
+        }
+        cut(&mut self.pkg, 256);
+        self.app = clean_name(&self.app);
+        cut(&mut self.title, 512);
+        cut(&mut self.text, 4096);
+        if self.icon.len() > 64 * 1024 {
+            self.icon.clear();
+        }
+        self.actions.truncate(3);
+        for a in &mut self.actions {
+            cut(a, 64);
+        }
+        Some(self)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NotifKey {
+    pub key: String,
+}
+
 /// Peer-supplied display names: trimmed, control characters removed, at most 64 characters.
 pub fn clean_name(name: &str) -> String {
     let cleaned: String = name.chars().filter(|c| !c.is_control()).take(64).collect();
@@ -241,6 +355,32 @@ mod tests {
                 .unwrap()
                 .contains(r#""type":"phone""#)
         );
+    }
+
+    #[test]
+    fn notifications_are_capped() {
+        let n = PhoneNotification {
+            key: "k".into(),
+            pkg: "p".into(),
+            app: "Chat\n".into(),
+            title: "é".repeat(400),
+            text: String::new(),
+            time: 0,
+            icon: "x".repeat(70_000),
+            reply: true,
+            actions: vec!["a".into(); 5],
+            silent: false,
+        };
+        let s = n.clone().sanitized().unwrap();
+        assert!(s.title.len() <= 512 && s.title.chars().all(|c| c == 'é'));
+        assert_eq!(s.app, "Chat");
+        assert!(s.icon.is_empty());
+        assert_eq!(s.actions.len(), 3);
+        let bad = PhoneNotification {
+            key: String::new(),
+            ..n
+        };
+        assert!(bad.sanitized().is_none());
     }
 
     #[test]
