@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -140,8 +141,8 @@ fun PromptCard(
     icon: ImageVector,
     title: String,
     body: String,
-    container: Color = MaterialTheme.colorScheme.tertiaryContainer,
-    content: Color = MaterialTheme.colorScheme.onTertiaryContainer,
+    container: Color = promptContainer(),
+    content: Color = promptContent(),
     actions: @Composable () -> Unit,
 ) {
     Card(
@@ -153,10 +154,12 @@ fun PromptCard(
             Row(verticalAlignment = Alignment.Top) {
                 IconBadge(icon, tint = container, container = content)
                 Spacer(Modifier.width(16.dp))
+                // In dark mode the accent stays on the icon and buttons; the words use plain text colour.
+                val text = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.onSurface else content
                 Column(Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium)
+                    Text(title, style = MaterialTheme.typography.titleMedium, color = text)
                     Spacer(Modifier.height(4.dp))
-                    Text(body, style = MaterialTheme.typography.bodyMedium)
+                    Text(body, style = MaterialTheme.typography.bodyMedium, color = text.copy(alpha = if (text == content) 1f else 0.8f))
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -273,3 +276,15 @@ fun UpdateCard(refreshKey: Int) {
         }
     }
 }
+
+/**
+ * Newer Android versions give bright container colours even in dark mode, which glare next to
+ * the other cards: there, prompts use a raised dark surface with the accent on the icon.
+ */
+@Composable
+private fun promptContainer(): Color =
+    if (isSystemInDarkTheme()) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.tertiaryContainer
+
+@Composable
+private fun promptContent(): Color =
+    if (isSystemInDarkTheme()) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onTertiaryContainer

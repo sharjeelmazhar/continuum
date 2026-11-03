@@ -87,9 +87,11 @@ fi
 NETS="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 fe80::/10 fc00::/7"
 if command -v ufw >/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
   say "Letting the phone through the firewall (local networks only)"
+  sudo ufw delete allow $PORT/tcp >/dev/null 2>&1 || true # older versions opened it to every network
   for n in $NETS; do sudo ufw allow proto tcp from "$n" to any port $PORT comment Continuum >/dev/null; done
 elif command -v firewall-cmd >/dev/null && sudo firewall-cmd --state >/dev/null 2>&1; then
   say "Letting the phone through the firewall (local networks only)"
+  sudo firewall-cmd --permanent --remove-port=$PORT/tcp >/dev/null 2>&1 || true
   for n in $NETS; do
     case $n in *:*) fam=ipv6 ;; *) fam=ipv4 ;; esac
     sudo firewall-cmd --permanent --add-rich-rule="rule family=$fam source address=$n port port=$PORT protocol=tcp accept" >/dev/null
