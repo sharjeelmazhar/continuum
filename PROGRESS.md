@@ -13,8 +13,9 @@
   2. Android 8-9: bundle Conscrypt for TLS 1.3 (`net/Tls.kt` TODO); test on an API 26 image.
   3. Pairing without a camera (6-digit code), and re-announce after the PC wakes from suspend.
   4. Battery measurement on the real phone (ping every 20 s).
-  5. Speed: transfers run at the network's limit here (PC Ethernet port negotiates 100 Mbps,
-     phone on 2.4 GHz Wi-Fi 4). Revisit buffer sizes on a gigabit + 5 GHz setup.
+  5. Speed: now on gigabit + 5 GHz (the 100 Mbps link was a faulty cable). Benchmarked 3 November
+     2026: Continuum ≈ GSConnect, ~40 MB/s each. Read `docs/benchmarks/transfer-speed.md` and
+     follow its plan (step 1: time the phone receive loop). Re-run: `scripts/bench-transfer.sh`.
 - **Verified on the real phone:** PC → phone 150 MB byte-identical (~7.5 MB/s; a raw netcat copy
   only managed 4.2 MB/s); Wi-Fi off mid-transfer → resumed from the checkpoint, byte-identical;
   PC copies text and PNG → phone clipboard; phone shares text → PC clipboard.

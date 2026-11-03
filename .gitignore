@@ -28,3 +28,6 @@ android/local.properties
 .DS_Store
 *.swp
 __pycache__/
+
+# Benchmark output (2.5 GB test file, run results)
+bench-out/
