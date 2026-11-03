@@ -393,7 +393,7 @@ fn load_more(page: &Rc<Photos>) {
                     page.widget.set_visible_child_name("grid");
                 }
             }
-            Err(e) if offset == 0 => show_status(&page, ctx::error_page(&e, "Photos")),
+            Err(e) if offset == 0 => show_status(&page, ctx::error_page(&e, "Gallery")),
             Err(e) => page.ctx.toast(&e.text()),
         }
     });
@@ -841,6 +841,8 @@ fn copy_selected(page: &Rc<Photos>) {
     if items.is_empty() {
         return;
     }
+    // Done with the selection once the action starts, like Files.
+    page.selection.unselect_all();
     let ctx = page.ctx.clone();
     let n = items.len();
     let busy = ctx.busy_toast(&if n == 1 {
@@ -913,6 +915,7 @@ fn save_selected(page: &Rc<Photos>) {
     if ids.is_empty() {
         return;
     }
+    page.selection.unselect_all();
     let ctx = page.ctx.clone();
     glib::spawn_future_local(async move {
         match ctx

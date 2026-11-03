@@ -14,7 +14,7 @@ use crate::{battery, messages, notifications, photos, qr, storage};
 
 /// The feature pages, in sidebar order: (stack name, title, icons to try).
 const PAGES: &[(&str, &str, &[&str])] = &[
-    ("photos", "Photos", &["image-x-generic-symbolic"]),
+    ("photos", "Gallery", &["image-x-generic-symbolic"]),
     (
         "messages",
         "Messages",
@@ -292,7 +292,7 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     content_view.add_top_bar(&content_header);
     content_view.set_content(Some(&pages));
     let content = adw::NavigationPage::builder()
-        .title("Photos")
+        .title("Gallery")
         .child(&content_view)
         .build();
     let split = adw::NavigationSplitView::builder()

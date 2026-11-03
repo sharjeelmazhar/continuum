@@ -11,6 +11,11 @@ object StatusPrefs {
 
     fun onLockScreen(context: Context) = prefs(context).getBoolean("status_lock", true)
 
+    /** New phone screenshots go straight to the computer's clipboard (on by default). */
+    fun screenshotsToClipboard(context: Context) = prefs(context).getBoolean("screenshots_clip", true)
+
+    fun setScreenshotsToClipboard(context: Context, on: Boolean) = prefs(context).edit { putBoolean("screenshots_clip", on) }
+
     fun set(context: Context, shade: Boolean, lock: Boolean) {
         prefs(context).edit { putBoolean("status_shade", shade).putBoolean("status_lock", lock) }
         ContinuumService.refreshStatus(context)

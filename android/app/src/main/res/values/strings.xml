@@ -116,8 +116,11 @@ Tip: Android then says “Continuum pasted from your clipboard” after each cop
     <string name="update_allow_body">Android needs your OK once: switch on “Allow from this source” for Continuum, then come back and tap Update.</string>
 
     <string name="features_title">On your computer</string>
-    <string name="feature_photos">Photos</string>
-    <string name="feature_photos_body">See your photos on the computer</string>
+    <string name="feature_photos">Gallery</string>
+    <string name="screenshots_title">Screenshots</string>
+    <string name="screenshots_switch">Copy new screenshots to the computer</string>
+    <string name="screenshots_hint">Take a screenshot here, then press Ctrl+V on the computer. Needs Gallery access.</string>
+    <string name="feature_photos_body">See your photos and videos on the computer</string>
     <string name="feature_messages">Messages</string>
     <string name="feature_messages_body">Read and send texts from the computer</string>
     <string name="feature_notifs">Notifications</string>

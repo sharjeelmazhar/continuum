@@ -112,3 +112,29 @@ private fun openHiddenChannel(context: Context) {
         .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
     runCatching { context.startActivity(channel) }.onFailure { runCatching { context.startActivity(app) } }
 }
+
+/** Switch for sending new screenshots to the computer's clipboard. */
+@Composable
+fun ScreenshotCard() {
+    val context = LocalContext.current
+    var on by remember { mutableStateOf(StatusPrefs.screenshotsToClipboard(context)) }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(vertical = 12.dp)) {
+            Text(
+                stringResource(R.string.screenshots_title),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            )
+            SwitchRow(stringResource(R.string.screenshots_switch), on, enabled = true) {
+                on = it
+                StatusPrefs.setScreenshotsToClipboard(context, it)
+            }
+            Text(
+                stringResource(R.string.screenshots_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+            )
+        }
+    }
+}

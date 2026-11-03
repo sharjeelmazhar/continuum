@@ -11,6 +11,7 @@ import io.github.sharjeelmazhar.continuum.share.FileSender
 import io.github.sharjeelmazhar.continuum.share.Outgoing
 import io.github.sharjeelmazhar.continuum.share.Shortcuts
 import io.github.sharjeelmazhar.continuum.share.ClipSync
+import io.github.sharjeelmazhar.continuum.share.ScreenshotWatcher
 import io.github.sharjeelmazhar.continuum.feature.Features
 import io.github.sharjeelmazhar.continuum.update.Updater
 import io.github.sharjeelmazhar.continuum.share.FileReceiver
@@ -167,6 +168,7 @@ class ContinuumService : Service() {
         )
         scope.launch { checkForUpdates() }
         scope.launch { for (c in ClipSync.outgoing) sendClipboard(c) }
+        screenshots = ScreenshotWatcher(this).also { it.start() }
         // Android 9 and older let background apps read the clipboard, so copies go out by
         // themselves. Newer versions only report our own changes here (and reading would show a
         // "pasted" notice), so there "Send clipboard" does it.
@@ -201,6 +203,7 @@ class ContinuumService : Service() {
 
     override fun onDestroy() {
         unregisterReceiver(batteryReceiver)
+        screenshots?.stop()
         getSystemService(ClipboardManager::class.java).removePrimaryClipChangedListener(clipListener)
         runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkCallback) }
         session?.close()
@@ -718,6 +721,7 @@ class ContinuumService : Service() {
     }
 
     private val chargeClock = ChargeClock()
+    private var screenshots: ScreenshotWatcher? = null
 
     private val batteryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {

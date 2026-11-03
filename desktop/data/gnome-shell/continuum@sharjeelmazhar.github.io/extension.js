@@ -35,7 +35,7 @@ const DaemonProxy = Gio.DBusProxy.makeProxyWrapper(DaemonIface);
 /** Menu entries: [label, icon, app page or special action, capability needed]. */
 const ENTRIES = [
     ['Messages', 'mail-unread-symbolic', 'messages', 'sms'],
-    ['Photos', 'image-x-generic-symbolic', 'photos', 'photos'],
+    ['Gallery', 'image-x-generic-symbolic', 'photos', 'photos'],
     ['Notifications', 'preferences-system-notifications-symbolic', 'notifications', 'notif'],
     ['Phone Storage', 'folder-symbolic', 'storage', 'files'],
     ['Send Files…', 'document-send-symbolic', 'send-files', ''],
@@ -186,6 +186,17 @@ export default class ContinuumExtension extends Extension {
     enable() {
         this._indicator = new PhoneIndicator(this);
         Main.panel.statusArea.quickSettings.addExternalIndicator(this._indicator);
+        // The app saves the phone picked in it; follow it at once.
+        const dir = Gio.File.new_for_path(GLib.build_filenamev([GLib.get_user_config_dir(), 'continuum']));
+        try {
+            this._monitor = dir.monitor_directory(Gio.FileMonitorFlags.WATCH_MOVES, null);
+            this._monitor.connect('changed', (_m, file, other) => {
+                if ([file, other].some(f => f?.get_basename() === 'last-device'))
+                    this._refresh();
+            });
+        } catch {
+            this._monitor = null;
+        }
         this._watch = Gio.bus_watch_name(Gio.BusType.SESSION, BUS_NAME,
             Gio.BusNameWatcherFlags.NONE,
             () => this._connectDaemon(),
@@ -196,6 +207,8 @@ export default class ContinuumExtension extends Extension {
     }
 
     disable() {
+        this._monitor?.cancel();
+        this._monitor = null;
         Gio.bus_unwatch_name(this._watch);
         this._dropDaemon();
         if (this._appWait)
