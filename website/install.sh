@@ -70,7 +70,7 @@ systemctl --user enable --now continuumd.service continuumd-update.path >/dev/nu
 systemctl --user restart continuumd.service 2>/dev/null || true
 
 NEED_LOGIN=
-if command -v gnome-shell >/dev/null && command -v gsettings >/dev/null; then
+if command -v gnome-shell >/dev/null && gsettings list-schemas 2>/dev/null | grep -qx org.gnome.shell; then
   if gnome-extensions info "$EXT" >/dev/null 2>&1; then
     gnome-extensions enable "$EXT" 2>/dev/null || true
   fi
@@ -78,8 +78,8 @@ if command -v gnome-shell >/dev/null && command -v gsettings >/dev/null; then
   current=$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null || echo "@as []")
   case $current in
     *"$EXT"*) ;;
-    "@as []") gsettings set org.gnome.shell enabled-extensions "['$EXT']"; NEED_LOGIN=1 ;;
-    *) gsettings set org.gnome.shell enabled-extensions "${current%]}, '$EXT']"; NEED_LOGIN=1 ;;
+    "@as []") gsettings set org.gnome.shell enabled-extensions "['$EXT']" || true; NEED_LOGIN=1 ;;
+    *) gsettings set org.gnome.shell enabled-extensions "${current%]}, '$EXT']" || true; NEED_LOGIN=1 ;;
   esac
 fi
 
