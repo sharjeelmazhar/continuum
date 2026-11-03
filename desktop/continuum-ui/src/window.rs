@@ -224,6 +224,11 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     menu.append(Some("Pair a Phone…"), Some("win.pair"));
     menu.append(Some("Change Picture…"), Some("win.picture"));
     menu.append(Some("Remove This Phone…"), Some("win.unpair"));
+    let sizes = gtk::gio::Menu::new();
+    for (id, label, _) in crate::textsize::SIZES {
+        sizes.append(Some(label), Some(&format!("win.text-size::{id}")));
+    }
+    menu.append_section(Some("Text Size"), &sizes);
     let menu_button = gtk::MenuButton::builder()
         .icon_name("open-menu-symbolic")
         .menu_model(&menu)
@@ -426,6 +431,7 @@ fn dev_snapshots(window: &impl IsA<gtk::Window>, suffix: &str) {
 }
 
 fn load_css() {
+    crate::textsize::apply(&crate::textsize::saved());
     let css = gtk::CssProvider::new();
     css.load_from_string(include_str!("style.css"));
     if let Some(display) = gtk::gdk::Display::default() {
@@ -530,6 +536,18 @@ fn add_actions(ui: &Rc<Ui>) {
             glib::spawn_future_local(async move { choose_picture(&ui).await });
         });
     }
+    let text_size = gtk::gio::SimpleAction::new_stateful(
+        "text-size",
+        Some(glib::VariantTy::STRING),
+        &crate::textsize::saved().to_variant(),
+    );
+    text_size.connect_activate(|action, id| {
+        if let Some(id) = id.and_then(|v| v.get::<String>()) {
+            crate::textsize::set(&id);
+            action.set_state(&id.to_variant());
+        }
+    });
+    ui.window.add_action(&text_size);
     ui.window.add_action(&picture);
     ui.window.add_action(&reload);
     ui.window.add_action(&pair);

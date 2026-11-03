@@ -12,6 +12,7 @@ mod photos;
 mod player;
 mod qr;
 mod storage;
+mod textsize;
 mod transfers;
 mod window;
 
