@@ -285,6 +285,7 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         .build();
     let content_header = adw::HeaderBar::builder().title_widget(&page_title).build();
     content_header.pack_end(&refresh);
+    content_header.pack_end(&crate::transfers::button(&ctx));
     content_header.pack_end(&notifications.clear);
     content_header.pack_end(&photos.fit);
     let content_view = adw::ToolbarView::new();

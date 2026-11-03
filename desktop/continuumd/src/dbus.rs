@@ -221,6 +221,11 @@ impl Api {
         Ok(())
     }
 
+    /// Transfers in progress as JSON: `[{device, name, up, total, done, elapsed_ms}]`.
+    fn transfers(&self) -> String {
+        serde_json::to_string(&crate::activity::ACTIVITY.list()).unwrap_or_else(|_| "[]".into())
+    }
+
     /// Charging details: (watts or 0, fast charger, minutes to full or -1).
     fn battery_details(&self, id: &str) -> (u16, bool, i32) {
         self.daemon

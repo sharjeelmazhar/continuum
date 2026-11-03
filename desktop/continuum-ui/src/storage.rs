@@ -1,6 +1,8 @@
 //! Phone Storage page: browse the phone's files and folders, open or save any file.
 
 use std::cell::RefCell;
+use std::collections::HashSet;
+use std::f64::consts::PI;
 use std::rc::Rc;
 
 use adw::prelude::*;
@@ -36,6 +38,8 @@ pub struct Storage {
     crumbs: gtk::Box,
     path: RefCell<String>,
     note: gtk::Label,
+    /// Files downloading right now, so a second click doesn't start a second download.
+    busy: RefCell<HashSet<String>>,
 }
 
 pub fn build(ctx: &Rc<Ctx>) -> Rc<Storage> {
@@ -47,10 +51,7 @@ pub fn build(ctx: &Rc<Ctx>) -> Rc<Storage> {
         .css_classes(["boxed-list"])
         .valign(gtk::Align::Start)
         .build();
-    let crumbs = gtk::Box::builder()
-        .spacing(2)
-        .css_classes(["linked"])
-        .build();
+    let crumbs = gtk::Box::builder().spacing(1).build();
     let note = gtk::Label::builder()
         .css_classes(["dim-label", "caption"])
         .visible(false)
@@ -100,6 +101,7 @@ pub fn build(ctx: &Rc<Ctx>) -> Rc<Storage> {
         crumbs,
         path: RefCell::default(),
         note,
+        busy: RefCell::default(),
     })
 }
 
@@ -186,22 +188,85 @@ fn fill_crumbs(page: &Rc<Storage>, path: &str) {
     }
     let last = levels.len() - 1;
     for (i, (target, label)) in levels.into_iter().enumerate() {
-        let b = gtk::Button::builder().label(&label).build();
-        if i == 0 {
-            b.set_child(Some(
-                &adw::ButtonContent::builder()
-                    .icon_name("phone-symbolic")
-                    .label(&label)
-                    .build(),
-            ));
-        }
-        if i == last {
-            b.add_css_class("suggested-action");
-        }
+        let b = crumb(&label, i == 0, i == last);
         let p = page.clone();
         b.connect_clicked(move |_| open_folder(&p, target.clone()));
         page.crumbs.append(&b);
     }
+}
+
+/// One arrow-shaped piece of the path bar: notched on the left (except the first), pointed on
+/// the right, so the pieces fit into each other. The current folder is filled with the accent.
+fn crumb(label: &str, first: bool, current: bool) -> gtk::Button {
+    const TIP: f64 = 9.0;
+    let text = gtk::Box::builder()
+        .spacing(6)
+        .margin_start(if first { 12 } else { 12 + TIP as i32 })
+        .margin_end(10 + TIP as i32)
+        .margin_top(7)
+        .margin_bottom(7)
+        .build();
+    if first {
+        text.append(&gtk::Image::from_icon_name("phone-symbolic"));
+    }
+    text.append(&gtk::Label::new(Some(label)));
+    let shape = gtk::DrawingArea::new();
+    if current {
+        // Its foreground color is the accent; the draw function reads it.
+        shape.add_css_class("crumb-fill");
+        text.add_css_class("crumb-current");
+    }
+    let hover = gtk::EventControllerMotion::new();
+    let hovered = Rc::new(std::cell::Cell::new(false));
+    {
+        let (h1, h2) = (hovered.clone(), hovered.clone());
+        let (a1, a2) = (shape.clone(), shape.clone());
+        hover.connect_enter(move |_, _, _| {
+            h1.set(true);
+            a1.queue_draw();
+        });
+        hover.connect_leave(move |_| {
+            h2.set(false);
+            a2.queue_draw();
+        });
+    }
+    shape.set_draw_func(move |area, cr, w, h| {
+        let (w, h) = (w as f64, h as f64);
+        let r = 8.0;
+        cr.new_path();
+        if first {
+            cr.arc(r, r, r, PI, 1.5 * PI);
+        } else {
+            cr.move_to(0.0, 0.0);
+        }
+        cr.line_to(w - TIP, 0.0);
+        cr.line_to(w, h / 2.0);
+        cr.line_to(w - TIP, h);
+        if first {
+            cr.arc(r, h - r, r, 0.5 * PI, PI);
+        } else {
+            cr.line_to(0.0, h);
+            cr.line_to(TIP, h / 2.0);
+        }
+        cr.close_path();
+        let c = area.color();
+        let alpha = match (current, hovered.get()) {
+            (true, _) => 1.0,
+            (false, true) => 0.16,
+            (false, false) => 0.09,
+        };
+        cr.set_source_rgba(c.red().into(), c.green().into(), c.blue().into(), alpha);
+        let _ = cr.fill();
+    });
+    let overlay = gtk::Overlay::builder().child(&shape).build();
+    overlay.add_overlay(&text);
+    overlay.set_measure_overlay(&text, true);
+    let b = gtk::Button::builder()
+        .child(&overlay)
+        .css_classes(["flat", "crumb"])
+        .build();
+    b.add_controller(hover);
+    b
 }
 
 fn up_row(page: &Rc<Storage>, path: &str) -> adw::ActionRow {
@@ -277,13 +342,21 @@ fn download(
     let (Some(p), Some(d)) = (page.ctx.proxy(), page.ctx.device()) else {
         return;
     };
+    let name = path.rsplit('/').next().unwrap_or(path).to_owned();
+    if !page.busy.borrow_mut().insert(path.to_owned()) {
+        page.ctx.toast(&format!(
+            "{name} is already downloading. See Transfers at the top"
+        ));
+        return;
+    }
     let busy = busy.clone().upcast::<gtk::Widget>();
     busy.set_sensitive(false);
-    let name = path.rsplit('/').next().unwrap_or(path).to_owned();
     page.ctx.toast(&format!("Downloading {name}…"));
     let (ctx, path, version) = (page.ctx.clone(), path.to_owned(), version.to_owned());
+    let page = page.clone();
     glib::spawn_future_local(async move {
         let result = p.fetch_file(&d.id, &path, &version, save).await;
+        page.busy.borrow_mut().remove(&path);
         busy.set_sensitive(true);
         match result {
             Ok(local) if save => {

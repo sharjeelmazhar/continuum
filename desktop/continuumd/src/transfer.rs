@@ -238,6 +238,14 @@ impl Transfers {
             bytes,
         });
 
+        let names: Vec<String> = p.offer.files.iter().map(|f| f.name.clone()).collect();
+        let track = crate::activity::ACTIVITY.start(
+            &p.device_id,
+            &crate::activity::label(&names),
+            false,
+            bytes,
+            p.offsets.iter().sum(),
+        );
         let mut saved = Vec::new();
         let result = async {
             for (i, f) in p.offer.files.iter().enumerate() {
@@ -249,6 +257,7 @@ impl Transfers {
                         p.offsets[i],
                         &f.name,
                         stream,
+                        &track,
                     )
                     .await?,
                 );
@@ -283,6 +292,7 @@ impl Transfers {
         result
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn receive_file<R: AsyncRead + Unpin>(
         &self,
         transfer_id: &str,
@@ -291,6 +301,7 @@ impl Transfers {
         offset: u64,
         name: &str,
         stream: &mut R,
+        track: &crate::activity::Handle,
     ) -> Result<PathBuf, String> {
         let (part_path, meta_path) = self.part_paths(transfer_id, i);
         let io = |e: std::io::Error| match e.raw_os_error() {
@@ -337,6 +348,7 @@ impl Transfers {
             part.write_all(&buf[..n]).map_err(io)?;
             hash.update(&buf[..n]);
             done += n as u64;
+            track.add(n as u64);
             since_checkpoint += n as u64;
             if since_checkpoint >= CHECKPOINT_BYTES {
                 part.sync_data().map_err(io)?;

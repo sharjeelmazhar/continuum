@@ -136,3 +136,21 @@ button.small {
   color: #ff3b30;
   opacity: 1;
 }
+
+/* Phone Storage path bar: the arrow shapes are drawn; keep the button itself bare. */
+.crumb {
+  padding: 0;
+  min-height: 0;
+  background: none;
+  border-radius: 0;
+}
+
+.crumb-current {
+  color: var(--accent-fg-color, @accent_fg_color);
+  font-weight: bold;
+}
+
+/* The drawn arrow reads this as its fill color. */
+.crumb-fill {
+  color: var(--accent-bg-color, @accent_bg_color);
+}

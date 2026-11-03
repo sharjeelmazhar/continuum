@@ -36,6 +36,7 @@ struct Download {
     file: File,
     part_path: PathBuf,
     written: u64,
+    track: crate::activity::Handle,
 }
 
 enum Pending {
@@ -148,7 +149,7 @@ impl Requests {
                 tx,
             }) => {
                 progress.fetch_add(1, Ordering::Relaxed);
-                match step(&dest, req, &mut download, &msg) {
+                match step(&d, &dest, req, &mut download, &msg) {
                     Ok(Some(path)) => {
                         let _ = tx.send(Ok(path));
                     }
@@ -180,6 +181,7 @@ impl Requests {
 /// One step of a download: the `*.fetch.reply`, then its parts in order. Returns the final
 /// path once the last part is written.
 fn step(
+    device: &str,
     dest: &Destination,
     req: u32,
     download: &mut Option<Download>,
@@ -196,11 +198,13 @@ fn step(
         std::fs::create_dir_all(&dest.dir).map_err(|e| e.to_string())?;
         let part_path = dest.dir.join(format!(".download-{req}.part"));
         let file = File::create(&part_path).map_err(|e| e.to_string())?;
+        let track = crate::activity::ACTIVITY.start(device, &r.name, false, r.size, 0);
         *download = Some(Download {
             meta: r,
             file,
             part_path,
             written: 0,
+            track,
         });
         return finish_if_done(dest, download);
     };
@@ -212,6 +216,7 @@ fn step(
     }
     d.file.write_all(&bytes).map_err(|e| e.to_string())?;
     d.written += bytes.len() as u64;
+    d.track.add(bytes.len() as u64);
     finish_if_done(dest, download)
 }
 

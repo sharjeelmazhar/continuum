@@ -180,7 +180,15 @@ impl Outbox {
             let (_, offsets) = job.accepted.take()?;
             (job.paths.clone(), job.offer.files.clone(), offsets)
         };
-        Some(send_files(&paths, &files, &offsets, out).await)
+        let names: Vec<String> = files.iter().map(|f| f.name.clone()).collect();
+        let track = crate::activity::ACTIVITY.start(
+            device_id,
+            &crate::activity::label(&names),
+            true,
+            files.iter().map(|f| f.size).sum(),
+            offsets.iter().sum(),
+        );
+        Some(send_files(&paths, &files, &offsets, out, &track).await)
     }
 }
 
@@ -189,6 +197,7 @@ async fn send_files<W: AsyncWrite + Unpin>(
     files: &[FileMeta],
     offsets: &[u64],
     out: &mut W,
+    track: &crate::activity::Handle,
 ) -> Result<u64, String> {
     let mut buf = vec![0u8; CHUNK];
     let mut sent = 0u64;
@@ -211,6 +220,7 @@ async fn send_files<W: AsyncWrite + Unpin>(
                     .await
                     .map_err(|e| e.to_string())?;
                 sent += (n - skip) as u64;
+                track.add((n - skip) as u64);
             }
             pos += n as u64;
             if pos > meta.size {

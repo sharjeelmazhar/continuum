@@ -1,5 +1,6 @@
 //! Continuum daemon library: everything except argument parsing, so tests can drive it.
 
+pub mod activity;
 pub mod clipboard;
 pub mod dbus;
 pub mod mdns;

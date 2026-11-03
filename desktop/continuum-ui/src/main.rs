@@ -10,6 +10,7 @@ mod photos;
 mod player;
 mod qr;
 mod storage;
+mod transfers;
 mod window;
 
 use adw::prelude::*;
