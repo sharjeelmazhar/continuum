@@ -351,11 +351,12 @@ fn download(
     }
     let busy = busy.clone().upcast::<gtk::Widget>();
     busy.set_sensitive(false);
-    page.ctx.toast(&format!("Downloading {name}…"));
+    let toast = page.ctx.busy_toast(&format!("Downloading {name}…"));
     let (ctx, path, version) = (page.ctx.clone(), path.to_owned(), version.to_owned());
     let page = page.clone();
     glib::spawn_future_local(async move {
         let result = p.fetch_file(&d.id, &path, &version, save).await;
+        toast.dismiss();
         page.busy.borrow_mut().remove(&path);
         busy.set_sensitive(true);
         match result {

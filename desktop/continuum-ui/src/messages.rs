@@ -139,6 +139,7 @@ pub fn build(ctx: &Rc<Ctx>) -> Rc<Messages> {
         .hexpand(true)
         .max_length(5000)
         .build();
+    crate::autotext::attach(&entry);
     let send = gtk::Button::builder()
         .icon_name("mail-send-symbolic")
         .tooltip_text("Send")
@@ -596,6 +597,7 @@ fn new_conversation(page: &Rc<Messages>) {
         .input_purpose(gtk::InputPurpose::Phone)
         .activates_default(true)
         .build();
+    crate::autotext::attach(&entry);
     dialog.set_extra_child(Some(&entry));
     dialog.add_responses(&[("cancel", "Cancel"), ("start", "Start")]);
     dialog.set_response_appearance("start", adw::ResponseAppearance::Suggested);

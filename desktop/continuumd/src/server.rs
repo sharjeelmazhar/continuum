@@ -451,6 +451,7 @@ async fn session<R: AsyncRead + Unpin>(
                 daemon.requests.deliver(&device.id, msg);
             }
             m::NOTIF_POSTED => match msg.body::<PhoneNotification>().map(|n| n.sanitized()) {
+                Ok(Some(n)) if m::DESKTOP_MIRROR_APPS.contains(&n.pkg.as_str()) => {}
                 Ok(Some(mut n)) => {
                     // Apps repost unchanged notifications (e.g. all chats on each new message).
                     if !daemon.notifications.posted(&device.id, n.clone()) {

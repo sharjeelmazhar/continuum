@@ -629,6 +629,23 @@ fn select_device(ui: &Rc<Ui>, d: Device) {
 
 fn update_hero(ui: &Rc<Ui>, d: &Device) {
     ui.picture.set_paintable(Some(&device_picture(d)));
+    if !custom_picture_path(&d.id).exists() && !MODELS.with_borrow(|m| m.contains_key(&d.id)) {
+        // Ask once per run which phone it is, then show its drawing.
+        let (ui, d) = (ui.clone(), d.clone());
+        glib::spawn_future_local(async move {
+            let Some(p) = ui.ctx.proxy() else { return };
+            let model = p.device_model(&d.id).await.unwrap_or_default();
+            if model.is_empty() {
+                return;
+            }
+            let label = crate::models::marketing_name(&model);
+            MODELS.with_borrow_mut(|m| m.insert(d.id.clone(), model));
+            if ui.ctx.device().is_some_and(|c| c.id == d.id) {
+                ui.picture.set_paintable(Some(&device_picture(&d)));
+                ui.picture.set_tooltip_text(label);
+            }
+        });
+    }
     ui.ring.set_sensitive(d.connected);
     update_features(ui, d);
     ui.phone_name.set_label(&d.name);
@@ -852,6 +869,7 @@ async fn quick_reply(ui: &Rc<Ui>, device: &str, key: &str) {
         .placeholder_text("Reply…")
         .hexpand(true)
         .build();
+    crate::autotext::attach(&entry);
     let send = gtk::Button::builder()
         .icon_name("mail-send-symbolic")
         .tooltip_text("Send")
@@ -1003,9 +1021,23 @@ pub fn custom_picture_path(id: &str) -> std::path::PathBuf {
         .join(format!("{id}.png"))
 }
 
+thread_local! {
+    /// Each phone's "<manufacturer> <model>", once the daemon has told us.
+    static MODELS: std::cell::RefCell<std::collections::HashMap<String, String>> =
+        std::cell::RefCell::default();
+}
+
+/// The owner's own picture, else a drawing of that phone model, else a generic phone.
 fn device_picture(d: &Device) -> gtk::gdk::Texture {
-    gtk::gdk::Texture::from_filename(custom_picture_path(&d.id))
-        .unwrap_or_else(|_| device_texture(&d.ty))
+    if let Ok(t) = gtk::gdk::Texture::from_filename(custom_picture_path(&d.id)) {
+        return t;
+    }
+    let model = MODELS
+        .with_borrow(|m| m.get(&d.id).cloned())
+        .unwrap_or_default();
+    crate::models::picture_for(&model, &d.name)
+        .and_then(|png| gtk::gdk::Texture::from_bytes(&glib::Bytes::from_static(png)).ok())
+        .unwrap_or_else(|| device_texture(&d.ty))
 }
 
 async fn choose_picture(ui: &Rc<Ui>) {

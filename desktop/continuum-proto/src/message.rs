@@ -50,6 +50,17 @@ pub const COMMANDS: &[(&str, &str)] = &[
 ];
 
 /// Capabilities this build understands.
+/// Phone apps that show the computer's notifications on the phone (KDE Connect, Phone Link, …).
+/// Mirroring theirs back would echo our own notifications in an endless loop.
+pub const DESKTOP_MIRROR_APPS: &[&str] = &[
+    "org.kde.kdeconnect_tp",
+    "org.kde.kdeconnect.app",
+    "com.microsoft.appmanager",
+    "com.samsung.android.mdx",
+    "com.github.sshtools.gsconnect",
+    "io.github.sharjeelmazhar.continuum",
+];
+
 pub const CAPS: &[&str] = &[
     "battery",
     "share",

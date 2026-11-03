@@ -7,10 +7,9 @@
   notifications with quick reply, phone storage, ring, files-to-clipboard, GNOME Quick Settings
   tile), website on GitHub Pages (`website/`, `.github/workflows/pages.yml`), prebuilt desktop
   bundle in releases.
-- **Next task:** phone storage downloads over a raw data connection (like sends) instead of
-  base64 parts: S24 Ultra measured 57 MB/s PC->phone but 36 MB/s phone->PC. Then original
-  device drawings per phone family (Samsung 2020+, Xiaomi, Redmi, Oppo...), matched by model
-  name; official photos stay local-only (copyright). Then, in order of value:
+- **Next task:** measure v0.5.2 raw downloads on a fast phone (S24 Ultra got 57 MB/s PC->phone,
+  36 MB/s phone->PC with the old base64 path); check the model-code table in
+  continuum-ui/src/models.rs against real devices. Then, in order of value:
   1. Notification allowlist (per-app mute, from PC and phone); hide content while locked.
   2. Photo viewer next/previous; message search.
   3. Calls (M8), then phone mirroring (M9).
@@ -45,6 +44,7 @@
 | M11 | Hardening and release | ☐ |
 
 ## Log (newest first)
+- 3 November 2026: v0.5.2. Raw fetch over data connections (cap fetch.raw, token, SHA-256), Wi-Fi/CPU locks during transfers, 1 MiB chunks, 4 MiB phone socket buffers, transfers button + quiet GNOME progress notifications, phone progress with time left, 49 original phone drawings + model table (hello `model`), autotext in reply boxes, arrow path bar, no duplicate downloads, busy toasts dismissed on completion. Fixed a KDE Connect/GSConnect notification echo loop (DESKTOP_MIRROR_APPS).
 - 3 November 2026: v0.5.1. In-app video (GStreamer gtk4paintablesink, falls back to the video player), grid multi-select with right-click Copy/Save (CopyFiles D-Bus method, real file names), 480 px thumbnails, resizable Messages split, contact photos, battery watts/fast/time-to-full with one or two bolts, desktop pings every 3 s (9 s timeout), notification listener rebind, shade switch opens the Android channel switch. Found: the emulator's clipboard sharing overwrote the PC clipboard with empty text (now off in Emulator.conf). Real Redmi: 0.5.0 update, permissions, lock-screen switch, multi-screenshot share to clipboard confirmed by the owner.
 - 3 November 2026: v0.5.0. Phone storage browser, videos (streamed to disk, up to 4 GiB), Ring
   (alarm stream, max volume), quick reply from desktop popups, received files on the clipboard

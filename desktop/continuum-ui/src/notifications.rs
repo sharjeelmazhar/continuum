@@ -253,6 +253,7 @@ fn card(page: &Rc<Notifications>, n: &Notification) -> gtk::Widget {
                 .hexpand(true)
                 .secondary_icon_name("mail-send-symbolic")
                 .build();
+            crate::autotext::attach(&entry);
             let send = {
                 let (ctx, key) = (ctx.clone(), key.clone());
                 move |e: &gtk::Entry| {

@@ -669,3 +669,32 @@ async fn old_phone_without_receive_capability_is_refused() {
         .unwrap_err();
     assert!(err.contains("update Continuum"), "{err}");
 }
+
+#[tokio::test]
+async fn notifications_from_desktop_mirroring_apps_are_dropped() {
+    let d = desktop().await;
+    let phone_id = Identity::generate().unwrap();
+    let uri = PairUri::parse(&d.daemon.start_pairing(vec!["127.0.0.1".into()]).to_uri()).unwrap();
+    let mut p = Phone::connect(&phone_id, &d).await;
+    p.pair(&phone_id, &uri).await;
+    p.hello(&phone_id).await;
+    for (key, pkg) in [("k1", "org.kde.kdeconnect_tp"), ("k2", "com.whatsapp")] {
+        let body = serde_json::json!({ "key": key, "pkg": pkg, "app": "x", "title": "Hi", "text": "there" });
+        p.send(Message {
+            kind: m::NOTIF_POSTED.into(),
+            body,
+        })
+        .await;
+    }
+    let id = d.daemon.list()[0].device.id.clone();
+    eventually(|| !d.daemon.notifications.list(&id).is_empty()).await;
+    // Only WhatsApp's: KDE Connect shows our own notifications, so mirroring it would loop.
+    let keys: Vec<String> = d
+        .daemon
+        .notifications
+        .list(&id)
+        .into_iter()
+        .map(|n| n.key)
+        .collect();
+    assert_eq!(keys, ["k2"]);
+}

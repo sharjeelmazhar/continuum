@@ -30,6 +30,15 @@ sealed interface NotifEvent {
 }
 
 /** Links the system-bound [NotificationMirror] with the connection in ContinuumService. */
+/** Keep in sync with `DESKTOP_MIRROR_APPS` in the desktop's message.rs. */
+val DESKTOP_MIRRORS = setOf(
+    "org.kde.kdeconnect_tp",
+    "org.kde.kdeconnect.app",
+    "com.microsoft.appmanager",
+    "com.samsung.android.mdx",
+    "com.github.sshtools.gsconnect",
+)
+
 object NotifBridge {
     val events = MutableSharedFlow<NotifEvent>(extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
@@ -140,6 +149,8 @@ class NotificationMirror : NotificationListenerService() {
     private fun mirrored(sbn: StatusBarNotification): Boolean {
         val n = sbn.notification
         if (sbn.packageName == packageName || sbn.isOngoing) return false
+        // Apps that show the computer's notifications here: mirroring them back would loop.
+        if (sbn.packageName in DESKTOP_MIRRORS) return false
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return false
         if (n.category == Notification.CATEGORY_TRANSPORT || n.extras.containsKey(Notification.EXTRA_MEDIA_SESSION)) return false
         if (n.extras.getString(Notification.EXTRA_TEMPLATE).orEmpty().contains("MediaStyle")) return false

@@ -123,7 +123,11 @@ fn row(r: &Row, rate: f64) -> gtk::Widget {
         .label(&r.name)
         .xalign(0.0)
         .hexpand(true)
-        .ellipsize(gtk::pango::EllipsizeMode::Middle)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .wrap(true)
+        .wrap_mode(gtk::pango::WrapMode::WordChar)
+        .lines(2)
+        .max_width_chars(34)
         .css_classes(["heading"])
         .build();
     let top = gtk::Box::new(gtk::Orientation::Horizontal, 8);
@@ -139,6 +143,8 @@ fn row(r: &Row, rate: f64) -> gtk::Widget {
     let detail = gtk::Label::builder()
         .label(detail(r, rate))
         .xalign(0.0)
+        .wrap(true)
+        .max_width_chars(40)
         .css_classes(["dim-label", "caption", "numeric"])
         .build();
     let b = gtk::Box::new(gtk::Orientation::Vertical, 6);

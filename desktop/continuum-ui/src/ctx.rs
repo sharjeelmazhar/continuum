@@ -62,6 +62,14 @@ impl Ctx {
         self.toasts.add_toast(adw::Toast::new(text));
     }
 
+    /// A toast that stays until dismissed: dismiss it as soon as the work is done, so the
+    /// result shows at once instead of queueing behind it.
+    pub fn busy_toast(&self, text: &str) -> adw::Toast {
+        let t = adw::Toast::builder().title(text).timeout(0).build();
+        self.toasts.add_toast(t.clone());
+        t
+    }
+
     /// Sends a request (see "Requests" in docs/PROTOCOL.md) to the selected phone.
     pub async fn request(&self, kind: &str, body: Value) -> Result<Value, ReqError> {
         let (Some(p), Some(d)) = (self.proxy(), self.device()) else {

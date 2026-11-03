@@ -65,6 +65,9 @@ pub struct Notifier {
     /// Popup → (device id, phone notification key), for its Reply and action buttons.
     popups: Mutex<HashMap<u32, (String, String)>>,
     tokens: Mutex<HashMap<u32, String>>,
+    /// Live progress notifications we opened for transfers (closed when they end), and the
+    /// bytes done at the last update, for the speed.
+    live: Mutex<HashMap<String, (u32, u64)>>,
     daemon: Arc<Daemon>,
 }
 
@@ -83,7 +86,17 @@ impl Notifier {
             phone: Mutex::new(HashMap::new()),
             popups: Mutex::new(HashMap::new()),
             tokens: Mutex::new(HashMap::new()),
+            live: Mutex::new(HashMap::new()),
             daemon,
+        });
+        let weak = Arc::downgrade(&me);
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(PROGRESS_EVERY);
+            loop {
+                tick.tick().await;
+                let Some(me) = weak.upgrade() else { break };
+                me.update_progress().await;
+            }
         });
         let mut tokens = proxy.receive_activation_token().await?;
         let weak = Arc::downgrade(&me);
@@ -163,6 +176,78 @@ impl Notifier {
                 hints,
                 -1,
             )
+            .await
+            .ok()
+    }
+
+    /// Keeps one quiet notification per running transfer (in the notification list, no popup)
+    /// up to date: "45% · 60 MB of 188 MB · 8.1 MB/s · 15 s left".
+    async fn update_progress(&self) {
+        let rows = crate::activity::ACTIVITY.list();
+        if rows.is_empty() && locked(&self.live).is_empty() {
+            return;
+        }
+        let names: HashMap<String, String> = self
+            .daemon
+            .list()
+            .into_iter()
+            .map(|s| (s.device.id, s.device.name))
+            .collect();
+        let mut seen = Vec::new();
+        for r in rows {
+            let device = names.get(&r.device).cloned().unwrap_or_default();
+            // Shares already have a "Receiving…"/"Sending…" notification: update that one.
+            let share_key = if r.up {
+                format!("send:{device}")
+            } else {
+                device.clone()
+            };
+            let key = format!("{}:{}:{}", r.up, r.device, r.name);
+            seen.push(key.clone());
+            let (mine, last) = locked(&self.live).get(&key).copied().unwrap_or((0, r.done));
+            let theirs = locked(&self.in_progress).get(&share_key).copied();
+            let rate = (r.done.saturating_sub(last)) as f64 / PROGRESS_EVERY.as_secs_f64();
+            let summary = if r.up {
+                format!("Sending {} to {device}", r.name)
+            } else {
+                format!("Receiving {} from {device}", r.name)
+            };
+            let body = progress_text(r.done, r.total, rate);
+            let id = self
+                .show_quiet(theirs.unwrap_or(mine), &summary, &body)
+                .await;
+            match (theirs, id) {
+                (Some(_), _) => {}
+                (None, Some(id)) => {
+                    locked(&self.live).insert(key, (id, r.done));
+                }
+                (None, None) => {}
+            }
+        }
+        let gone: Vec<u32> = {
+            let mut live = locked(&self.live);
+            let ids = live
+                .iter()
+                .filter(|(k, _)| !seen.contains(k))
+                .map(|(_, (id, _))| *id)
+                .collect();
+            live.retain(|k, _| seen.contains(k));
+            ids
+        };
+        for id in gone {
+            let _ = self.proxy.close_notification(id).await;
+        }
+    }
+
+    /// Low urgency: listed in the notification menu, no popup, and no sound on updates.
+    async fn show_quiet(&self, replaces: u32, summary: &str, body: &str) -> Option<u32> {
+        let hints = HashMap::from([
+            ("desktop-entry", Value::from(APP_ID)),
+            ("urgency", Value::from(0u8)),
+            ("suppress-sound", Value::from(true)),
+        ]);
+        self.proxy
+            .notify("Continuum", replaces, APP_ID, summary, body, &[], hints, 0)
             .await
             .ok()
     }
@@ -506,6 +591,31 @@ pub(crate) fn file_uri(path: &Path) -> String {
         }
     }
     out
+}
+
+const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// "45% · 60 MB of 188 MB · 8.1 MB/s · 15 s left" (speed and time once it's moving).
+fn progress_text(done: u64, total: u64, rate: f64) -> String {
+    let pct = (done * 100).checked_div(total).unwrap_or(0).min(100);
+    let mut s = format!("{pct}% · {} of {}", human_size(done), human_size(total));
+    if rate >= 1.0 {
+        let left = total.saturating_sub(done) as f64 / rate;
+        s.push_str(&format!(
+            " · {}/s · {} left",
+            human_size(rate as u64),
+            time_left(left as u64)
+        ));
+    }
+    s
+}
+
+fn time_left(secs: u64) -> String {
+    match secs {
+        0..=59 => format!("{secs} s"),
+        60..=3599 => format!("{} min {} s", secs / 60, secs % 60),
+        _ => format!("{} h {} min", secs / 3600, secs / 60 % 60),
+    }
 }
 
 fn human_size(bytes: u64) -> String {

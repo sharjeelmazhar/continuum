@@ -843,12 +843,14 @@ fn copy_selected(page: &Rc<Photos>) {
     }
     let ctx = page.ctx.clone();
     let n = items.len();
-    ctx.toast(&if n == 1 {
+    let busy = ctx.busy_toast(&if n == 1 {
         "Copying…".to_owned()
     } else {
         format!("Copying {n} items…")
     });
     glib::spawn_future_local(async move {
+        // However this ends, the "Copying…" toast goes first.
+        let _done = scopeguard(move || busy.dismiss());
         let mut paths = Vec::new();
         for p in &items {
             match ctx.fetch_photo(p.id).await {
@@ -921,4 +923,17 @@ fn save_selected(page: &Rc<Photos>) {
             Err(e) => ctx.toast(&e.text()),
         }
     });
+}
+
+/// Runs `f` when dropped.
+fn scopeguard(f: impl FnOnce()) -> impl Drop {
+    struct Guard<F: FnOnce()>(Option<F>);
+    impl<F: FnOnce()> Drop for Guard<F> {
+        fn drop(&mut self) {
+            if let Some(f) = self.0.take() {
+                f();
+            }
+        }
+    }
+    Guard(Some(f))
 }
