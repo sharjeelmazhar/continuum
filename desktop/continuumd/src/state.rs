@@ -204,6 +204,7 @@ impl Daemon {
                 .map(|d| d.as_secs())
                 .unwrap_or(0),
             last_ip: None,
+            model: String::new(),
         };
         {
             let mut g = self.lock();
@@ -238,7 +239,7 @@ impl Daemon {
     }
 
     /// Registers a live connection; an older connection from the same device is closed.
-    pub fn connected(&self, id: &str, live: Live, ip: IpAddr) {
+    pub fn connected(&self, id: &str, live: Live, ip: IpAddr, model: &str) {
         // The phone sends its current notifications again right after hello.
         self.notifications.clear(id);
         let mut g = self.lock();
@@ -246,16 +247,31 @@ impl Daemon {
             old.kill.notify_one();
         }
         let ip = ip.to_string();
+        // Untrusted text: printable, short.
+        let model: String = model.chars().filter(|c| !c.is_control()).take(64).collect();
         if let Some(d) = g.devices.iter_mut().find(|d| d.id == id)
-            && d.last_ip.as_deref() != Some(ip.as_str())
+            && (d.last_ip.as_deref() != Some(ip.as_str())
+                || (!model.is_empty() && d.model != model))
         {
             d.last_ip = Some(ip);
+            if !model.is_empty() {
+                d.model = model;
+            }
             if let Err(e) = self.store.save_devices(&g.devices) {
                 tracing::warn!("could not save last address: {e}");
             }
         }
         drop(g);
         self.emit(Event::DevicesChanged);
+    }
+
+    pub fn model(&self, id: &str) -> String {
+        self.lock()
+            .devices
+            .iter()
+            .find(|d| d.id == id)
+            .map(|d| d.model.clone())
+            .unwrap_or_default()
     }
 
     /// Last known addresses of paired devices that aren't connected right now.
@@ -387,7 +403,16 @@ impl Daemon {
         let obj = body
             .as_object_mut()
             .ok_or("the request body must be an object")?;
-        let (req, waiter) = self.requests.register(id, Some(dest));
+        // Phones that can stream downloads raw get a one-time token for a data connection.
+        let token = self
+            .caps(id)
+            .iter()
+            .any(|c| c == m::CAP_FETCH_RAW)
+            .then(|| hex::encode(continuum_proto::pairing::random_secret()));
+        if let Some(t) = &token {
+            obj.insert("token".into(), t.clone().into());
+        }
+        let (req, waiter) = self.requests.register_with(id, Some(dest), token);
         obj.insert("req".into(), req.into());
         let Waiter::Fetch(mut rx, progress) = waiter else {
             unreachable!()

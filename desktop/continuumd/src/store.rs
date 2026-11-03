@@ -22,6 +22,9 @@ pub struct PairedDevice {
     /// Address it last connected from, for the startup wake-up nudge (`wake.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_ip: Option<String>,
+    /// "<manufacturer> <model>" from its last hello, for the device picture.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub model: String,
 }
 
 pub struct Store {
@@ -126,6 +129,7 @@ mod tests {
             fp: "00".into(),
             paired_at: 1,
             last_ip: None,
+            model: String::new(),
         };
         store.save_devices(std::slice::from_ref(&d)).unwrap();
         assert_eq!(store.load_devices(), vec![d]);

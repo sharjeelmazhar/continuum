@@ -65,6 +65,8 @@ pub const CAP_PHOTOS: &str = "photos";
 pub const CAP_SMS: &str = "sms";
 pub const CAP_NOTIF: &str = "notif";
 pub const CAP_FILES: &str = "files";
+/// Downloads can stream raw on a data connection (`*.fetch` with a `token`).
+pub const CAP_FETCH_RAW: &str = "fetch.raw";
 pub const CAP_FIND: &str = "find";
 
 /// Capability of a peer that accepts `share.offer` (files sent to it).
@@ -136,6 +138,9 @@ pub struct Hello {
     pub device_type: DeviceType,
     #[serde(default)]
     pub caps: Vec<String>,
+    /// "<manufacturer> <model>" (phones from 0.5.2), for the device picture.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub model: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -251,6 +256,10 @@ pub struct PhotoFetchReply {
     pub size: u64,
     #[serde(default)]
     pub parts: u32,
+    /// The bytes come on a data connection opened with the request's `token` (raw, then their
+    /// SHA-256), not as `photos.part` frames.
+    #[serde(default)]
+    pub raw: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -377,6 +386,7 @@ mod tests {
             name: "n".into(),
             device_type: DeviceType::Phone,
             caps: vec![],
+            model: String::new(),
         };
         assert!(
             serde_json::to_string(&h)

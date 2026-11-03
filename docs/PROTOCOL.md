@@ -58,7 +58,8 @@ continuum://pair?v=1&h=<ip>[,<ip>…]&p=<port>&fp=<64 hex>&s=<secret>&n=<desktop
 ## Session
 - Both sides send `hello { "v": 1, "id", "name", "type", "caps": [ … ] }` first (the phone
   right after connecting or after `pair.accept`; the desktop in reply). Features are used only
-  if both `caps` lists contain them.
+  if both `caps` lists contain them. Phones from 0.5.2 also send `"model": "<manufacturer>
+  <model>"` (at most 64 printable characters kept), which the desktop uses to pick a picture.
 - Keepalive: the phone sends `ping {}` every 20 s and the desktop (0.5.1+) every 3 s; each side
   answers `pong {}`. The desktop drops a session after 9 s without any frame (so a phone that
   leaves Wi-Fi shows as gone within seconds); the phone after 60 s, then reconnects with backoff
@@ -109,6 +110,15 @@ root. Needs "All files access" on Android 11+ (storage permission before), else 
 |---|---|---|
 | `files.list` | `req`, `path` | `path` (as asked), `entries`: `[{ "name", "dir" (bool), "size", "date" (ms, modified), "mime" ("" for folders) }]`, folders first then by name; at most 5000 entries; hidden (`.`-prefixed) entries left out; `"truncated": true` when cut (5000 entries or ~900 KB) |
 | `files.fetch` | `req`, `path` | Like `photos.fetch`: `name`, `mime`, `size`, `parts`, then `parts` × `photos.part`. Regular files only, at most 4 GiB. |
+
+**Fast downloads (cap `fetch.raw`, 0.5.2+).** To a phone that lists `fetch.raw`, the desktop
+adds `"token"` (32 lowercase hex characters, 128 random bits, single use) to `photos.fetch` /
+`files.fetch`. The phone replies as usual with `"raw": true`, then opens a data connection
+(same pinned TLS as file transfers) whose only frame is `data.hello { "token" }`, followed by the
+`size` raw bytes and their SHA-256 (32 bytes). No base64, no frames: the bytes go as fast as the
+link allows. The desktop accepts the token only from the device it sent it to, only once, and
+keeps the file only if the length and hash match. A raw reply to a request without a token is an
+error. Phones without the cap ignore `token` and send parts.
 
 ### Find my phone (cap `find`)
 - `find.ring {}` (desktop → phone): rings at full alarm volume, even on silent (and lifts Do Not

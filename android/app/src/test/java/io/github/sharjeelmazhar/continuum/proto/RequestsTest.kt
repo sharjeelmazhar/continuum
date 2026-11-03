@@ -45,7 +45,7 @@ class RequestsTest {
         assertEquals(setOf("req", "items", "total"), keys(list))
         assertEquals(setOf("id", "name", "mime", "date", "size", "w", "h", "dur"), keys(list["items"]!!.let { (it as kotlinx.serialization.json.JsonArray)[0].jsonObject }))
         assertEquals(setOf("req", "items"), keys(Envelope.of("x", PhotosThumbsReply.serializer(), PhotosThumbsReply(1, listOf(Thumb(1, "AA==")))).body))
-        assertEquals(setOf("req", "name", "mime", "size", "parts"), keys(Envelope.of("x", PhotosFetchReply.serializer(), PhotosFetchReply(1, "a", "b", 1, 1)).body))
+        assertEquals(setOf("req", "name", "mime", "size", "parts", "raw"), keys(Envelope.of("x", PhotosFetchReply.serializer(), PhotosFetchReply(1, "a", "b", 1, 1)).body))
         assertEquals(setOf("req", "part", "data"), keys(Envelope.of("x", PhotosPart.serializer(), PhotosPart(1, 0, "")).body))
         assertEquals(setOf("req"), keys(Envelope.of("x", Ack.serializer(), Ack(1)).body))
         val err = Envelope.of("x", ErrorReply.serializer(), ErrorReply(1, ErrorReply.PERMISSION)).body
@@ -117,5 +117,14 @@ class RequestsTest {
         val cut = Limits.cutUtf8(long, 512)
         assertEquals(256, cut.length)
         assertTrue(cut.toByteArray().size <= 512)
+    }
+
+    @Test
+    fun dataTokensMustBe128BitLowercaseHex() {
+        assertTrue(Limits.validToken("0123456789abcdef0123456789abcdef"))
+        assertFalse(Limits.validToken(""))
+        assertFalse(Limits.validToken("0123456789ABCDEF0123456789abcdef"))
+        assertFalse(Limits.validToken("0123456789abcdef0123456789abcde"))
+        assertFalse(Limits.validToken("../../etc/passwd/0123456789abcdef"))
     }
 }

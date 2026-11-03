@@ -60,7 +60,43 @@ class Outgoing(val transferId: String, val uris: List<Uri>, val files: List<File
  * each file the bytes from its resume offset, then the SHA-256 of the whole file.
  */
 object FileSender {
-    private const val BUFFER = 256 * 1024
+    private const val BUFFER = 1024 * 1024
+
+    /**
+     * A download the computer asked for (`*.fetch` with a token): `data.hello`, the [size] bytes
+     * of [input], then their SHA-256.
+     */
+    fun streamRaw(
+        host: String,
+        port: Int,
+        pinned: ByteArray,
+        token: String,
+        input: java.io.InputStream,
+        size: Long,
+        onProgress: (sent: Long) -> Unit,
+    ) {
+        Tls.connect(host, port, Identity.get(), pinned).use { socket ->
+            socket.soTimeout = 30_000
+            val out = BufferedOutputStream(socket.outputStream, BUFFER)
+            Frame.write(out, Envelope.of(MessageType.DATA_HELLO, DataHello.serializer(), DataHello(token)))
+            val digest = MessageDigest.getInstance("SHA-256")
+            val buf = ByteArray(BUFFER)
+            var sent = 0L
+            while (sent < size) {
+                val n = input.read(buf, 0, minOf(buf.size.toLong(), size - sent).toInt())
+                if (n < 0) throw IOException("file got shorter while sending")
+                digest.update(buf, 0, n)
+                out.write(buf, 0, n)
+                sent += n
+                onProgress(sent)
+            }
+            out.write(digest.digest())
+            out.flush()
+            // As for shares: let the computer close first so no bytes are lost to a reset.
+            socket.soTimeout = 120_000
+            runCatching { while (socket.inputStream.read(buf) >= 0) Unit }
+        }
+    }
 
     fun stream(
         context: Context,

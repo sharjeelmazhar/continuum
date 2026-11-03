@@ -23,7 +23,8 @@ pub const MAX_FILES: usize = 1000;
 const TOKEN_TTL: Duration = Duration::from_secs(60);
 /// Verified progress is recorded (after fsync) this often, so a power cut loses at most this much.
 pub const CHECKPOINT_BYTES: u64 = 8 << 20;
-const CHUNK: usize = 256 << 10;
+/// Big reads and writes keep a fast link busy with fewer system calls.
+const CHUNK: usize = 1 << 20;
 /// Keep this much disk free after a transfer.
 const DISK_RESERVE: u64 = 256 << 20;
 /// Unfinished transfers can be resumed for a day, then their partial files are deleted.

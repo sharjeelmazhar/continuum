@@ -78,6 +78,7 @@ import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -364,7 +365,7 @@ class ContinuumService : Service() {
     private suspend fun runSession(session: Session, pc: PairedComputer, justPaired: Boolean) {
         val me = Identity.get()
         try {
-            session.send(Envelope.of(MessageType.HELLO, Hello.serializer(), Hello(Protocol.VERSION, me.deviceId, deviceName(), deviceType(), Protocol.CAPS)))
+            session.send(Envelope.of(MessageType.HELLO, Hello.serializer(), Hello(Protocol.VERSION, me.deviceId, deviceName(), deviceType(), Protocol.CAPS, "${Build.MANUFACTURER} ${Build.MODEL}".trim().take(64))))
             val reply = session.receive()
             // The computer answers hello with pair.reject when it no longer knows this phone.
             if (reply.type == MessageType.PAIR_REJECT && !justPaired) throw UnpairedByComputer()
@@ -386,7 +387,9 @@ class ContinuumService : Service() {
                 }
             }
             val clip = ClipAssembler()
-            val features = Features(this, scope, session, peerCaps, pc.name) { uris -> queueFiles(uris) }
+            val features = Features(this, scope, session, peerCaps, pc.name, { uris -> queueFiles(uris) }) { out, token ->
+                sendDownload(session, pc, out, token)
+            }
             features.start()
             try {
                 while (true) {
@@ -489,6 +492,23 @@ class ContinuumService : Service() {
         }
     }
 
+    /** A file the computer is downloading from this phone, streamed raw with a progress notification. */
+    private suspend fun sendDownload(s: Session, pc: PairedComputer, out: io.github.sharjeelmazhar.continuum.feature.Outgoing, token: String) {
+        val nm = getSystemService(NotificationManager::class.java)
+        val notifId = token.hashCode()
+        val meter = Meter(out.size, 0)
+        val title = getString(R.string.sending_one, out.name, pc.name)
+        try {
+            withContext(Dispatchers.IO) {
+                FileSender.streamRaw(s.socket.inetAddress.hostAddress!!, s.socket.port, Crypto.unhex(pc.fingerprint)!!, token, out.input, out.size) { sent ->
+                    if (meter.due()) nm.notify(notifId, progressNotification(title, meter, sent, upload = true))
+                }
+            }
+        } finally {
+            nm.cancel(notifId)
+        }
+    }
+
     /** Tracks speed for progress notifications and limits updates to a few per second. */
     private class Meter(val total: Long, private val startBytes: Long) {
         private val started = System.nanoTime()
@@ -512,7 +532,11 @@ class ContinuumService : Service() {
         val pct = if (meter.total > 0) (done * 1000 / meter.total).toInt() else 0
         val speed = meter.bytesPerSecond(done)
         var text = getString(R.string.progress_of, Formatter.formatShortFileSize(this, done), Formatter.formatShortFileSize(this, meter.total))
-        if (speed > 0) text += " · " + getString(R.string.per_second, Formatter.formatShortFileSize(this, speed))
+        if (speed > 0) {
+            text += " · " + getString(R.string.per_second, Formatter.formatShortFileSize(this, speed))
+            val left = (meter.total - done).coerceAtLeast(0) / speed
+            text += " · " + timeLeft(left)
+        }
         return NotificationCompat.Builder(this, TRANSFER_CHANNEL)
             .setSmallIcon(if (upload) android.R.drawable.stat_sys_upload else android.R.drawable.stat_sys_download)
             .setContentTitle(title)
@@ -522,6 +546,12 @@ class ContinuumService : Service() {
             .setSilent(true)
             .setOnlyAlertOnce(true)
             .build()
+    }
+
+    private fun timeLeft(secs: Long): String = when {
+        secs < 60 -> getString(R.string.left_seconds, secs)
+        secs < 3600 -> getString(R.string.left_minutes, secs / 60, secs % 60)
+        else -> getString(R.string.left_hours, secs / 3600, secs / 60 % 60)
     }
 
     private fun waitingNotification(computer: String, job: Outgoing): Notification {

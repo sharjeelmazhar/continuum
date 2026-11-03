@@ -49,6 +49,8 @@ data class Hello(
     val name: String,
     @SerialName("type") val deviceType: String,
     val caps: List<String> = emptyList(),
+    /** "<manufacturer> <model>", so the computer can show the right phone picture. */
+    val model: String = "",
 )
 
 @Serializable

@@ -27,6 +27,7 @@ class UnsupportedAndroidException : Exception("Android 10 or newer is needed for
  */
 object Tls {
     private const val CONNECT_TIMEOUT_MS = 4_000
+    private const val SOCKET_BUFFER = 4 * 1024 * 1024
 
     fun connect(host: String, port: Int, identity: Identity, pinned: ByteArray): SSLSocket {
         // TODO(M2): bundle Conscrypt so Android 8-9 get TLS 1.3 too.
@@ -36,6 +37,10 @@ object Tls {
         val plain = Socket()
         try {
             plain.tcpNoDelay = true
+            // Room for a fast Wi-Fi link's bandwidth-delay product; set before connecting so the
+            // TCP window scales. The kernel caps it if it's too big.
+            plain.sendBufferSize = SOCKET_BUFFER
+            plain.receiveBufferSize = SOCKET_BUFFER
             plain.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
             val socket = context.socketFactory.createSocket(plain, host, port, true) as SSLSocket
             socket.enabledProtocols = arrayOf("TLSv1.3")

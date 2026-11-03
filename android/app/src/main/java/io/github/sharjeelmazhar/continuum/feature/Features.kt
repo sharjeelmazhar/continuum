@@ -56,6 +56,8 @@ class Features(
     private val computerName: String,
     /** Queues MediaStore items as a normal file transfer; false if none could be read. */
     private val sendFiles: suspend (List<Uri>) -> Boolean,
+    /** Streams a download over a data connection opened with the computer's token. */
+    private val sendRaw: suspend (out: Outgoing, token: String) -> Unit,
 ) {
     private val scope = CoroutineScope(parent.coroutineContext + SupervisorJob(parent.coroutineContext[Job]))
     private val photos = Photos(context)
@@ -144,7 +146,7 @@ class Features(
             FeatureType.PHOTOS_FETCH -> {
                 val r = msg.parse(PhotosFetch.serializer())
                 if (!photos.canRead()) return replyError(replyType, req, ErrorReply.PERMISSION)
-                stream(req, replyType) { photos.fetch(r.id) }
+                stream(req, replyType, r.token) { photos.fetch(r.id) }
             }
             FeatureType.PHOTOS_SEND -> {
                 val r = msg.parse(PhotosSend.serializer())
@@ -164,7 +166,7 @@ class Features(
                 val r = msg.parse(FilesRequest.serializer())
                 StoragePaths.segments(r.path)?.takeIf { it.isNotEmpty() } ?: throw BadRequest()
                 if (!storage.canRead()) return replyError(replyType, req, ErrorReply.PERMISSION)
-                stream(req, replyType) { storage.open(r.path) }
+                stream(req, replyType, r.token) { storage.open(r.path) }
             }
             FeatureType.SMS_THREADS -> {
                 val r = msg.parse(SmsThreads.serializer())
@@ -194,14 +196,24 @@ class Features(
      * read from the stream one at a time (a 4 GiB video never sits in memory). Runs on this
      * request's own coroutine, so other requests are answered between the parts.
      */
-    private suspend fun stream(req: Long, replyType: String, open: () -> Outgoing) {
+    private suspend fun stream(req: Long, replyType: String, token: String, open: () -> Outgoing) {
         if (!streams.tryAcquire()) return replyError(replyType, req, "busy")
         try {
             open().use { out ->
                 if (out.size <= 0) return replyError(replyType, req, "empty file")
                 if (out.size > Limits.FETCH_MAX_BYTES) return replyError(replyType, req, "too large")
                 val parts = Limits.parts(out.size)
-                reply(replyType, PhotosFetchReply.serializer(), PhotosFetchReply(req, Limits.cutUtf8(out.name, 255), out.mime, out.size, parts))
+                // A computer that sent a token takes the bytes raw on a data connection: no base64,
+                // no frames, as fast as the link goes.
+                val raw = Limits.validToken(token)
+                reply(replyType, PhotosFetchReply.serializer(), PhotosFetchReply(req, Limits.cutUtf8(out.name, 255), out.mime, out.size, parts, raw))
+                if (raw) {
+                    runCatching { sendRaw(out, token) }.onFailure {
+                        if (it is kotlinx.coroutines.CancellationException) throw it
+                        Log.i(TAG, "raw download not sent: $it")
+                    }
+                    return
+                }
                 // Already replied: if reading or the connection fails now, the computer times out.
                 runCatching {
                     streamParts(out.input, out.size) { i, data ->

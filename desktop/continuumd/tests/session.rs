@@ -115,6 +115,7 @@ impl Phone {
             name: "Pixel 8".into(),
             device_type: DeviceType::Phone,
             caps: caps.iter().map(|c| (*c).to_owned()).collect(),
+            model: "Google Pixel 8\u{7}".into(),
         };
         self.send(Message::with_body(m::HELLO, &h).unwrap()).await;
         let reply = self.recv().await.expect("hello reply");
@@ -171,6 +172,11 @@ async fn pair_report_battery_then_reconnect_without_pairing() {
     p.send(Message::new(m::PING)).await;
     assert_eq!(p.recv().await.unwrap().kind, m::PONG);
     assert_eq!(d.daemon.list()[0].device.name, "Pixel 8");
+    // The model is kept for the device picture, control characters stripped.
+    assert_eq!(
+        d.daemon.model(&d.daemon.list()[0].device.id),
+        "Google Pixel 8"
+    );
 
     drop(p);
     eventually(|| !d.daemon.list()[0].connected).await;
@@ -218,6 +224,7 @@ async fn unknown_device_cannot_skip_pairing() {
         name: "x".into(),
         device_type: DeviceType::Phone,
         caps: vec![],
+        model: String::new(),
     };
     p.send(Message::with_body(m::HELLO, &h).unwrap()).await;
     assert_eq!(p.recv().await.unwrap().kind, m::PAIR_REJECT);

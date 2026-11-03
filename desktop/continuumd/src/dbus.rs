@@ -221,6 +221,11 @@ impl Api {
         Ok(())
     }
 
+    /// The phone's "<manufacturer> <model>" ("" until it has said), for its picture.
+    fn device_model(&self, id: &str) -> String {
+        self.daemon.model(id)
+    }
+
     /// Transfers in progress as JSON: `[{device, name, up, total, done, elapsed_ms}]`.
     fn transfers(&self) -> String {
         serde_json::to_string(&crate::activity::ACTIVITY.list()).unwrap_or_else(|_| "[]".into())

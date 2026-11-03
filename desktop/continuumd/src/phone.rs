@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncReadExt};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
@@ -39,6 +40,8 @@ struct Download {
     track: crate::activity::Handle,
 }
 
+// Few live at once, so the size difference between variants doesn't matter.
+#[allow(clippy::large_enum_variant)]
 enum Pending {
     Reply {
         device: String,
@@ -50,7 +53,24 @@ enum Pending {
         download: Option<Download>,
         progress: Arc<AtomicU64>,
         tx: oneshot::Sender<Result<PathBuf, String>>,
+        /// Set when the phone may stream the bytes raw on a data connection with this token.
+        token: Option<String>,
     },
+}
+
+/// A raw download whose data connection has arrived (see [`Requests::take_raw`]).
+pub struct RawFetch {
+    dest: Destination,
+    download: Download,
+    progress: Arc<AtomicU64>,
+    tx: oneshot::Sender<Result<PathBuf, String>>,
+}
+
+pub enum TakeRaw {
+    Ready(Box<RawFetch>),
+    /// The token is ours but the reply with the size hasn't been read yet.
+    NotYet,
+    Unknown,
 }
 
 impl Pending {
@@ -82,6 +102,17 @@ impl Requests {
     /// Registers a request to `device` and returns its `req` id. With `dest`, the reply is a
     /// download (`*.fetch`) saved there.
     pub fn register(&self, device: &str, dest: Option<Destination>) -> (u32, Waiter) {
+        self.register_with(device, dest, None)
+    }
+
+    /// Like [`register`](Self::register) for a download the phone may stream raw on a data
+    /// connection opened with `token`.
+    pub fn register_with(
+        &self,
+        device: &str,
+        dest: Option<Destination>,
+        token: Option<String>,
+    ) -> (u32, Waiter) {
         let req = self.next.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
         let (pending, waiter) = match dest {
             Some(dest) => {
@@ -94,6 +125,7 @@ impl Requests {
                         download: None,
                         progress: progress.clone(),
                         tx,
+                        token,
                     },
                     Waiter::Fetch(rx, progress),
                 )
@@ -122,6 +154,42 @@ impl Requests {
         }
     }
 
+    /// Hands over the raw download `device` opened a data connection for. Only that device's
+    /// own token, once, and only after its reply said how big the file is.
+    pub fn take_raw(&self, device: &str, token: &str) -> TakeRaw {
+        let mut g = self.lock();
+        let Some(req) = g.iter().find_map(|(req, p)| match p {
+            Pending::Fetch {
+                device: d,
+                token: Some(t),
+                ..
+            } if d == device && t == token => Some(*req),
+            _ => None,
+        }) else {
+            return TakeRaw::Unknown;
+        };
+        if let Some(Pending::Fetch { download, .. }) = g.get(&req)
+            && !download.as_ref().is_some_and(|d| d.meta.raw)
+        {
+            return TakeRaw::NotYet;
+        }
+        match g.remove(&req) {
+            Some(Pending::Fetch {
+                dest,
+                download: Some(download),
+                progress,
+                tx,
+                ..
+            }) => TakeRaw::Ready(Box::new(RawFetch {
+                dest,
+                download,
+                progress,
+                tx,
+            })),
+            _ => TakeRaw::Unknown,
+        }
+    }
+
     /// Routes a `*.reply` or `photos.part` from `device`. Anything that doesn't match an open
     /// request from that device (late, forged, inconsistent) is dropped.
     pub fn deliver(&self, device: &str, msg: Message) {
@@ -147,9 +215,10 @@ impl Requests {
                 mut download,
                 progress,
                 tx,
+                token,
             }) => {
                 progress.fetch_add(1, Ordering::Relaxed);
-                match step(&d, &dest, req, &mut download, &msg) {
+                match step(&d, &dest, req, &mut download, &msg, token.is_some()) {
                     Ok(Some(path)) => {
                         let _ = tx.send(Ok(path));
                     }
@@ -162,6 +231,7 @@ impl Requests {
                                 download,
                                 progress,
                                 tx,
+                                token,
                             },
                         );
                     }
@@ -186,11 +256,15 @@ fn step(
     req: u32,
     download: &mut Option<Download>,
     msg: &Message,
+    raw_allowed: bool,
 ) -> Result<Option<PathBuf>, String> {
     let Some(d) = download else {
         let r: PhotoFetchReply = msg.body().map_err(|e| e.to_string())?;
         if let Some(e) = r.error {
             return Err(e);
+        }
+        if r.raw && (!raw_allowed || r.size == 0) {
+            return Err("the phone sent an inconsistent file".into());
         }
         if r.size > MAX_FETCH_BYTES || u64::from(r.parts) != r.size.div_ceil(PART_BYTES) {
             return Err("the phone sent an inconsistent file".into());
@@ -208,6 +282,9 @@ fn step(
         });
         return finish_if_done(dest, download);
     };
+    if d.meta.raw {
+        return Err("the phone sent parts for a raw download".into());
+    }
     let p: PhotoPart = msg.body().map_err(|e| e.to_string())?;
     let bytes = B64.decode(p.data).map_err(|e| e.to_string())?;
     let left = d.meta.size - d.written;
@@ -233,6 +310,61 @@ fn finish_if_done(
     let path = dest.dir.join(format!("{}{name}", dest.prefix));
     std::fs::rename(&d.part_path, &path).map_err(|e| e.to_string())?;
     Ok(Some(path))
+}
+
+/// Reads a raw download from its data connection: exactly `size` bytes, then their SHA-256.
+/// The file is kept only if both check out.
+pub async fn receive_raw<R: AsyncRead + Unpin>(f: RawFetch, stream: &mut R) -> Result<(), String> {
+    let RawFetch {
+        dest,
+        download,
+        progress,
+        tx,
+    } = f;
+    let part_path = download.part_path.clone();
+    let result = read_raw(&dest, download, &progress, stream).await;
+    if result.is_err() {
+        let _ = std::fs::remove_file(&part_path);
+    }
+    let _ = tx.send(result.clone().map(|p| p.unwrap_or_default()));
+    result.map(|_| ())
+}
+
+async fn read_raw<R: AsyncRead + Unpin>(
+    dest: &Destination,
+    d: Download,
+    progress: &AtomicU64,
+    stream: &mut R,
+) -> Result<Option<PathBuf>, String> {
+    const CHUNK: usize = 1024 * 1024;
+    let mut download = Some(d);
+    let d = download.as_mut().expect("just set");
+    let mut hash = ring::digest::Context::new(&ring::digest::SHA256);
+    let mut buf = vec![0u8; CHUNK];
+    while d.written < d.meta.size {
+        let want = (d.meta.size - d.written).min(CHUNK as u64) as usize;
+        let n = stream
+            .read(&mut buf[..want])
+            .await
+            .map_err(|e| e.to_string())?;
+        if n == 0 {
+            return Err("the phone stopped sending".into());
+        }
+        d.file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+        hash.update(&buf[..n]);
+        d.written += n as u64;
+        d.track.add(n as u64);
+        progress.fetch_add(1, Ordering::Relaxed);
+    }
+    let mut sum = [0u8; 32];
+    stream
+        .read_exact(&mut sum)
+        .await
+        .map_err(|_| "the phone didn't finish the file".to_owned())?;
+    if hash.finish().as_ref() != sum {
+        return Err("the file was damaged on the way".into());
+    }
+    finish_if_done(dest, &mut download)
 }
 
 /// Current phone notifications per device, newest last.
@@ -324,6 +456,73 @@ mod tests {
             dir: dir.path().to_owned(),
             prefix: "7-".into(),
         })
+    }
+
+    const TOKEN: &str = "0123456789abcdef0123456789abcdef";
+
+    fn raw_reply(req: u32, size: u64) -> Message {
+        reply(
+            "files.fetch.reply",
+            serde_json::json!({ "req": req, "name": "big.bin", "mime": "", "size": size,
+                "parts": size.div_ceil(PART_BYTES), "raw": true }),
+        )
+    }
+
+    fn with_hash(data: &[u8]) -> Vec<u8> {
+        let mut v = data.to_vec();
+        v.extend_from_slice(ring::digest::digest(&ring::digest::SHA256, data).as_ref());
+        v
+    }
+
+    #[tokio::test]
+    async fn raw_download_lands_after_size_and_hash_check() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = Requests::default();
+        let (req, w) = r.register_with("phone", dest(&dir), Some(TOKEN.into()));
+        let Waiter::Fetch(rx, _) = w else { panic!() };
+        // Data connection before the reply: wait.
+        assert!(matches!(r.take_raw("phone", TOKEN), TakeRaw::NotYet));
+        let data: Vec<u8> = (0..3_000_000u32).map(|i| (i % 251) as u8).collect();
+        r.deliver("phone", raw_reply(req, data.len() as u64));
+        // Another device can't use the token.
+        assert!(matches!(r.take_raw("other", TOKEN), TakeRaw::Unknown));
+        let TakeRaw::Ready(f) = r.take_raw("phone", TOKEN) else {
+            panic!()
+        };
+        // Single use.
+        assert!(matches!(r.take_raw("phone", TOKEN), TakeRaw::Unknown));
+        receive_raw(*f, &mut &with_hash(&data)[..]).await.unwrap();
+        let path = rx.await.unwrap().unwrap();
+        assert_eq!(path, dir.path().join("7-big.bin"));
+        assert_eq!(std::fs::read(path).unwrap(), data);
+    }
+
+    #[tokio::test]
+    async fn damaged_raw_download_is_thrown_away() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = Requests::default();
+        let (req, w) = r.register_with("phone", dest(&dir), Some(TOKEN.into()));
+        let Waiter::Fetch(rx, _) = w else { panic!() };
+        let data = vec![7u8; 1000];
+        r.deliver("phone", raw_reply(req, 1000));
+        let TakeRaw::Ready(f) = r.take_raw("phone", TOKEN) else {
+            panic!()
+        };
+        let mut bytes = with_hash(&data);
+        bytes[10] ^= 1;
+        assert!(receive_raw(*f, &mut &bytes[..]).await.is_err());
+        assert!(rx.await.unwrap().is_err());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[tokio::test]
+    async fn raw_reply_without_a_token_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = Requests::default();
+        let (req, w) = r.register("phone", dest(&dir));
+        let Waiter::Fetch(rx, _) = w else { panic!() };
+        r.deliver("phone", raw_reply(req, 1000));
+        assert!(rx.await.unwrap().is_err());
     }
 
     #[tokio::test]

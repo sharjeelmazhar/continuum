@@ -16,7 +16,8 @@ use crate::transfer::MAX_FILES;
 /// Give up on a job after this many failed attempts in a row, or after a day.
 pub const MAX_ATTEMPTS: u32 = 5;
 const JOB_TTL: Duration = Duration::from_secs(24 * 3600);
-const CHUNK: usize = 256 << 10;
+/// Big reads and writes keep a fast link busy with fewer system calls.
+const CHUNK: usize = 1 << 20;
 
 struct Job {
     device_id: String,

@@ -147,6 +147,7 @@ async fn handle(
         name: daemon.name.clone(),
         device_type: daemon.device_type,
         caps: m::CAPS.iter().map(|c| (*c).to_owned()).collect(),
+        model: String::new(),
     };
     send(&tx, Message::with_body(m::HELLO, &ours)).await?;
 
@@ -163,6 +164,7 @@ async fn handle(
             caps: hello.caps,
         },
         addr.ip(),
+        &hello.model,
     );
     info!(
         "{} connected from {} (protocol v{})",
@@ -220,6 +222,28 @@ async fn data_connection<S: AsyncRead + AsyncWrite + Unpin>(
     }
     let leftover = std::io::Cursor::new(reader.dec.take_remaining());
     let mut stream = leftover.chain(&mut reader.rd);
+    // A download from the phone's storage or gallery, streamed raw. The reply with its size
+    // comes on the control connection and may still be on its way.
+    for _ in 0..50 {
+        match daemon.requests.take_raw(&device.id, &token) {
+            crate::phone::TakeRaw::Ready(f) => {
+                let started = std::time::Instant::now();
+                let result = crate::phone::receive_raw(*f, &mut stream).await;
+                match &result {
+                    Ok(()) => info!(
+                        "downloaded from {} in {:.1} s",
+                        device.name,
+                        started.elapsed().as_secs_f64()
+                    ),
+                    Err(e) => warn!("download from {} failed: {e}", device.name),
+                }
+                let _ = reader.rd.shutdown().await;
+                return result;
+            }
+            crate::phone::TakeRaw::NotYet => tokio::time::sleep(Duration::from_millis(100)).await,
+            crate::phone::TakeRaw::Unknown => break,
+        }
+    }
     let events = daemon.clone();
     let result = daemon
         .transfers

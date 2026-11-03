@@ -185,7 +185,7 @@ class FileReceiver(private val context: Context) {
     }
 
     companion object {
-        private const val BUFFER = 256 * 1024
+        private const val BUFFER = 1024 * 1024
         private const val CHECKPOINT = 8L shl 20
         private const val RESERVE = 256L shl 20
 

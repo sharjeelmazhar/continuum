@@ -85,6 +85,9 @@ object Limits {
     }
 
     /** Cuts [s] to at most [maxBytes] of UTF-8 without splitting a character. */
+    /** A data-connection token from the computer: 32 lowercase hex characters (128 bits). */
+    fun validToken(t: String) = t.length == 32 && t.all { it in '0'..'9' || it in 'a'..'f' }
+
     fun cutUtf8(s: String, maxBytes: Int): String {
         if (s.length * 3 <= maxBytes || s.toByteArray(Charsets.UTF_8).size <= maxBytes) return s
         var bytes = 0
@@ -151,10 +154,18 @@ data class Thumb(val id: Long, val data: String)
 data class PhotosThumbsReply(val req: Long, val items: List<Thumb>)
 
 @Serializable
-data class PhotosFetch(val req: Long, val id: Long)
+data class PhotosFetch(val req: Long, val id: Long, val token: String = "")
 
 @Serializable
-data class PhotosFetchReply(val req: Long, val name: String, val mime: String, val size: Long, val parts: Int)
+data class PhotosFetchReply(
+    val req: Long,
+    val name: String,
+    val mime: String,
+    val size: Long,
+    val parts: Int,
+    /** The bytes follow on a data connection opened with the request's token, not as parts. */
+    val raw: Boolean = false,
+)
 
 @Serializable
 data class PhotosPart(val req: Long, val part: Int, val data: String)
@@ -165,7 +176,7 @@ data class PhotosSend(val req: Long, val ids: List<Long> = emptyList())
 // ---- Files ----
 
 @Serializable
-data class FilesRequest(val req: Long, val path: String = "")
+data class FilesRequest(val req: Long, val path: String = "", val token: String = "")
 
 @Serializable
 data class FileEntry(val name: String, val dir: Boolean, val size: Long, val date: Long, val mime: String)
