@@ -1,5 +1,6 @@
 # Push a tag like v0.2.0 to build a signed APK and publish it as a GitHub Release.
-# Versions below 1.0.0, or with a suffix (v1.0.0-beta.1), are marked as pre-releases.
+# Versions with a suffix (v1.0.0-beta.1) are marked as pre-releases; the rest become "latest",
+# so https://github.com/…/releases/latest/download/Continuum.apk always gives the newest app.
 name: Release
 
 on:
@@ -30,7 +31,7 @@ jobs:
           v="${GITHUB_REF_NAME#v}"
           [[ "$v" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-.+)?$ ]] || { echo "bad tag: $GITHUB_REF_NAME"; exit 1; }
           code=$(( BASH_REMATCH[1] * 10000 + BASH_REMATCH[2] * 100 + BASH_REMATCH[3] ))
-          pre=false; { [ "${BASH_REMATCH[1]}" = 0 ] || [ -n "${BASH_REMATCH[4]}" ]; } && pre=true
+          pre=false; [ -n "${BASH_REMATCH[4]}" ] && pre=true
           echo "name=$v" >> "$GITHUB_OUTPUT"; echo "code=$code" >> "$GITHUB_OUTPUT"; echo "pre=$pre" >> "$GITHUB_OUTPUT"
 
       - name: Test, then build signed release APK
@@ -48,7 +49,7 @@ jobs:
           out="Continuum-${{ steps.ver.outputs.name }}.apk"
           cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/$out"
           "$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner" verify "$RUNNER_TEMP/$out"
-          (cd "$RUNNER_TEMP" && sha256sum "$out" > "$out.sha256")
+          (cd "$RUNNER_TEMP" && sha256sum "$out" > "$out.sha256" && cp "$out" Continuum.apk)
 
       - name: Publish GitHub Release
         env:
@@ -58,7 +59,8 @@ jobs:
           gh release create "$GITHUB_REF_NAME" $pre --verify-tag --title "Continuum ${{ steps.ver.outputs.name }}" \
             --notes-file "$GITHUB_WORKSPACE/.github/release-notes/$GITHUB_REF_NAME.md" \
             "$RUNNER_TEMP/Continuum-${{ steps.ver.outputs.name }}.apk" \
-            "$RUNNER_TEMP/Continuum-${{ steps.ver.outputs.name }}.apk.sha256"
+            "$RUNNER_TEMP/Continuum-${{ steps.ver.outputs.name }}.apk.sha256" \
+            "$RUNNER_TEMP/Continuum.apk"
 
   # Prebuilt desktop bundle (Ubuntu 24.04 or newer, x86_64) and the deb, rpm and Arch packages.
   desktop:

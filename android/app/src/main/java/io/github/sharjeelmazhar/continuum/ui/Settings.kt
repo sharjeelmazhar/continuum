@@ -291,7 +291,7 @@ private fun UpdatesGroup(resumeTick: Int) {
     }
     // The same card as on the home screen: Update / Allow updates / progress.
     val update by Updater.state.collectAsState()
-    if (update is UpdateState.Available || update is UpdateState.Downloading || update is UpdateState.Failed) {
+    if (update is UpdateState.Available || update is UpdateState.Downloading || update is UpdateState.Failed || update is UpdateState.Ready) {
         Box(Modifier.padding(horizontal = 16.dp).padding(top = 12.dp)) { UpdateCard(resumeTick) }
     }
 }

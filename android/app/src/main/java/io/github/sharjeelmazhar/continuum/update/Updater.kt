@@ -1,13 +1,9 @@
 package io.github.sharjeelmazhar.continuum.update
 
-import android.app.PendingIntent
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageInstaller
-import android.os.Build
 import android.util.Log
-import androidx.core.content.IntentCompat
+import androidx.core.content.FileProvider
 import androidx.core.content.edit
 import io.github.sharjeelmazhar.continuum.BuildConfig
 import java.io.File
@@ -35,7 +31,8 @@ sealed interface UpdateState {
     data class Available(val release: Release) : UpdateState
     data class Downloading(val release: Release, val done: Long) : UpdateState
     data class Failed(val release: Release, val reason: String) : UpdateState
-    data object Installing : UpdateState
+    /** Downloaded and checked; the visible app opens Android's installer for it. */
+    data class Ready(val release: Release, val apk: File) : UpdateState
 }
 
 /**
@@ -67,7 +64,8 @@ object Updater {
             raw?.let { parse(it) }
         }
         if (release != null && isNewer(release.version, BuildConfig.VERSION_NAME)) {
-            if (state.value is UpdateState.None || state.value is UpdateState.Failed) mutableState.value = UpdateState.Available(release)
+            // Anything but a running download is replaced, so a stalled earlier attempt can't hide it.
+        if (state.value !is UpdateState.Downloading && state.value !is UpdateState.Ready) mutableState.value = UpdateState.Available(release)
             return release
         }
         return null
@@ -175,8 +173,7 @@ object Updater {
             }
             val actual = digest.digest().joinToString("") { "%02x".format(it) }
             if (actual != expected) throw IOException("the download was damaged; try again")
-            mutableState.value = UpdateState.Installing
-            install(context, apk)
+            mutableState.value = UpdateState.Ready(release, apk)
         } catch (e: Exception) {
             Log.i(TAG, "update failed: $e")
             apk.delete()
@@ -184,33 +181,15 @@ object Updater {
         }
     }
 
-    private fun install(context: Context, apk: File) {
-        val installer = context.packageManager.packageInstaller
-        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
-            setAppPackageName(context.packageName)
-            // Android 12+: once Continuum installed itself, later updates may need no confirmation.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
-        }
-        val id = installer.createSession(params)
-        installer.openSession(id).use { session ->
-            session.openWrite("continuum.apk", 0, apk.length()).use { out ->
-                apk.inputStream().use { it.copyTo(out) }
-                session.fsync(out)
-            }
-            val callback = PendingIntent.getBroadcast(
-                context, id,
-                Intent(context, InstallResultReceiver::class.java),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
-            )
-            session.commit(callback.intentSender)
-        }
-    }
-
-    internal fun onInstallFailed(message: String?) {
-        val release = (state.value as? UpdateState.Downloading)?.release
-        mutableState.value = UpdateState.None
-        Log.i(TAG, "install did not finish: $message ($release)")
-    }
+    /**
+     * Android's own installer for a downloaded update, the same screen as installing from the
+     * browser. It has to be opened from the visible app: some phones (Xiaomi) silently block an
+     * install prompt that a background step opens, and an install session can stall there.
+     */
+    fun installIntent(context: Context, apk: File): Intent =
+        Intent(Intent.ACTION_VIEW)
+            .setDataAndType(FileProvider.getUriForFile(context, "${context.packageName}.files", apk), "application/vnd.android.package-archive")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
 
     private fun open(url: String): HttpURLConnection {
         var current = URL(url)
@@ -241,19 +220,4 @@ object Updater {
     }
 
     private fun get(url: String): ByteArray = open(url).inputStream.use { it.readBytes() }
-}
-
-/** Android reports the install here; if it needs the user's OK, we show its confirmation screen. */
-class InstallResultReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
-            PackageInstaller.STATUS_PENDING_USER_ACTION -> {
-                IntentCompat.getParcelableExtra(intent, Intent.EXTRA_INTENT, Intent::class.java)
-                    ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    ?.let { runCatching { context.startActivity(it) } }
-            }
-            PackageInstaller.STATUS_SUCCESS -> Unit // The app restarts as the new version.
-            else -> Updater.onInstallFailed(intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE))
-        }
-    }
 }

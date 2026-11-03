@@ -34,6 +34,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
@@ -242,13 +243,22 @@ fun UpdateCard(refreshKey: Int) {
         is UpdateState.Available -> st.release
         is UpdateState.Downloading -> st.release
         is UpdateState.Failed -> st.release
+        is UpdateState.Ready -> st.release
         else -> return
     }
+    // A finished download opens Android's installer right away (from this visible screen, which
+    // every phone allows); the Install button opens it again if it was closed.
+    val ready = state as? UpdateState.Ready
+    val openInstaller = { r: UpdateState.Ready ->
+        runCatching { context.startActivity(Updater.installIntent(context, r.apk)) }
+    }
+    LaunchedEffect(ready?.apk) { ready?.let { openInstaller(it) } }
     // Re-checked on every return to the app (e.g. from the "Allow from this source" screen).
     val canInstall = remember(refreshKey) { context.packageManager.canRequestPackageInstalls() }
     val body = when (val st = state) {
         is UpdateState.Downloading -> stringResource(R.string.update_downloading)
         is UpdateState.Failed -> stringResource(R.string.update_failed, st.reason)
+        is UpdateState.Ready -> stringResource(R.string.update_ready_body)
         else -> if (canInstall) stringResource(R.string.update_tap) else stringResource(R.string.update_allow_body)
     }
     PromptCard(
@@ -265,6 +275,8 @@ fun UpdateCard(refreshKey: Int) {
                 progress = { (st.done.toFloat() / total).coerceIn(0f, 1f) },
                 modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
             )
+        } else if (st is UpdateState.Ready) {
+            PromptButton(stringResource(R.string.update_install)) { openInstaller(st) }
         } else {
             PromptButton(stringResource(if (canInstall) R.string.update_now else R.string.update_allow)) {
                 if (!context.packageManager.canRequestPackageInstalls()) {

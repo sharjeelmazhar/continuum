@@ -202,4 +202,6 @@
     <string name="website_url" translatable="false">https://sharjeelmazhar.github.io/continuum/</string>
     <string name="website_label" translatable="false">sharjeelmazhar.github.io/continuum</string>
     <string name="opens_in_android_settings">Opens Android settings</string>
+    <string name="update_ready_body">Downloaded and checked. Tap Install, then confirm on the next screen.</string>
+    <string name="update_install">Install</string>
 </resources>

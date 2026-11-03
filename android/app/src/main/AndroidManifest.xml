@@ -164,10 +164,6 @@
             android:exported="false" />
 
         <receiver
-            android:name=".update.InstallResultReceiver"
-            android:exported="false" />
-
-        <receiver
             android:name=".service.BootReceiver"
             android:exported="false">
             <intent-filter>
