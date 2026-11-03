@@ -5,4 +5,6 @@ Description=Restart Continuum after an update
 Type=oneshot
 # Give the package manager a moment to finish writing the other files.
 ExecStartPre=/usr/bin/sleep 2
+# Pick up a changed unit file before restarting.
+ExecStartPre=/usr/bin/systemctl --user daemon-reload
 ExecStart=/usr/bin/systemctl --user try-restart continuumd.service
