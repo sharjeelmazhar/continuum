@@ -48,7 +48,7 @@ done_step() { touch "$VM_DIR/$1/.done-$2"; }
 
 ssh_vm() { # $1=distro, rest = command (runs as the test user)
   local d=$1; shift
-  ssh -q -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
+  ssh -q -i "$KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
     "tester@$(vm_ip "$d")" "$@"
 }
 
@@ -92,7 +92,8 @@ EOF
 boot() { # $1=distro: create (once) and start the VM, wait for GNOME to be installed
   local d=$1 dir=$VM_DIR/$1
   if ! virsh -c $CONN dominfo "continuum-$d" >/dev/null 2>&1; then
-    virt-install --connect $CONN --name "continuum-$d" --memory 4096 --vcpus 4 \
+    # The system Python: virt-install needs its gi module, which other Pythons on PATH may lack.
+    /usr/bin/python3 /usr/bin/virt-install --connect $CONN --name "continuum-$d" --memory 4096 --vcpus 4 \
       --disk "$dir/disk.qcow2" --disk "$dir/seed.iso,device=cdrom" --import \
       --osinfo detect=on,require=off --network network=default --graphics spice --video virtio \
       --noautoconsole >/dev/null || return 1
