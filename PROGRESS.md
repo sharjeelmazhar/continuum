@@ -7,10 +7,12 @@
   notifications with quick reply, phone storage, ring, files-to-clipboard, GNOME Quick Settings
   tile), website on GitHub Pages (`website/`, `.github/workflows/pages.yml`), prebuilt desktop
   bundle in releases.
-- **Next task:** update the real Redmi through the in-app updater and test everything there
-  (MIUI: restricted settings for SMS/notification access, autostart). Then, in order of value:
+- **Next task:** phone storage downloads over a raw data connection (like sends) instead of
+  base64 parts: S24 Ultra measured 57 MB/s PC->phone but 36 MB/s phone->PC. Then original
+  device drawings per phone family (Samsung 2020+, Xiaomi, Redmi, Oppo...), matched by model
+  name; official photos stay local-only (copyright). Then, in order of value:
   1. Notification allowlist (per-app mute, from PC and phone); hide content while locked.
-  2. Photo viewer next/previous, multi-select save; message search; contact photos.
+  2. Photo viewer next/previous; message search.
   3. Calls (M8), then phone mirroring (M9).
   4. Leftovers: MIUI watchdog; Android 8-9 TLS; 6-digit pairing; re-announce after suspend;
      transfer speed plan (`docs/benchmarks/transfer-speed.md`).
