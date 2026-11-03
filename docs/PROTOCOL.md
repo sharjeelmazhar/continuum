@@ -90,7 +90,7 @@ downloads (`*.fetch`) run at once per connection; a 4th gets `"busy"`.
 ### Photos (cap `photos`)
 | Type | Body | Reply |
 |---|---|---|
-| `photos.list` | `req`, `offset` ≥ 0, `limit` 1–200 | `items`: `[{ "id" (i64), "name", "mime", "date" (ms since epoch), "size", "w", "h", "dur" (ms, 0 for images) }]`, newest first; `total` |
+| `photos.list` | `req`, `offset` ≥ 0, `limit` 1–200 | `items`: `[{ "id" (i64), "name", "mime", "date" (ms since epoch), "size", "w", "h" (as displayed: rotation applied), "dur" (ms, 0 for images) }]`, newest first; `total` |
 | `photos.thumbs` | `req`, `ids` (≤ 24), `size` (longest side, 64–320 px) | `items`: `[{ "id", "data" (base64 JPEG) }]`. Ids that no longer exist, or don't fit in the 900 KB budget, are left out (ask again). |
 | `photos.fetch` | `req`, `id` | `name`, `mime`, `size`, `parts`; then `parts` × `photos.part { "req", "part", "data" }` (512 KiB raw per part, base64, in order). Photos and videos, at most 4 GiB. Image formats other than JPEG/PNG/WebP/GIF (e.g. HEIC) are converted to JPEG first; videos are sent as they are. |
 | `photos.send` | `req`, `ids` (≤ 100) | `{}`. The phone sends those photos/videos as a normal file transfer (`share.offer`), so they land in the download folder. |
@@ -109,7 +109,8 @@ root. Needs "All files access" on Android 11+ (storage permission before), else 
 | `files.fetch` | `req`, `path` | Like `photos.fetch`: `name`, `mime`, `size`, `parts`, then `parts` × `photos.part`. Regular files only, at most 4 GiB. |
 
 ### Find my phone (cap `find`)
-- `find.ring {}` (desktop → phone): rings at full alarm volume, even on silent, until the user
+- `find.ring {}` (desktop → phone): rings at full alarm volume, even on silent (and lifts Do Not
+  Disturb where Android allows it: up to Android 14), until the user
   taps Stop on the phone or `find.stop {}` arrives; gives up after 60 s.
 - `find.stop {}`.
 

@@ -1,6 +1,7 @@
 //! Continuum desktop app (GTK4 + libadwaita). Holds no connection state: everything comes from
 //! the daemon over D-Bus, so the window can be closed at any time.
 
+mod battery;
 mod ctx;
 mod daemon;
 mod messages;

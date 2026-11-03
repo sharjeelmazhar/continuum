@@ -10,7 +10,7 @@ use futures_util::StreamExt;
 
 use crate::ctx::{self, Ctx, Device};
 use crate::daemon::{self, DaemonProxy};
-use crate::{messages, notifications, photos, qr, storage};
+use crate::{battery, messages, notifications, photos, qr, storage};
 
 /// The feature pages, in sidebar order: (stack name, title, icons to try).
 const PAGES: &[(&str, &str, &[&str])] = &[
@@ -53,7 +53,11 @@ struct Ui {
     // Sidebar
     picture: gtk::Image,
     phone_name: gtk::Label,
-    phone_status: gtk::Label,
+    /// Connection badge (green check or grey dot) and its word.
+    link_icon: gtk::Image,
+    link_label: gtk::Label,
+    battery: battery::Battery,
+    battery_label: gtk::Label,
     switcher: gtk::DropDown,
     nav: gtk::ListBox,
     // Content
@@ -133,7 +137,29 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         .css_classes(["title-2"])
         .ellipsize(gtk::pango::EllipsizeMode::End)
         .build();
-    let phone_status = gtk::Label::builder().css_classes(["dim-label"]).build();
+    // Status line, Apple style: ✓ Connected   [▮▮▮ ] 82%
+    let link_icon = gtk::Image::builder()
+        .pixel_size(10)
+        .valign(gtk::Align::Center)
+        .build();
+    let link_label = gtk::Label::builder().css_classes(["status-text"]).build();
+    let battery = battery::Battery::new();
+    let battery_label = gtk::Label::builder()
+        .css_classes(["status-text", "numeric"])
+        .build();
+    let link = gtk::Box::builder().spacing(5).build();
+    link.append(&link_icon);
+    link.append(&link_label);
+    let power = gtk::Box::builder().spacing(5).build();
+    power.append(&battery.widget);
+    power.append(&battery_label);
+    let status = gtk::Box::builder()
+        .spacing(16)
+        .halign(gtk::Align::Center)
+        .css_classes(["status-row"])
+        .build();
+    status.append(&link);
+    status.append(&power);
     let switcher = gtk::DropDown::builder()
         .visible(false)
         .halign(gtk::Align::Center)
@@ -141,13 +167,16 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         .build();
     let hero = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
-        .spacing(4)
-        .margin_bottom(18)
+        .spacing(6)
+        .margin_top(6)
+        .margin_bottom(22)
         .css_classes(["phone-hero"])
         .build();
     hero.append(&picture);
+    phone_name.set_margin_top(8);
     hero.append(&phone_name);
-    hero.append(&phone_status);
+    hero.append(&status);
+    switcher.set_margin_top(6);
     hero.append(&switcher);
     let ring = gtk::Button::builder()
         .halign(gtk::Align::Center)
@@ -257,6 +286,7 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     let content_header = adw::HeaderBar::builder().title_widget(&page_title).build();
     content_header.pack_end(&refresh);
     content_header.pack_end(&notifications.clear);
+    content_header.pack_end(&photos.fit);
     let content_view = adw::ToolbarView::new();
     content_view.add_top_bar(&content_header);
     content_view.set_content(Some(&pages));
@@ -291,7 +321,10 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         devices: RefCell::default(),
         picture,
         phone_name,
-        phone_status,
+        link_icon,
+        link_label,
+        battery,
+        battery_label,
         switcher: switcher.clone(),
         nav: nav.clone(),
         pages,
@@ -537,6 +570,7 @@ fn show_page(ui: &Rc<Ui>, name: &str, force: bool) {
     ui.pages.set_visible_child_name(name);
     ui.page_title.set_title(PAGES[i].1);
     ui.refresh.set_visible(name != "files");
+    ui.photos.fit.set_visible(name == "photos");
     ui.notifications
         .clear
         .set_visible(name == "notifications" && ui.notifications.badge.is_visible());
@@ -597,8 +631,26 @@ fn update_hero(ui: &Rc<Ui>, d: &Device) {
     ui.ring.set_sensitive(d.connected);
     update_features(ui, d);
     ui.phone_name.set_label(&d.name);
-    ui.phone_status
-        .set_label(&status_text(d.connected, d.battery, d.charging));
+    if d.connected {
+        ui.link_icon.set_icon_name(Some("emblem-ok-symbolic"));
+        ui.link_icon.set_css_classes(&["link-ok"]);
+        ui.link_label.set_label("Connected");
+    } else {
+        ui.link_icon.set_icon_name(Some("media-record-symbolic"));
+        ui.link_icon.set_css_classes(&["link-off"]);
+        ui.link_label.set_label("Not connected");
+    }
+    let level = if d.connected { d.battery } else { -1 };
+    ui.battery.set(level, d.charging);
+    ui.battery_label.set_visible(level >= 0);
+    ui.battery_label.set_label(&format!("{level}%"));
+    ui.battery_label.set_css_classes(if d.charging {
+        &["status-text", "numeric", "charging"]
+    } else if level <= 20 {
+        &["status-text", "numeric", "low"]
+    } else {
+        &["status-text", "numeric"]
+    });
     ui.files_page
         .set_title(&format!("Send Files to {}", d.name));
 }
@@ -989,15 +1041,6 @@ fn device_texture(ty: &str) -> gtk::gdk::Texture {
         _ => include_bytes!("../data/device-phone.png"),
     };
     gtk::gdk::Texture::from_bytes(&glib::Bytes::from_static(png)).expect("bundled PNG")
-}
-
-fn status_text(connected: bool, battery: i32, charging: bool) -> String {
-    match (connected, battery) {
-        (false, _) => "Not connected".to_owned(),
-        (true, b) if b < 0 => "Connected".to_owned(),
-        (true, b) if charging => format!("Connected · {b}% battery, charging"),
-        (true, b) => format!("Connected · {b}% battery"),
-    }
 }
 
 async fn pick_and_send(ui: &Rc<Ui>, id: &str, name: &str) {

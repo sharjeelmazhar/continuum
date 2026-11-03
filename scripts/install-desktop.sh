@@ -15,6 +15,7 @@ BIN="$HOME/.local/bin"
 SHARE="${XDG_DATA_HOME:-$HOME/.local/share}"
 UNITS="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 PORT=47820
+EXT="continuum@sharjeelmazhar.github.io"
 
 put() { # put SRC DEST [MODE]: atomic copy
   mkdir -p "$(dirname "$2")"
@@ -29,6 +30,8 @@ if [ "${1:-}" = "--uninstall" ]; then
     "$SHARE"/icons/hicolor/*/apps/$APP_ID.png \
     "$SHARE/dbus-1/services/$APP_ID.Daemon.service" \
     "$SHARE/nautilus-python/extensions/continuum-nautilus.py" "$SHARE/kio/servicemenus/continuum-send.desktop"
+  gnome-extensions disable "$EXT" 2>/dev/null || true
+  rm -rf "$SHARE/gnome-shell/extensions/$EXT"
   systemctl --user daemon-reload
   echo "Continuum removed. Your pairing data is still in $SHARE/continuum (delete it to forget all devices)."
   exit 0
@@ -63,6 +66,24 @@ if command -v nautilus >/dev/null \
   elif command -v pacman >/dev/null; then sudo -n pacman -S --noconfirm --needed python-nautilus >/dev/null 2>&1 || true
   fi
 fi
+# GNOME: the phone in Quick Settings (battery, ring, messages, photos, files).
+if command -v gnome-shell >/dev/null; then
+  for f in "$DATA/gnome-shell/$EXT"/*; do
+    put "$f" "$SHARE/gnome-shell/extensions/$EXT/$(basename "$f")"
+  done
+  if gnome-extensions info "$EXT" >/dev/null 2>&1; then
+    gnome-extensions enable "$EXT" 2>/dev/null || true
+  else
+    # GNOME only finds new extensions at login; enable it for the next one.
+    current="$(gsettings get org.gnome.shell enabled-extensions)"
+    case "$current" in
+      *"$EXT"*) ;;
+      "@as []") gsettings set org.gnome.shell enabled-extensions "['$EXT']" ;;
+      *) gsettings set org.gnome.shell enabled-extensions "${current%]}, '$EXT']" ;;
+    esac
+    NEED_LOGIN=1
+  fi
+fi
 update-desktop-database "$SHARE/applications" 2>/dev/null || true
 gtk-update-icon-cache -q -t "$SHARE/icons/hicolor" 2>/dev/null || true
 
@@ -82,3 +103,6 @@ fi
 case ":$PATH:" in *":$BIN:"*) ;; *) echo "note: $BIN is not on your PATH; the app menu entry works anyway." ;; esac
 echo "Done. Open “Continuum” from your apps and click “Pair a Phone”."
 echo "The Files right-click “Send to …” entry appears after Files is restarted (close all its windows)."
+if [ -n "${NEED_LOGIN:-}" ]; then
+  echo "==> Log out and back in once to see your phone in Quick Settings."
+fi

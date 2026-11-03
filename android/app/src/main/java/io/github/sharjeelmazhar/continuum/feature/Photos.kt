@@ -54,6 +54,7 @@ class Photos(private val context: Context) {
             MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.MIME_TYPE,
             DATE_TAKEN, MediaStore.MediaColumns.DATE_ADDED, MediaStore.MediaColumns.SIZE,
             MediaStore.MediaColumns.WIDTH, MediaStore.MediaColumns.HEIGHT, DURATION, MediaStore.Files.FileColumns.MEDIA_TYPE,
+            ORIENTATION,
         )
         val order = "${MediaStore.MediaColumns.DATE_ADDED} DESC, ${MediaStore.MediaColumns._ID} DESC"
         val args = Bundle().apply {
@@ -80,8 +81,9 @@ class Photos(private val context: Context) {
                     mime = c.getString(2).orEmpty(),
                     date = if (taken > 0) taken else c.getLong(4) * 1000,
                     size = c.getLong(5),
-                    w = c.getInt(6),
-                    h = c.getInt(7),
+                    // As shown: phones store many portrait shots sideways plus a rotation tag.
+                    w = if (sideways(c)) c.getInt(7) else c.getInt(6),
+                    h = if (sideways(c)) c.getInt(6) else c.getInt(7),
                     dur = if (video && !c.isNull(8)) c.getLong(8) else 0,
                 )
             }
@@ -89,6 +91,9 @@ class Photos(private val context: Context) {
         val total = cr.query(files, arrayOf(MediaStore.MediaColumns._ID), MEDIA_SELECTION, null, null)?.use { it.count } ?: 0
         return items to total
     }
+
+    private fun sideways(c: android.database.Cursor): Boolean =
+        !c.isNull(10) && c.getInt(10).let { it == 90 || it == 270 }
 
     /** Looks up photos/videos by id; ids that don't exist are left out. Keeps the order of [ids]. */
     fun lookup(ids: List<Long>): List<Media> {
@@ -202,6 +207,8 @@ class Photos(private val context: Context) {
         /** Literal names: on Android 9 and older these columns exist but the constants don't. */
         private const val DATE_TAKEN = "datetaken"
         private const val DURATION = "duration"
+        /** Rotation tag in degrees (MediaColumns.ORIENTATION, by name so older SDK levels compile). */
+        private const val ORIENTATION = "orientation"
         private const val MAX_PIXELS = 50_000_000L
         private val convertLock = Any()
         private val MEDIA_SELECTION = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN " +

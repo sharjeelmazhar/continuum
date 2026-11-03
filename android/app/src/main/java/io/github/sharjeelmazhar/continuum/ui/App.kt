@@ -143,6 +143,8 @@ private fun HomeScreen(state: LinkState, exempt: Boolean, resumeTick: Int, onSca
                 AutoClipboardCard(resumeTick)
                 Spacer(Modifier.height(16.dp))
                 FeaturesCard(resumeTick)
+                Spacer(Modifier.height(16.dp))
+                StatusNotificationCard()
             }
         }
     }

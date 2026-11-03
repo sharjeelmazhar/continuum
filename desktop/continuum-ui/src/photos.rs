@@ -54,6 +54,8 @@ pub struct Photos {
     ctx: Rc<Ctx>,
     pub widget: gtk::Stack,
     pub subtitle: gtk::Label,
+    /// Square tiles (cropped, like Apple Photos) or each photo's own shape.
+    pub fit: gtk::ToggleButton,
     store: gtk::gio::ListStore,
     /// Bumped on every reload so answers for an old list are dropped.
     generation: Cell<u64>,
@@ -77,6 +79,10 @@ pub fn build(ctx: &Rc<Ctx>) -> Rc<Photos> {
         ctx: ctx.clone(),
         widget: widget.clone(),
         subtitle: gtk::Label::new(None),
+        fit: gtk::ToggleButton::builder()
+            .icon_name("zoom-fit-best-symbolic")
+            .tooltip_text("Show Whole Photos")
+            .build(),
         store: store.clone(),
         generation: Cell::new(0),
         loading_more: Cell::new(false),
@@ -186,6 +192,20 @@ pub fn build(ctx: &Rc<Ctx>) -> Rc<Photos> {
             }
         });
     }
+    {
+        let page = Rc::downgrade(&page);
+        page.upgrade().expect("page").fit.connect_toggled(move |b| {
+            let Some(page) = page.upgrade() else { return };
+            b.set_tooltip_text(Some(if b.is_active() {
+                "Show Square Tiles"
+            } else {
+                "Show Whole Photos"
+            }));
+            for p in page.bound.borrow().values().filter_map(|w| w.upgrade()) {
+                p.set_content_fit(page.content_fit());
+            }
+        });
+    }
     widget.add_named(&scroller, Some("grid"));
     widget.add_named(
         &gtk::Spinner::builder()
@@ -202,6 +222,7 @@ pub fn build(ctx: &Rc<Ctx>) -> Rc<Photos> {
 
 impl Photos {
     fn bind(self: &Rc<Self>, id: i64, picture: &gtk::Picture) {
+        picture.set_content_fit(self.content_fit());
         self.bound.borrow_mut().insert(id, picture.downgrade());
         if let Some(t) = self.textures.borrow().get(&id) {
             picture.set_paintable(Some(t));
@@ -380,6 +401,29 @@ fn fetch_thumbs(page: &Rc<Photos>) {
     });
 }
 
+impl Photos {
+    fn content_fit(&self) -> gtk::ContentFit {
+        if self.fit.is_active() {
+            gtk::ContentFit::Contain
+        } else {
+            gtk::ContentFit::Cover
+        }
+    }
+}
+
+/// Loads a photo the way it was taken: camera JPEGs are often stored sideways with an EXIF
+/// rotation tag, which plain texture loading ignores.
+fn load_upright(path: &std::path::Path) -> Option<gdk::Texture> {
+    match gtk::gdk_pixbuf::Pixbuf::from_file(path) {
+        Ok(p) => {
+            let p = p.apply_embedded_orientation().unwrap_or(p);
+            #[allow(deprecated)]
+            Some(gdk::Texture::for_pixbuf(&p))
+        }
+        Err(_) => gdk::Texture::from_filename(path).ok(),
+    }
+}
+
 fn duration(ms: i64) -> String {
     let s = ms / 1000;
     if s >= 3600 {
@@ -528,7 +572,7 @@ fn open_viewer(page: &Rc<Photos>, photo: Photo) {
                 return;
             }
         };
-        let Ok(texture) = gdk::Texture::from_filename(&path) else {
+        let Some(texture) = load_upright(&path) else {
             ctx.toast("This photo's format can't be shown here");
             return;
         };

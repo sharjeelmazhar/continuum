@@ -20,6 +20,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
+import android.service.notification.NotificationListenerService
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import io.github.sharjeelmazhar.continuum.R
@@ -42,6 +43,8 @@ object FindPhone {
     private var tone: ToneGenerator? = null
     private var vibrator: Vibrator? = null
     private var savedVolume = -1
+    /** Do Not Disturb as it was before ringing (0 = we didn't change it). */
+    private var savedFilter = 0
     private var ringing = false
     private var audio: AudioManager? = null
     private var notifications: NotificationManager? = null
@@ -68,6 +71,19 @@ object FindPhone {
         if (ringing) return // already ringing: just restart the 60 s
         ringing = true
         val audio = context.getSystemService(AudioManager::class.java).also { this.audio = it }
+        // A lost phone is usually on Do Not Disturb: switch it off while ringing (allowed for
+        // notification-listener apps), and put it back exactly as it was afterwards.
+        NotifBridge.listener?.let { l ->
+            runCatching {
+                val current = l.currentInterruptionFilter
+                if (current != NotificationListenerService.INTERRUPTION_FILTER_ALL &&
+                    current != NotificationListenerService.INTERRUPTION_FILTER_UNKNOWN
+                ) {
+                    l.requestInterruptionFilter(NotificationListenerService.INTERRUPTION_FILTER_ALL)
+                    savedFilter = current
+                }
+            }.onFailure { Log.i(TAG, "find: can't lift Do Not Disturb: $it") }
+        }
         runCatching {
             savedVolume = audio.getStreamVolume(AudioManager.STREAM_ALARM)
             audio.setStreamVolume(AudioManager.STREAM_ALARM, audio.getStreamMaxVolume(AudioManager.STREAM_ALARM), 0)
@@ -138,6 +154,10 @@ object FindPhone {
             savedVolume = -1
         }
         audio = null
+        if (savedFilter != 0) {
+            runCatching { NotifBridge.listener?.requestInterruptionFilter(savedFilter) }
+            savedFilter = 0
+        }
         notifications?.cancel(NOTIFICATION_ID)
     }
 

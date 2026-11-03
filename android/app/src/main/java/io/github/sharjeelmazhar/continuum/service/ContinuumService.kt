@@ -119,8 +119,25 @@ class ContinuumService : Service() {
         super.onCreate()
         store = PairedStore(this)
         val nm = getSystemService(NotificationManager::class.java)
+        // "Connected to …": default importance (without sound or vibration), because Android
+        // folds silent ones into a dot on the lock screen; a blocked twin for when the user
+        // turns it off (the foreground service still needs a notification).
+        listOf("connection", "status", "status_hidden").forEach { nm.deleteNotificationChannel(it) } // older builds
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, getString(R.string.channel_connection), NotificationManager.IMPORTANCE_MIN),
+            NotificationChannel(CHANNEL, getString(R.string.channel_connection), NotificationManager.IMPORTANCE_DEFAULT).apply {
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                setSound(null, null)
+                enableVibration(false)
+                setShowBadge(false)
+            },
+        )
+        nm.createNotificationChannel(
+            // Apps can't create a switched-off channel; MIN is the quietest (no status-bar icon,
+            // one folded line). The user can switch it off in Android settings (StatusCard).
+            NotificationChannel(HIDDEN_CHANNEL, getString(R.string.channel_connection_hidden), NotificationManager.IMPORTANCE_MIN).apply {
+                lockscreenVisibility = Notification.VISIBILITY_SECRET
+                setShowBadge(false)
+            },
         )
         nm.createNotificationChannel(
             NotificationChannel(TRANSFER_CHANNEL, getString(R.string.channel_transfers), NotificationManager.IMPORTANCE_LOW),
@@ -162,6 +179,11 @@ class ContinuumService : Service() {
         when (intent?.action) {
             ACTION_PAIR -> PairUri.parse(intent.getStringExtra(EXTRA_URI).orEmpty())?.let { restart(it) }
             ACTION_UNPAIR -> unpair()
+            ACTION_REFRESH_STATUS -> {
+                val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0
+                ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(Link.state.value), type)
+                if (loop?.isActive != true) restart(null)
+            }
             ACTION_SEND -> {
                 val uris = IntentCompat.getParcelableArrayListExtra(intent, EXTRA_URIS, Uri::class.java).orEmpty()
                 scope.launch { queueFiles(uris) }
@@ -696,16 +718,18 @@ class ContinuumService : Service() {
             Intent(this, SendClipboardActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_IMMUTABLE,
         )
-        // Android requires this notification while connected; users can hide it in one tap.
+        // Android requires this notification while connected; the app has switches to hide it
+        // from the shade or the lock screen (StatusPrefs).
         val hide = PendingIntent.getActivity(
             this, 2,
-            Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
-                .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
-                .putExtra(Settings.EXTRA_CHANNEL_ID, CHANNEL)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_IMMUTABLE,
         )
-        return NotificationCompat.Builder(this, CHANNEL)
+        val shade = StatusPrefs.inShade(this)
+        return NotificationCompat.Builder(this, if (shade) CHANNEL else HIDDEN_CHANNEL)
+            .setVisibility(
+                if (StatusPrefs.onLockScreen(this)) NotificationCompat.VISIBILITY_PUBLIC else NotificationCompat.VISIBILITY_SECRET,
+            )
             .setSmallIcon(R.drawable.ic_stat_continuum)
             .setContentTitle(text)
             .setContentText(getString(R.string.notif_hint))
@@ -714,13 +738,16 @@ class ContinuumService : Service() {
             .addAction(0, getString(R.string.hide_notification), hide)
             .setOngoing(true)
             .setSilent(true)
-            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setOnlyAlertOnce(true)
             .build()
     }
 
     companion object {
         private const val TAG = "Continuum"
-        private const val CHANNEL = "connection"
+        private const val CHANNEL = "connection_status"
+        const val HIDDEN_CHANNEL = "status_minimised"
+        const val ACTION_REFRESH_STATUS = "io.github.sharjeelmazhar.continuum.REFRESH_STATUS"
         private const val NOTIFICATION_ID = 1
 
         /** Retry at least this often while on a network; joining a network retries at once. */
@@ -751,6 +778,15 @@ class ContinuumService : Service() {
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             intent.clipData = ClipData.newRawUri(null, uris.first()).apply { uris.drop(1).forEach { addItem(ClipData.Item(it)) } }
             ContextCompat.startForegroundService(context, intent)
+        }
+
+        /** Re-posts the connection notification after its switches changed. */
+        fun refreshStatus(context: Context) {
+            if (PairedStore(context).load() == null) return
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, ContinuumService::class.java).setAction(ACTION_REFRESH_STATUS),
+            )
         }
 
         fun unpair(context: Context) = ContextCompat.startForegroundService(
