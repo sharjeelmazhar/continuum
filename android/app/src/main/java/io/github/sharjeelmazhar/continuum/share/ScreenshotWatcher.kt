@@ -25,23 +25,16 @@ class ScreenshotWatcher(private val context: Context) {
     private val handler = Handler(thread.looper)
     private var lastId = 0L
     @Volatile private var registered = false
-    /** Images inserted but maybe still pending (being written): their publishing update counts. */
-    private val inserted = LinkedHashSet<Long>()
     private val check = Runnable { sendNew() }
     private val observer = object : ContentObserver(handler) {
         override fun onChange(selfChange: Boolean) = settle()
 
         override fun onChange(selfChange: Boolean, uris: Collection<Uri>, flags: Int) {
-            // Android 11+: only new pictures matter, not edits or thumbnails of old ones. A
-            // screenshot is inserted pending and published by an update: follow that one too.
-            val ids = uris.mapNotNull { runCatching { ContentUris.parseId(it) }.getOrNull()?.takeIf { id -> id > 0 } }
-            if (flags and ContentResolver.NOTIFY_INSERT != 0) {
-                inserted += ids
-                while (inserted.size > 32) inserted.remove(inserted.first())
-                settle()
-            } else if (flags and ContentResolver.NOTIFY_UPDATE != 0 && ids.any { it in inserted }) {
-                settle()
-            }
+            // Android 11+: deletions can't be a new screenshot. Everything else is checked: phone
+            // makers report a new screenshot differently (Xiaomi, for one, doesn't always mark it
+            // as an insert), and the check itself only looks at pictures newer than the last seen.
+            if (flags == ContentResolver.NOTIFY_DELETE) return
+            settle()
         }
     }
 
@@ -63,7 +56,6 @@ class ScreenshotWatcher(private val context: Context) {
         if (want) {
             handler.post {
                 lastId = newestId()
-                inserted.clear()
             }
             runCatching {
                 context.contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, observer)
@@ -104,7 +96,6 @@ class ScreenshotWatcher(private val context: Context) {
                 while (c.moveToNext()) {
                     val id = c.getLong(0)
                     lastId = maxOf(lastId, id)
-                    inserted.remove(id)
                     val fresh = System.currentTimeMillis() / 1000 - c.getLong(3) < MAX_AGE_S
                     if (fresh && isScreenshot(c.getString(1).orEmpty())) {
                         newest = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id) to c.getString(2).orEmpty()
