@@ -10,7 +10,7 @@ import android.util.Log
 
 /**
  * Banking mode: many banking and wallet apps refuse to open while Developer options or USB
- * debugging are on, and many (UBL, for one) also refuse while any accessibility service from
+ * debugging are on, and many also refuse while any accessibility service from
  * outside the system runs. One switch turns Developer options, USB and wireless debugging and
  * Continuum's own accessibility helpers off; turning it off restores exactly what was on before. Needs WRITE_SECURE_SETTINGS, granted once from a computer
  * (`adb shell pm grant <package> android.permission.WRITE_SECURE_SETTINGS`); the grant stays
