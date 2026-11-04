@@ -57,6 +57,21 @@ pub fn open(app: &gtk::Application, proxy: DaemonProxy<'static>, device: Device)
     }
     let m = Mirror::build(app, proxy, device);
     OPEN.with(|o| o.borrow_mut().insert(m.device.id.clone(), m.clone()));
+    // Size limits follow the monitor the window is on (screens can differ in size).
+    let weak = Rc::downgrade(&m);
+    m.window.connect_realize(move |w| {
+        let Some(surface) = w.surface() else { return };
+        let weak = weak.clone();
+        surface.connect_enter_monitor(move |_, monitor| {
+            let Some(m) = weak.upgrade() else { return };
+            let max = ((monitor.geometry().height() as f64 * 0.95) as i32).max(400);
+            m.max_height.set(max);
+            if m.height.get() > max {
+                m.height.set(max);
+                m.resize();
+            }
+        });
+    });
     m.window.present();
     crate::window::dev_snapshots(&m.window, "mirror");
     m.clone().start();
@@ -117,7 +132,8 @@ struct Mirror {
     phone: Cell<(i32, i32)>,
     height: Cell<i32>,
     /// Never taller than this (95% of the screen): it must not cover the whole screen.
-    max_height: i32,
+    /// 95% of the height of the monitor the window is on (updated when it moves).
+    max_height: Cell<i32>,
     pipeline: RefCell<Option<gst::Pipeline>>,
     socket: RefCell<Option<UnixStream>>,
     _bus: RefCell<Option<gst::bus::BusWatchGuard>>,
@@ -289,7 +305,7 @@ impl Mirror {
             hint,
             css,
             css_name,
-            max_height: ((monitor_h as f64 * 0.95) as i32).max(400),
+            max_height: Cell::new(((monitor_h as f64 * 0.95) as i32).max(400)),
             phone: Cell::new((1080, 2400)),
             height: Cell::new(((monitor_h as f64 * 0.74) as i32).clamp(420, 1100)),
             pipeline: RefCell::new(None),
@@ -393,7 +409,7 @@ impl Mirror {
         } else {
             (self.height.get() as f64 * by).round() as i32
         };
-        self.height.set(h.clamp(MIN_HEIGHT, self.max_height));
+        self.height.set(h.clamp(MIN_HEIGHT, self.max_height.get()));
         self.resize();
     }
 
@@ -429,7 +445,7 @@ impl Mirror {
                 Edge::BottomLeft => (-dx * per_x).max(dy),
             };
             let h = (h0 as f64 + grow).round() as i32;
-            let h = h.clamp(MIN_HEIGHT, m.max_height);
+            let h = h.clamp(MIN_HEIGHT, m.max_height.get());
             if h != m.height.get() {
                 m.height.set(h);
                 m.resize();

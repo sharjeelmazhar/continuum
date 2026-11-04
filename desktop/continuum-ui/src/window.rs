@@ -474,6 +474,11 @@ pub fn dev_snapshots(window: &impl IsA<gtk::Window>, suffix: &str) {
 }
 
 pub fn load_css() {
+    // Once per process (Phone Mirroring opens a window per phone).
+    thread_local!(static DONE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) });
+    if DONE.with(|d| d.replace(true)) {
+        return;
+    }
     crate::textsize::apply(&crate::textsize::saved());
     let css = gtk::CssProvider::new();
     css.load_from_string(include_str!("style.css"));
