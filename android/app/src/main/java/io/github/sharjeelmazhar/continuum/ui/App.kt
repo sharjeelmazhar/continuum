@@ -50,13 +50,17 @@ const val LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
 enum class Screen { Home, Settings }
 
 @Composable
-fun App(externalLink: MutableState<String?>, resumeTick: Int) {
+fun App(externalLink: MutableState<String?>, resumeTick: Int, showSettings: MutableState<Boolean>) {
     val context = LocalContext.current
     val state by Link.state.collectAsState()
     var scanning by rememberSaveable { mutableStateOf(false) }
     var screen by rememberSaveable { mutableStateOf(Screen.Home) }
     var pendingPair by remember { mutableStateOf<String?>(null) }
     var localNetworkDenied by rememberSaveable { mutableStateOf(false) }
+    if (showSettings.value) {
+        showSettings.value = false
+        screen = Screen.Settings
+    }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
         val uri = pendingPair ?: return@rememberLauncherForActivityResult
         pendingPair = null

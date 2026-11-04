@@ -7,7 +7,8 @@ arch=(x86_64)
 url="@URL@"
 license=(GPL-3.0-or-later)
 depends=(gtk4 libadwaita gstreamer)
-optdepends=('gst-plugin-gtk4: play videos inside the app'
+optdepends=('gst-libav: phone mirroring (H.264 decoding)'
+            'gst-plugin-gtk4: play videos inside the app'
             'gst-plugins-base: play videos inside the app'
             'gst-plugins-good: more video formats'
             'python-nautilus: "Send to phone" in the Files right-click menu')

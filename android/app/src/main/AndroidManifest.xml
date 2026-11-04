@@ -8,6 +8,12 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- Screen mirroring (mirror/MirrorService.kt), after the user taps "Start now". -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <!-- Banking mode (dev/BankingMode.kt): only works after a one-time grant from a computer. -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Android 17+: needed to reach the computer on the same Wi-Fi (local network protection). -->
@@ -130,6 +136,43 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/copy_watcher" />
+        </service>
+
+        <!-- Using the phone from the computer while mirroring (mirror/RemoteControl.kt). Off until the user turns it on. -->
+        <service
+            android:name=".mirror.RemoteControl"
+            android:exported="false"
+            android:label="@string/remote_control_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/remote_control" />
+        </service>
+
+        <activity
+            android:name=".mirror.MirrorConsentActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <service
+            android:name=".mirror.MirrorService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <service
+            android:name=".dev.BankingModeTile"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_continuum"
+            android:label="@string/banking_title"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
         </service>
 
         <!-- Phone notifications on the computer. Off until the user allows notification access. -->

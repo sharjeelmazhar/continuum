@@ -238,6 +238,16 @@ async fn data_connection<S: AsyncRead + AsyncWrite + Unpin>(
     }
     let leftover = std::io::Cursor::new(reader.dec.take_remaining());
     let mut stream = leftover.chain(&mut reader.rd);
+    if let Some(sink) = daemon.mirrors.take(&device.id, &token) {
+        info!("mirroring {}", device.name);
+        let result = crate::mirror::pipe(&mut stream, sink).await;
+        match &result {
+            Ok(n) => info!("mirroring {} ended ({} MB)", device.name, n >> 20),
+            Err(e) => warn!("mirroring {} ended: {e}", device.name),
+        }
+        let _ = reader.rd.shutdown().await;
+        return result.map(|_| ());
+    }
     // A download from the phone's storage or gallery, streamed raw. The reply with its size
     // comes on the control connection and may still be on its way.
     for _ in 0..50 {
@@ -521,6 +531,21 @@ async fn session<R: AsyncRead + Unpin>(
                         device: device.id.clone(),
                         kind: msg.kind,
                         body,
+                    });
+                }
+            }
+            m::MIRROR_STATE => {
+                // Only the fields the UI reads, so nothing else from the phone passes through.
+                let state = msg.body.get("state").and_then(|s| s.as_str()).unwrap_or("");
+                if !state.is_empty()
+                    && state.len() <= 32
+                    && state.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+                {
+                    let control = msg.body.get("control").and_then(|c| c.as_bool()) == Some(true);
+                    daemon.emit(Event::Phone {
+                        device: device.id.clone(),
+                        kind: msg.kind,
+                        body: serde_json::json!({ "state": state, "control": control }).to_string(),
                     });
                 }
             }

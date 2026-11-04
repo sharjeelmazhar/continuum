@@ -154,3 +154,37 @@ button.small {
 .crumb-fill {
   color: var(--accent-bg-color, @accent_bg_color);
 }
+
+/* Phone mirroring (mirror.rs): only the phone's screen, like iPhone Mirroring. */
+window.mirror-window,
+window.mirror-window.background {
+  background: none;
+  box-shadow: none;
+}
+/* No background under the picture: black would show as a thin ring at the rounded edge. */
+.mirror-screen {
+  color: #fff;
+  box-shadow: 0 12px 32px alpha(black, 0.30);
+}
+.mirror-screen.waiting { background: #111; }
+.mirror-screen:focus-visible { outline: none; }
+.mirror-bar {
+  min-height: 34px;
+  padding: 2px 4px;
+  background: alpha(#1c1c1e, 0.78);
+  color: #fff;
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+}
+.mirror-bar.shown { opacity: 1; }
+.mirror-bar .mirror-title { font-weight: 600; font-size: 0.92em; margin: 0 6px; }
+.mirror-bar button.mirror-button { color: #fff; min-width: 28px; min-height: 28px; padding: 0; }
+.mirror-status { color: alpha(white, 0.85); }
+.mirror-status image { color: alpha(white, 0.55); }
+.mirror-hint {
+  background: alpha(#1c1c1e, 0.86);
+  color: #fff;
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 0.9em;
+}

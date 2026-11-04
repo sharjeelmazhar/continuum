@@ -11,7 +11,7 @@ object Protocol {
     const val DEFAULT_PORT = 47820
 
     /** Capabilities this build understands. */
-    val CAPS = listOf("battery", "share", CAP_SHARE_RECEIVE, CAP_CLIPBOARD, CAP_PHOTOS, CAP_SMS, CAP_NOTIF, CAP_FILES, CAP_FIND, CAP_FETCH_RAW, CAP_PRESENCE)
+    val CAPS = listOf("battery", "share", CAP_SHARE_RECEIVE, CAP_CLIPBOARD, CAP_PHOTOS, CAP_SMS, CAP_NOTIF, CAP_FILES, CAP_FIND, CAP_FETCH_RAW, CAP_PRESENCE, CAP_MIRROR)
     const val CAP_SHARE_RECEIVE = "share.receive"
     const val CAP_CLIPBOARD = "clipboard"
     const val CAP_PHOTOS = "photos"
@@ -19,6 +19,8 @@ object Protocol {
     const val CAP_NOTIF = "notif"
     const val CAP_FILES = "files"
     const val CAP_FIND = "find"
+    /** Screen mirroring: `mirror.start` / `mirror.stop` / `mirror.input`, phone sends `mirror.state`. */
+    const val CAP_MIRROR = "mirror"
     /** Downloads (`*.fetch` with a `token`) stream over a raw data connection, not as parts. */
     const val CAP_FETCH_RAW = "fetch.raw"
     /** The computer paces its keepalive by our `presence` (slow pings while nobody uses the phone). */

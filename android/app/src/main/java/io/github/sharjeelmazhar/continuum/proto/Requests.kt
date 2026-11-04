@@ -29,6 +29,10 @@ object FeatureType {
     const val FILES_FETCH = "files.fetch"
     const val FIND_RING = "find.ring"
     const val FIND_STOP = "find.stop"
+    const val MIRROR_START = "mirror.start"
+    const val MIRROR_STOP = "mirror.stop"
+    const val MIRROR_INPUT = "mirror.input"
+    const val MIRROR_STATE = "mirror.state"
 
     val REQUESTS = setOf(PHOTOS_LIST, PHOTOS_THUMBS, PHOTOS_FETCH, PHOTOS_SEND, SMS_THREADS, SMS_MESSAGES, SMS_SEND, FILES_LIST, FILES_FETCH)
 

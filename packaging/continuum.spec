@@ -5,6 +5,7 @@ Summary:        @SUMMARY@
 License:        GPL-3.0-or-later
 URL:            @URL@
 Recommends:     gstreamer1-plugin-gtk4
+Recommends:     gstreamer1-plugin-openh264
 Recommends:     gstreamer1-plugins-base
 Recommends:     gstreamer1-plugins-good
 Recommends:     nautilus-python

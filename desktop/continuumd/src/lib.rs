@@ -5,6 +5,7 @@ pub mod clipboard;
 pub mod dbus;
 pub mod keepalive;
 pub mod mdns;
+pub mod mirror;
 pub mod notify;
 pub mod outbox;
 pub mod phone;

@@ -421,7 +421,14 @@ class ContinuumService : Service() {
                 null
             }
             val clip = ClipAssembler()
-            val features = Features(this, scope, session, peerCaps, pc.name, { uris -> queueFiles(uris) }) { out, token ->
+            val host = session.socket.inetAddress.hostAddress!!
+            val port = session.socket.port
+            val mirrorLink = io.github.sharjeelmazhar.continuum.mirror.Mirror.Link(
+                pc.name,
+                { env -> session.send(env) },
+                { Tls.connect(host, port, Identity.get(), Crypto.unhex(pc.fingerprint)!!) },
+            )
+            val features = Features(this, scope, session, peerCaps, pc.name, { uris -> queueFiles(uris) }, mirrorLink) { out, token ->
                 sendDownload(session, pc, out, token)
             }
             features.start()

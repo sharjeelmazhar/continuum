@@ -24,6 +24,9 @@ class MainActivity : ComponentActivity() {
     /** Bumped on every resume so the UI re-checks settings the user may have changed. */
     private val resumeTick = mutableIntStateOf(0)
 
+    /** Set by the Banking mode tile before it's set up: open Settings, where it's explained. */
+    private val showSettings = mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -32,7 +35,7 @@ class MainActivity : ComponentActivity() {
             if (Link.state.value is LinkState.Unpaired) Link.mutableStateForUi(LinkState.Connecting(pc.name))
             ContinuumService.start(this)
         }
-        setContent { ContinuumTheme { App(externalLink, resumeTick.intValue) } }
+        setContent { ContinuumTheme { App(externalLink, resumeTick.intValue, showSettings) } }
     }
 
     override fun onStart() {
@@ -60,6 +63,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
+        if (intent?.getStringExtra(EXTRA_SHOW) == SHOW_BANKING) showSettings.value = true
         val data = intent?.data ?: return
         if (intent.action != Intent.ACTION_VIEW || data.scheme != "continuum") return
         // Android hands the original link back when it recreates the task (from Recents, after
@@ -70,5 +74,10 @@ class MainActivity : ComponentActivity() {
         if (prefs.getString("last_pair_link", null) == digest) return
         prefs.edit().putString("last_pair_link", digest).apply()
         externalLink.value = link
+    }
+
+    companion object {
+        const val EXTRA_SHOW = "show"
+        const val SHOW_BANKING = "banking"
     }
 }

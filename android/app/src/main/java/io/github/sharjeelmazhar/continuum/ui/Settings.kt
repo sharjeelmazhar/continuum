@@ -16,6 +16,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.BatteryChargingFull
 import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.ScreenShare
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Link
@@ -101,6 +102,8 @@ fun SettingsScreen(state: LinkState, resumeTick: Int, onBack: () -> Unit, onRemo
         ) {
             if (paired) ComputerGroup(state, resumeTick, onRemove)
             ClipboardGroup(resumeTick)
+            MirroringGroup(resumeTick)
+            BankingGroup(resumeTick)
             if (paired) StatusNotificationSettings(resumeTick)
             NotificationsGroup(resumeTick)
             UpdatesGroup(resumeTick)
@@ -248,6 +251,7 @@ private fun channelIcon(id: String): ImageVector = when (id) {
     Channels.CONNECTION -> Icons.Outlined.Link
     Channels.UPDATES -> Icons.Outlined.SystemUpdate
     Channels.FIND -> Icons.Outlined.PhoneInTalk
+    Channels.MIRROR -> Icons.Outlined.ScreenShare
     else -> Icons.Outlined.Notifications
 }
 

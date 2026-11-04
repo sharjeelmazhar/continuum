@@ -27,7 +27,7 @@ Version: $VERSION
 Architecture: amd64
 Maintainer: Continuum <noreply@github.com>
 Depends: $depends
-Recommends: gstreamer1.0-gtk4, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, python3-nautilus
+Recommends: gstreamer1.0-gtk4, gstreamer1.0-libav, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, python3-nautilus
 Section: net
 Priority: optional
 Homepage: $URL

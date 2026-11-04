@@ -65,7 +65,7 @@ object Updater {
         }
         if (release != null && isNewer(release.version, BuildConfig.VERSION_NAME)) {
             // Anything but a running download is replaced, so a stalled earlier attempt can't hide it.
-        if (state.value !is UpdateState.Downloading && state.value !is UpdateState.Ready) mutableState.value = UpdateState.Available(release)
+            if (state.value !is UpdateState.Downloading && state.value !is UpdateState.Ready) mutableState.value = UpdateState.Available(release)
             return release
         }
         return null

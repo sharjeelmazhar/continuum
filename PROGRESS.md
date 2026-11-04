@@ -8,7 +8,11 @@
   tile), website on GitHub Pages (`website/`, `.github/workflows/pages.yml`), prebuilt desktop
   bundle in releases.
 - **Distro test (resumable):** serve a local site first (`/data2/vms/continuum-test/site`, built with packaging/build-packages.sh + build-repos.sh + website/install.sh; `python3 -m http.server 8000 --bind 192.168.122.1 -d /data2/vms/continuum-test/site`), then `VM_DIR=/data2/vms KEEP=1 SITE=http://192.168.122.1:8000 scripts/test-distros.sh`; after release, without SITE (fedora, arch, ubuntu GNOME VMs; reruns skip finished steps; results in /data2/vms/continuum-test/<distro>/result.txt).
-- **Next task:** measure v0.5.2 raw downloads on a fast phone (S24 Ultra got 57 MB/s PC->phone,
+- **Next task:** M9 follow-ups: try mirroring on the real Redmi (MIUI may block the background
+  prompt; the notification fallback should cover it), confirm Banking mode with the real UBL /
+  Easypaisa apps, then release 0.5.9. Then: live dragging (continued strokes), VA-API decoding,
+  a desktop "Set up banking mode" button that runs the one-time adb grant. After that:
+  measure v0.5.2 raw downloads on a fast phone (S24 Ultra got 57 MB/s PC->phone,
   36 MB/s phone->PC with the old base64 path); check the model-code table in
   continuum-ui/src/models.rs against real devices. Then, in order of value:
   1. Notification allowlist (per-app mute, from PC and phone); hide content while locked.
@@ -39,12 +43,13 @@
 | M6 | Universal clipboard | ✅ (real-phone check of auto copy pending) |
 | M7 | Notifications (allowlist, quick reply) | 🟡 mirror, popup Reply, dismiss done; allowlist next |
 | M8 | Calls (iOS-style banner, accept/decline) | ☐ |
-| M9 | Phone mirroring (borderless rounded window) | ☐ |
+| M9 | Phone mirroring (borderless rounded window) | 🟡 emulator done; real phone next |
 | M10 | Settings, shell tile, find phone, media | ☐ |
 | M10b | KDE Plasma support (Dolphin menu, tray widget) | ☐ |
 | M11 | Hardening and release | ☐ |
 
 ## Log (newest first)
+- 4 November 2026: M9 phone mirroring + Banking mode (ADR-0017), not released yet. Phone: MediaProjection → hardware H.264 (low latency, exact screen shape, new SPS on rotation) on a data connection; permission kept 5 min; "Continuum remote control" accessibility service for taps, swipes, scroll, keys, typing (only while streaming). Desktop: `StartMirror`/`StopMirror` D-Bus (socket pair to the UI), borderless phone-shaped window with rounded corners and soft shadow, bar above the phone on hover (close, back, home, recents, screenshot), Mirror button + `mirror` app action. Banking mode: switch + Quick Settings tile turn developer options/USB/wireless debugging off and restore them (one-time adb grant of WRITE_SECURE_SETTINGS). Emulator (Android 17): consent, stream, reopen without asking, tap, scroll, back, typing incl. emoji/backspace, Banking mode on (adb dropped, mirroring kept going) and off. Packaging recommends the H.264 decoder (gstreamer1.0-libav / openh264 / gst-libav).
 - 4 November 2026: v0.5.8. Updater opens Android's installer (ACTION_VIEW + FileProvider) from the visible card instead of a PackageInstaller session (MIUI blocked the background prompt; state stuck Installing). Tested 0.5.6-labelled signed build -> 0.5.7 on the emulator incl. Cancel then Install and Play Protect scan. Releases are no longer pre-releases; Continuum.apk + releases/latest link on the site.
 - 3 November 2026: v0.5.6–0.5.7. Screenshot watcher reacts to any non-delete MediaStore change (MIUI doesn't flag inserts), detects by folder or Screenshot_ file name, oversized screenshots re-encoded as JPEG; daemon converts JPEG/WebP clipboard images to PNG (image crate, limits). Simulated Pixel, Xiaomi (JPEG), Samsung, vivo, OPPO and a 14 MB Ultra screenshot on the emulator: 6/6. Not yet confirmed on the owner's Redmi.
 - 3 November 2026: v0.5.5. Text Size menu (desktop), dark-mode prompt cards (Android 16+ bright containers), installer drops old open-to-all firewall rules, website + README rewritten with demo-content screenshots (emulator only). Verified on this PC: one-line install, phone screenshot to PC clipboard (2 s), PC text to phone, 50 MB both ways with matching SHA-256.

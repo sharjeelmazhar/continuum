@@ -74,6 +74,7 @@ pub struct Daemon {
     pub clip: ClipHub,
     pub requests: Requests,
     pub notifications: Notifications,
+    pub mirrors: crate::mirror::Mirrors,
     pub identity: Identity,
     pub name: String,
     pub device_type: DeviceType,
@@ -101,6 +102,7 @@ impl Daemon {
             clip: ClipHub::default(),
             requests: Requests::default(),
             notifications: Notifications::default(),
+            mirrors: crate::mirror::Mirrors::default(),
             identity,
             name,
             device_type,
@@ -483,6 +485,26 @@ impl Daemon {
         tx.send(msg)
             .await
             .map_err(|_| "the phone disconnected".to_owned())
+    }
+
+    /// Asks the phone to mirror its screen. Returns the UI's end of the socket the H.264 stream
+    /// arrives on (see `mirror.start` in PROTOCOL.md); `max` is the longest side in pixels.
+    pub async fn start_mirror(&self, id: &str, max: u32) -> Result<std::os::fd::OwnedFd, String> {
+        let tx = self.link_with(id, m::CAP_MIRROR)?;
+        let (token, fd) = self.mirrors.open(id).map_err(|e| e.to_string())?;
+        let body = serde_json::json!({ "token": token, "max": max.clamp(480, 2560) });
+        if tx
+            .send(Message {
+                kind: m::MIRROR_START.into(),
+                body,
+            })
+            .await
+            .is_err()
+        {
+            self.mirrors.cancel(id);
+            return Err("the phone disconnected".into());
+        }
+        Ok(fd)
     }
 
     /// Capabilities of a connected device (empty when offline).

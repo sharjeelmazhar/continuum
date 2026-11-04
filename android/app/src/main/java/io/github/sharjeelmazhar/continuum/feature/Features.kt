@@ -56,6 +56,8 @@ class Features(
     private val computerName: String,
     /** Queues MediaStore items as a normal file transfer; false if none could be read. */
     private val sendFiles: suspend (List<Uri>) -> Boolean,
+    /** Screen mirroring over this connection. */
+    private val mirror: io.github.sharjeelmazhar.continuum.mirror.Mirror.Link,
     /** Streams a download over a data connection opened with the computer's token. */
     private val sendRaw: suspend (out: Outgoing, token: String) -> Unit,
 ) {
@@ -92,6 +94,7 @@ class Features(
     }
 
     fun stop() {
+        io.github.sharjeelmazhar.continuum.mirror.Mirror.detach(context, mirror)
         smsWatcher.stop()
         scope.cancel()
     }
@@ -103,6 +106,8 @@ class Features(
             FeatureType.NOTIF_DISMISS, FeatureType.NOTIF_REPLY, FeatureType.NOTIF_ACTION -> scope.launch { notifCommand(msg) }
             FeatureType.FIND_RING -> FindPhone.ring(context, computerName)
             FeatureType.FIND_STOP -> FindPhone.stop()
+            FeatureType.MIRROR_START, FeatureType.MIRROR_STOP, FeatureType.MIRROR_INPUT ->
+                io.github.sharjeelmazhar.continuum.mirror.Mirror.handle(context, mirror, msg.type, msg.body)
             else -> return false
         }
         return true

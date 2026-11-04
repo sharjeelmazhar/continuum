@@ -71,6 +71,7 @@ struct Ui {
     notifications: Rc<notifications::Notifications>,
     storage: Rc<storage::Storage>,
     ring: gtk::Button,
+    mirror: gtk::Button,
     /// (page, device id) each page last loaded, so a page reloads only when needed.
     loaded: RefCell<Vec<(String, String)>>,
     /// Set while `refresh` fills the switcher, whose selection changes as a side effect.
@@ -179,8 +180,6 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     switcher.set_margin_top(6);
     hero.append(&switcher);
     let ring = gtk::Button::builder()
-        .halign(gtk::Align::Center)
-        .margin_top(8)
         .css_classes(["pill"])
         .tooltip_text("Ring your phone at full volume, even when it's on silent")
         .child(
@@ -190,7 +189,24 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
                 .build(),
         )
         .build();
-    hero.append(&ring);
+    let mirror = gtk::Button::builder()
+        .css_classes(["pill"])
+        .tooltip_text("Show your phone's screen here and use it with the mouse and keyboard")
+        .child(
+            &adw::ButtonContent::builder()
+                .icon_name("phone-symbolic")
+                .label("Mirror")
+                .build(),
+        )
+        .build();
+    let actions = gtk::Box::builder()
+        .spacing(8)
+        .halign(gtk::Align::Center)
+        .margin_top(8)
+        .build();
+    actions.append(&mirror);
+    actions.append(&ring);
+    hero.append(&actions);
 
     let photos = photos::build(&ctx);
     let messages = messages::build(&ctx);
@@ -343,6 +359,7 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         notifications,
         storage,
         ring: ring.clone(),
+        mirror: mirror.clone(),
         loaded: RefCell::default(),
         filling: Cell::new(false),
     });
@@ -386,6 +403,10 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         let ui = ui.clone();
         ring.connect_clicked(move |_| ring_phone(&ui));
     }
+    {
+        let ui = ui.clone();
+        mirror.connect_clicked(move |_| mirror_phone(&ui));
+    }
     add_actions(&ui);
     add_drop_target(&ui);
 
@@ -397,7 +418,7 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
 
 /// Development aid: with `CONTINUUM_SNAPSHOT=/path.png`, saves a picture of the window every
 /// two seconds (GNOME doesn't let scripts take screenshots).
-fn dev_snapshots(window: &impl IsA<gtk::Window>, suffix: &str) {
+pub fn dev_snapshots(window: &impl IsA<gtk::Window>, suffix: &str) {
     let Some(path) = std::env::var_os("CONTINUUM_SNAPSHOT") else {
         return;
     };
@@ -521,7 +542,13 @@ fn add_actions(ui: &Rc<Ui>) {
             glib::spawn_future_local(async move { pick_and_send(&ui, &d.id, &d.name).await });
         });
     }
+    let mirror = gtk::gio::SimpleAction::new("mirror", None);
+    {
+        let ui = ui.clone();
+        mirror.connect_activate(move |_, _| mirror_phone(&ui));
+    }
     if let Some(app) = ui.window.application() {
+        app.add_action(&mirror);
         app.add_action(&present);
         app.add_action(&reply);
         app.add_action(&send);
@@ -665,6 +692,7 @@ fn update_hero(ui: &Rc<Ui>, d: &Device) {
         });
     }
     ui.ring.set_sensitive(d.connected);
+    ui.mirror.set_sensitive(d.connected);
     update_features(ui, d);
     ui.phone_name.set_label(&d.name);
     if d.connected {
@@ -734,7 +762,7 @@ async fn start(ui: Rc<Ui>) {
                     if open {
                         messages::reload(&ui.messages, false);
                     }
-                } else {
+                } else if args.kind.starts_with("notif.") {
                     notifications::reload(&ui.notifications);
                 }
             }
@@ -994,7 +1022,17 @@ fn update_features(ui: &Rc<Ui>, d: &Device) {
         }
         ui.ring
             .set_visible(caps.is_empty() || caps.iter().any(|c| c == "find"));
+        ui.mirror
+            .set_visible(caps.is_empty() || caps.iter().any(|c| c == "mirror"));
     });
+}
+
+fn mirror_phone(ui: &Rc<Ui>) {
+    let (Some(p), Some(d), Some(app)) = (ui.ctx.proxy(), ui.ctx.device(), ui.window.application())
+    else {
+        return;
+    };
+    crate::mirror::open(&app, p, d);
 }
 
 fn ring_phone(ui: &Rc<Ui>) {

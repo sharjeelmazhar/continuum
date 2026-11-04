@@ -27,6 +27,9 @@ pub const PHOTOS_PART: &str = "photos.part";
 pub const SMS_CHANGED: &str = "sms.changed";
 pub const NOTIF_POSTED: &str = "notif.posted";
 pub const NOTIF_REMOVED: &str = "notif.removed";
+pub const MIRROR_START: &str = "mirror.start";
+pub const MIRROR_STOP: &str = "mirror.stop";
+pub const MIRROR_STATE: &str = "mirror.state";
 
 /// Requests the desktop may send to the phone, with the capability each needs
 /// (see "Requests" in `docs/PROTOCOL.md`). Replies are `<type>.reply`.
@@ -49,6 +52,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("notif.action", CAP_NOTIF),
     ("find.ring", CAP_FIND),
     ("find.stop", CAP_FIND),
+    ("mirror.input", CAP_MIRROR),
+    ("mirror.stop", CAP_MIRROR),
 ];
 
 /// Capabilities this build understands.
@@ -83,6 +88,8 @@ pub const CAP_FILES: &str = "files";
 /// Downloads can stream raw on a data connection (`*.fetch` with a `token`).
 pub const CAP_FETCH_RAW: &str = "fetch.raw";
 pub const CAP_FIND: &str = "find";
+/// The phone can mirror its screen (`mirror.*`, see PROTOCOL.md).
+pub const CAP_MIRROR: &str = "mirror";
 /// The desktop understands `presence` and paces its keepalive by it.
 pub const CAP_PRESENCE: &str = "presence";
 /// The desktop remembers app icons, so the phone sends each app's icon once per connection.

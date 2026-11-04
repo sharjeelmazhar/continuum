@@ -204,4 +204,47 @@
     <string name="opens_in_android_settings">Opens Android settings</string>
     <string name="update_ready_body">Downloaded and checked. Tap Install, then confirm on the next screen.</string>
     <string name="update_install">Install</string>
+    <!-- Screen mirroring (mirror/) -->
+    <string name="channel_mirror">Screen mirroring</string>
+    <string name="channel_mirror_desc">Asks before your screen is shown on the computer, and shows while it is</string>
+    <string name="mirror_your_computer">your computer</string>
+    <string name="mirror_ask_title">Show your screen on %1$s?</string>
+    <string name="mirror_ask_text">Tap, then allow screen sharing</string>
+    <string name="mirror_streaming">Showing your screen on %1$s</string>
+    <string name="mirror_streaming_text">Everything on your screen is visible there</string>
+    <string name="mirror_ready">Ready to mirror on %1$s</string>
+    <string name="mirror_ready_text">Reopening the window on the computer won’t ask again for 5 minutes</string>
+    <string name="mirror_stop">Stop</string>
+    <string name="remote_control_label">Continuum remote control</string>
+    <string name="remote_control_summary">Use this phone from your computer while its screen is mirrored there</string>
+    <string name="remote_control_description">Lets your paired computer tap, swipe, scroll and type on this phone, but only while you are mirroring its screen to it (you tap “Start now” on the phone first, and Android shows that it’s being shared). Continuum reads the text field you type into, nothing else, and sends nothing from this service anywhere.</string>
+    <string name="settings_mirroring">Screen mirroring</string>
+    <string name="settings_remote_control">Control from the computer</string>
+    <string name="settings_remote_control_on">On: the computer’s mouse and keyboard work while mirroring</string>
+    <string name="settings_remote_control_off">Off: the computer only shows your screen</string>
+    <string name="settings_mirroring_hint">Click Mirror in Continuum on the computer. The first time, the phone asks you to allow screen sharing. No developer options or USB debugging needed.</string>
+    <string name="remote_control_steps">1. Tap Turn on, find “Continuum remote control” (on some phones under Downloaded apps or Installed services) and switch it on.
+2. The computer can then use the phone only while its screen is mirrored.</string>
+    <string name="remote_control_restricted">Switch greyed out? Android does this for apps not from the Play Store. Tap App info › ⋮ (top right) › “Allow restricted settings”, then try again.</string>
+    <!-- Banking mode (dev/) -->
+    <string name="banking_title">Banking mode</string>
+    <string name="banking_on">On: developer options and USB debugging are off, so banking apps open</string>
+    <string name="banking_off">Off: developer options are on (banking apps may refuse to open)</string>
+    <string name="banking_setup_summary">One tap to switch developer options and USB debugging off for banking apps, and back on</string>
+    <string name="banking_hint">Tip: add the Banking mode tile to Quick Settings (pull down twice › edit ✎). If a banking app was already open, close and reopen it.</string>
+    <string name="banking_open_dev">Open developer options</string>
+    <string name="banking_open_dev_summary">Switch them off by hand</string>
+    <string name="banking_setup_title">Set up banking mode</string>
+    <string name="banking_setup_body">Android lets an app switch developer options only after a one-time permission from a computer:
+1. Keep USB debugging on and connect the phone to the computer with a USB cable.
+2. On the computer, run the command below (from Android platform tools).
+3. Come back here: the switch appears. It keeps working after you turn USB debugging off.
+On Xiaomi phones, also turn on “USB debugging (Security settings)” in developer options before step 2.</string>
+    <string name="banking_copy_command">Copy command</string>
+    <string name="banking_copied">Command copied</string>
+    <string name="banking_on_toast">Banking mode on: developer options are off. Reopen your banking app.</string>
+    <string name="banking_off_toast">Banking mode off: developer options and USB debugging are back on.</string>
+    <string name="banking_tile_on">Debugging off</string>
+    <string name="banking_tile_off">Debugging on</string>
+    <string name="banking_tile_setup">Tap to set up</string>
 </resources>

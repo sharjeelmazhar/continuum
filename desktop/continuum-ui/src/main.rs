@@ -6,6 +6,7 @@ mod battery;
 mod ctx;
 mod daemon;
 mod messages;
+mod mirror;
 mod models;
 mod notifications;
 mod photos;

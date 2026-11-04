@@ -27,6 +27,7 @@ object Channels {
     const val TRANSFER_PROBLEMS = "transfer_problems"
     const val UPDATES = "updates"
     const val FIND = "find"
+    const val MIRROR = "mirror"
 
     private const val GROUP_FILES = "group_files"
     private const val GROUP_CONNECTION = "group_connection"
@@ -58,6 +59,7 @@ object Channels {
         Category(CONNECTION, R.string.channel_connection, R.string.channel_connection_desc),
         Category(UPDATES, R.string.channel_updates, R.string.channel_updates_desc),
         Category(FIND, R.string.channel_find, R.string.channel_find_desc),
+        Category(MIRROR, R.string.channel_mirror, R.string.channel_mirror_desc),
     )
 
     /** Creates (or updates the names of) every channel. Cheap; safe to call often. */
@@ -105,6 +107,12 @@ object Channels {
                 channel(FIND, R.string.channel_find, R.string.channel_find_desc, NotificationManager.IMPORTANCE_HIGH, GROUP_PHONE) {
                     setSound(null, null) // Find my phone plays its sound itself, on the alarm stream.
                     enableVibration(false)
+                },
+                // "Tap to share your screen" must pop up; the ongoing one is posted silently.
+                channel(MIRROR, R.string.channel_mirror, R.string.channel_mirror_desc, NotificationManager.IMPORTANCE_HIGH, GROUP_PHONE) {
+                    setSound(null, null)
+                    enableVibration(false)
+                    setShowBadge(false)
                 },
             ),
         )

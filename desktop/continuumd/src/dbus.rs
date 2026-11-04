@@ -199,6 +199,27 @@ impl Api {
             .map_err(zbus::fdo::Error::Failed)
     }
 
+    /// Starts mirroring the phone's screen. Returns a socket that delivers the stream: frames of
+    /// a 4-byte big-endian length, then one H.264 access unit (Annex B). It closes when
+    /// mirroring ends. `max` is the longest side in pixels (480-2560). The phone may first ask
+    /// its user to allow it (`mirror.state` events tell the UI).
+    async fn start_mirror(&self, id: &str, max: u32) -> zbus::fdo::Result<zbus::OwnedFd> {
+        let (daemon, id) = (self.daemon.clone(), id.to_owned());
+        let fd = self
+            .on_tokio(async move { daemon.start_mirror(&id, max).await })
+            .await?;
+        Ok(fd.into())
+    }
+
+    /// Stops mirroring (also when it hasn't started yet).
+    async fn stop_mirror(&self, id: &str) -> zbus::fdo::Result<()> {
+        self.daemon.mirrors.cancel(id);
+        self.daemon
+            .command(id, "mirror.stop", serde_json::json!({}))
+            .await
+            .map_err(zbus::fdo::Error::Failed)
+    }
+
     /// What a connected device can do (`photos`, `sms`, `notif`, `files`, `find`, …); empty
     /// when it isn't connected.
     fn device_caps(&self, id: &str) -> Vec<String> {

@@ -27,6 +27,8 @@ pub trait Daemon {
     fn device_model(&self, id: &str) -> zbus::Result<String>;
     fn transfers(&self) -> zbus::Result<String>;
     fn copy_files(&self, paths: &[&str]) -> zbus::Result<()>;
+    fn start_mirror(&self, id: &str, max: u32) -> zbus::Result<zbus::OwnedFd>;
+    fn stop_mirror(&self, id: &str) -> zbus::Result<()>;
     fn battery_details(&self, id: &str) -> zbus::Result<(u16, bool, i32)>;
     #[zbus(property)]
     fn name(&self) -> zbus::Result<String>;

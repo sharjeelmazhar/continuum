@@ -166,6 +166,36 @@ Desktop → phone:
 - `notif.dismiss { "key" }`, `notif.reply { "key", "text" }` (quick reply through the
   notification's reply action), `notif.action { "key", "index" }`.
 
+## Screen mirroring (cap `mirror`, 0.5.9+)
+Like iPhone Mirroring: the phone's screen in a window on the computer, used with the mouse and
+keyboard. Needs no developer options or USB debugging.
+
+1. Desktop → `mirror.start { "token" (32 hex, single use, valid 120 s), "max" (longest video
+   side, 480-2560) }`. If the phone has no screen-sharing permission yet, it asks its user
+   (Android's own prompt, plus a notification where background prompts are blocked) and sends
+   `mirror.state { "state": "consent" }`.
+2. The phone opens a **data connection** with `data.hello { "token" }`, then sends frames: a
+   4-byte big-endian length, then one H.264 access unit (Annex B; key frames start with
+   SPS/PPS). Frames are at most 8 MiB; a still screen repeats a frame every 100 ms, so 15 s of
+   silence means the phone is gone. Rotating the phone starts a new stream configuration (new
+   SPS) at the new size, always with the screen's exact shape.
+3. Desktop → `mirror.input` (only acted on while a stream is live, and only when the user turned
+   on the phone's "Continuum remote control" accessibility service). Positions are fractions
+   of the screen (0..1):
+   - `{ "t": "touch", "p": [[x, y, ms], …] }`: 1-200 points, `ms` since the press, not
+     decreasing, < 59 s. A still touch is a tap (or a long press when held).
+   - `{ "t": "scroll", "x", "y", "dx", "dy" }`: `dx`/`dy` in -1..1 of the screen size;
+     positive `dy` scrolls down.
+   - `{ "t": "key", "k" }`: `back`, `home`, `recents`, `notifications`, `screenshot`, `lock`,
+     `backspace`, `delete`, `enter`, `paste`.
+   - `{ "t": "text", "s" }`: 1-1000 characters typed into the focused field.
+4. Desktop → `mirror.stop {}`, or it closes the data connection. The phone keeps the permission
+   for 5 minutes, so the next `mirror.start` streams without asking.
+
+Phone → desktop `mirror.state { "state", "control" (bool: remote control is on) }`, with
+`state` one of `consent`, `started`, `denied`, `stopped`, `error`, `control` (only `control`
+changed).
+
 ## File transfer (share)
 Paired devices accept files automatically (they're your own devices, like AirDrop between
 devices on the same Apple ID). Both directions use the same messages. The **phone always opens
