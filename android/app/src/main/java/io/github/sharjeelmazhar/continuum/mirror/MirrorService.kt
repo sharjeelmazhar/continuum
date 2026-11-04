@@ -15,6 +15,7 @@ import android.media.MediaFormat
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
@@ -52,6 +53,22 @@ class MirrorService : Service() {
     val ready get() = projection != null
 
     private val idleStop = Runnable { stopSelf() }
+
+    /** Keeps the phone's screen on (dimmed) while it's mirrored, or the picture would go dark. */
+    private var awake: android.os.PowerManager.WakeLock? = null
+
+    @Suppress("DEPRECATION")
+    private fun keepAwake(on: Boolean) {
+        if (on) {
+            if (awake?.isHeld == true) return
+            awake = getSystemService(android.os.PowerManager::class.java)
+                .newWakeLock(android.os.PowerManager.SCREEN_DIM_WAKE_LOCK, "Continuum:mirror")
+                .apply { setReferenceCounted(false); acquire(4 * 60 * 60_000L) }
+        } else {
+            runCatching { awake?.release() }
+            awake = null
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -92,6 +109,8 @@ class MirrorService : Service() {
 
     override fun onDestroy() {
         if (instance === this) instance = null
+        keepAwake(false)
+        RemoteControl.instance?.forget()
         streamer?.halt()
         streamer = null
         Mirror.streaming = false
@@ -109,7 +128,12 @@ class MirrorService : Service() {
         handler.removeCallbacks(idleStop)
         streamer?.halt()
         streamer = Streamer(req, link).also { it.start() }
+        keepAwake(true)
         foreground(streaming = true)
+    }
+
+    fun requestSync() {
+        streamer?.sync = true
     }
 
     fun stopStream() = handler.post {
@@ -120,6 +144,8 @@ class MirrorService : Service() {
 
     private fun idle() {
         Mirror.streaming = false
+        keepAwake(false)
+        RemoteControl.instance?.forget()
         runCatching { synchronized(this) { display?.surface = null } }
         foreground(streaming = false)
         handler.removeCallbacks(idleStop)
@@ -180,6 +206,10 @@ class MirrorService : Service() {
         @Volatile
         private var socket: Socket? = null
 
+        /** The computer lost frames (e.g. it fell behind): the next frame is a key frame. */
+        @Volatile
+        var sync = false
+
         fun halt() {
             running = false
             runCatching { socket?.close() }
@@ -191,6 +221,9 @@ class MirrorService : Service() {
                 socket = s
                 if (!running) return
                 s.tcpNoDelay = true
+                // Video must never queue up in the socket: a big buffer (file transfers use 4 MiB)
+                // would hold seconds of frames on a slow Wi-Fi moment. Bitrate adapts instead.
+                runCatching { s.sendBufferSize = SEND_BUFFER }
                 val out = DataOutputStream(BufferedOutputStream(s.outputStream, 1 shl 18))
                 Frame.write(out, Envelope.of(MessageType.DATA_HELLO, DataHello.serializer(), DataHello(req.token)))
                 out.flush()
@@ -229,26 +262,61 @@ class MirrorService : Service() {
                 var config = ByteArray(0)
                 var frame = ByteArray(256 * 1024)
                 var checked = System.nanoTime()
+                val rate = RateControl(VideoSize.bitrate(w, h))
+                // `adb shell setprop log.tag.Continuum DEBUG` logs frames per second and time
+                // spent sending, to tell a slow encoder from a slow network.
+                val debug = Log.isLoggable(TAG, Log.DEBUG)
+                var statFrames = 0
+                var statSendNs = 0L
+                var statStart = System.nanoTime()
+                sync = false
                 while (running) {
+                    if (sync) {
+                        sync = false
+                        runCatching { codec.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) }) }
+                    }
                     val i = codec.dequeueOutputBuffer(info, 100_000)
                     if (i >= 0) {
                         val buf = codec.getOutputBuffer(i)
+                        var size = 0
+                        var prefix = EMPTY
                         if (buf != null && info.size > 0) {
                             buf.position(info.offset)
                             buf.limit(info.offset + info.size)
                             if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
                                 config = ByteArray(info.size).also { buf.get(it) }
                             } else {
-                                val prefix = if (info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0) config else EMPTY
+                                if (info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0) prefix = config
                                 if (frame.size < info.size) frame = ByteArray(info.size)
                                 buf.get(frame, 0, info.size)
-                                out.writeInt(prefix.size + info.size)
-                                out.write(prefix)
-                                out.write(frame, 0, info.size)
-                                out.flush()
+                                size = info.size
                             }
                         }
+                        // Hand the buffer back first, so the encoder works on the next frame
+                        // while this one goes out.
                         codec.releaseOutputBuffer(i, false)
+                        if (size > 0) {
+                            val t0 = System.nanoTime()
+                            out.writeInt(prefix.size + size)
+                            out.write(prefix)
+                            out.write(frame, 0, size)
+                            out.flush()
+                            if (debug) {
+                                statFrames++
+                                statSendNs += System.nanoTime() - t0
+                                if (t0 - statStart > 2_000_000_000L) {
+                                    val secs = (t0 - statStart) / 1e9
+                                    Log.d(TAG, "mirror ${"%.0f".format(statFrames / secs)} fps, sending ${"%.0f".format(statSendNs / 1e7 / secs)}% of the time")
+                                    statFrames = 0
+                                    statSendNs = 0
+                                    statStart = t0
+                                }
+                            }
+                            rate.sent(System.nanoTime() - t0, t0)?.let { bps ->
+                                Log.i(TAG, "mirror bitrate ${bps / 1000} kbit/s")
+                                runCatching { codec.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bps) }) }
+                            }
+                        }
                     }
                     // Rotation changes the screen's size: start again with the new shape.
                     val now = System.nanoTime()
@@ -275,6 +343,8 @@ class MirrorService : Service() {
                 // A still screen still sends frames, so the computer can tell we're alive.
                 setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100_000L)
                 setInteger(MediaFormat.KEY_PRIORITY, 0)
+                // No B-frames: every frame can be shown the moment it's decoded.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
                 if (lowLatency && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
             }
             try {
@@ -293,6 +363,7 @@ class MirrorService : Service() {
         private const val EXTRA_DATA = "data"
         private const val ACTION_STOP = "stop"
         private val EMPTY = ByteArray(0)
+        private const val SEND_BUFFER = 128 * 1024
 
         /** How long the permission is kept after the computer stops. */
         const val KEEP_MS = 5 * 60_000L

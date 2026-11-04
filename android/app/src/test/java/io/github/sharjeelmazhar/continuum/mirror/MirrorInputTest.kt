@@ -107,3 +107,30 @@ class MirrorInputTest {
         assertEquals(2_000_000, VideoSize.bitrate(100, 100))
     }
 }
+
+class RateControlTest {
+    private val sec = RateControl.WINDOW_NS
+
+    @Test
+    fun dropsWhenTheLinkIsBusyAndRecovers() {
+        val r = RateControl(8_000_000)
+        // Half of each second spent blocked in writes: too slow, back off.
+        assertNull(r.sent(sec / 4, 0))
+        assertEquals(5_600_000, r.sent(sec / 4, sec * 3 / 4))
+        // Keeps dropping, never under the floor.
+        var t = 2 * sec
+        repeat(10) { r.sent(sec / 2, t); r.sent(sec / 2, t + sec / 2); t += 2 * sec }
+        assertEquals(1_500_000, r.bitrate)
+        // An idle link climbs back, up to the target only.
+        repeat(40) { r.sent(sec / 100, t); r.sent(sec / 100, t + sec); t += 2 * sec }
+        assertEquals(8_000_000, r.bitrate)
+    }
+
+    @Test
+    fun steadyLinkKeepsTheBitrate() {
+        val r = RateControl(8_000_000)
+        var t = 0L
+        repeat(120) { assertNull(r.sent(sec / 60 / 5, t)); t += sec / 60 }
+        assertEquals(8_000_000, r.bitrate)
+    }
+}

@@ -44,6 +44,13 @@ class RemoteControl : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
 
+    /** Mirroring stopped: drop what was typed into a password field, and lift any finger. */
+    fun forget() = main.post {
+        secret = ""
+        secretNode = 0
+        if (live != null) finger(MirrorInput.Finger(MirrorInput.Phase.UP, -1.0, -1.0), 0, 0)
+    }
+
     override fun onInterrupt() {}
 
     private fun screenSize(): Point {

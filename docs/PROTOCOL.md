@@ -190,7 +190,8 @@ keyboard. Needs no developer options or USB debugging.
    - `{ "t": "scroll", "x", "y", "dx", "dy" }`: `dx`/`dy` in -1..1 of the screen size;
      positive `dy` scrolls down.
    - `{ "t": "key", "k" }`: `back`, `home`, `recents`, `notifications`, `screenshot`, `lock`,
-     `backspace`, `delete`, `enter`, `paste`.
+     `backspace`, `delete`, `enter`, `paste`, and `sync` (not an input: the desktop lost frames and
+     asks for a key frame; works without remote control).
    - `{ "t": "text", "s" }`: 1-1000 characters typed into the focused field.
 4. Desktop → `mirror.stop {}`, or it closes the data connection. The phone keeps the permission
    for 5 minutes, so the next `mirror.start` streams without asking.

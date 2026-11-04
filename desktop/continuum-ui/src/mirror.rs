@@ -325,7 +325,11 @@ impl Mirror {
         // The window is the screen plus the bar above it and the margins for the shadow.
         let bar_h = self.bar.measure(gtk::Orientation::Vertical, w).1;
         if std::env::var_os("CONTINUUM_MIRROR_DEBUG").is_some() {
-            tracing_log(&format!("resize screen {w}x{h} bar {bar_h} window {}x{}", self.window.width(), self.window.height()));
+            tracing_log(&format!(
+                "resize screen {w}x{h} bar {bar_h} window {}x{}",
+                self.window.width(),
+                self.window.height()
+            ));
         }
         self.window
             .set_default_size(w + 2 * MARGIN_SIDE, h + bar_h + MARGIN_TOP + MARGIN_BOTTOM);
@@ -363,10 +367,12 @@ impl Mirror {
 
     /// Queues one `mirror.input` for the phone. Ignored until the picture is live.
     fn send(self: &Rc<Self>, input: serde_json::Value) {
-        if self.status.is_visible() || self.closed.get() {
+        // A key-frame request isn't an input: it works without remote control.
+        let sync = input["k"] == "sync";
+        if (self.status.is_visible() && !sync) || self.closed.get() {
             return;
         }
-        if !self.control.get() {
+        if !self.control.get() && !sync {
             self.flash_hint();
             return;
         }
@@ -645,7 +651,12 @@ impl Mirror {
         let m = self.clone();
         glib::spawn_future_local(async move {
             m.watch_state().await;
-            let fd = match m.proxy.start_mirror(&m.device.id, MAX_SIDE).await {
+            // Development aid: CONTINUUM_MIRROR_MAX=960 asks for a smaller video.
+            let max = std::env::var("CONTINUUM_MIRROR_MAX")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(MAX_SIDE);
+            let fd = match m.proxy.start_mirror(&m.device.id, max).await {
                 Ok(fd) => fd,
                 Err(e) => {
                     m.show_status(Some(&dbus_error(e).text()), false);
@@ -760,13 +771,19 @@ impl Mirror {
             .set_state(gst::State::Playing)
             .map_err(|e| e.to_string())?;
 
-        let ended = Arc::new(AtomicBool::new(false));
-        let frames = Arc::new(AtomicU64::new(0));
+        let stats = Arc::new(Feed::default());
         let reader = socket.try_clone().map_err(|e| e.to_string())?;
         {
-            let (ended, frames) = (ended.clone(), frames.clone());
-            std::thread::spawn(move || feed(reader, &src, &frames, &ended));
+            let stats = stats.clone();
+            std::thread::spawn(move || feed(reader, &src, &stats));
         }
+        let shown = Rc::new(Cell::new(0u64));
+        {
+            let shown = shown.clone();
+            paintable.connect_invalidate_contents(move |_| shown.set(shown.get() + 1));
+        }
+        let debug = std::env::var_os("CONTINUUM_MIRROR_DEBUG").is_some();
+        let mut last = (Instant::now(), 0u64, 0u64, 0u64);
         *self.socket.borrow_mut() = Some(socket);
         *self.pipeline.borrow_mut() = Some(pipeline);
 
@@ -779,12 +796,31 @@ impl Mirror {
             if m.closed.get() {
                 return glib::ControlFlow::Break;
             }
-            if ended.load(Ordering::Relaxed) {
+            if stats.want_sync.swap(false, Ordering::Relaxed) {
+                m.send(json!({ "t": "key", "k": "sync" }));
+            }
+            if debug && last.0.elapsed() >= Duration::from_secs(2) {
+                let (frames, bytes, shown_now) = (
+                    stats.frames.load(Ordering::Relaxed),
+                    stats.bytes.load(Ordering::Relaxed),
+                    shown.get(),
+                );
+                let secs = last.0.elapsed().as_secs_f64();
+                tracing_log(&format!(
+                    "{:.0} fps in, {:.0} fps shown, {:.1} Mbit/s, {} skipped",
+                    (frames - last.1) as f64 / secs,
+                    (shown_now - last.3) as f64 / secs,
+                    (bytes - last.2) as f64 * 8.0 / secs / 1e6,
+                    stats.dropped.load(Ordering::Relaxed)
+                ));
+                last = (Instant::now(), frames, bytes, shown_now);
+            }
+            if stats.ended.load(Ordering::Relaxed) {
                 m.show_status(Some("Mirroring ended"), false);
                 return glib::ControlFlow::Break;
             }
             let p = m.picture.paintable();
-            let n = frames.load(Ordering::Relaxed);
+            let n = stats.frames.load(Ordering::Relaxed);
             if n > 0 && p.is_some_and(|p| p.intrinsic_width() > 0) && m.status.is_visible() {
                 m.show_status(None, false);
                 m.screen.grab_focus();
@@ -823,9 +859,46 @@ fn tracing_log(msg: &str) {
     eprintln!("continuum-ui: mirror: {msg}");
 }
 
-/// Reads access units from the daemon's socket into GStreamer until it closes.
-fn feed(mut socket: UnixStream, src: &gst::Element, frames: &AtomicU64, ended: &AtomicBool) {
+/// What the reader thread reports to the window.
+#[derive(Default)]
+struct Feed {
+    frames: AtomicU64,
+    bytes: AtomicU64,
+    dropped: AtomicU64,
+    /// The decoder fell behind and frames were skipped: ask the phone for a key frame.
+    want_sync: AtomicBool,
+    ended: AtomicBool,
+}
+
+/// Frames waiting for the decoder before we skip ahead (each one is ~16 ms of lag).
+const MAX_BACKLOG: u64 = 3;
+
+/// True if the access unit holds an IDR picture or SPS (a fresh start for the decoder).
+fn is_key_frame(au: &[u8]) -> bool {
+    let mut i = 0;
+    while i + 3 < au.len() {
+        if au[i] == 0 && au[i + 1] == 0 && au[i + 2] == 1 {
+            let t = au[i + 3] & 0x1f;
+            if t == 5 || t == 7 {
+                return true;
+            }
+            // A non-IDR slice: the rest is picture data, no need to scan it.
+            if t == 1 {
+                return false;
+            }
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
+/// Reads access units from the daemon's socket into GStreamer until it closes. When the
+/// decoder can't keep up, frames are skipped up to the next key frame instead of piling up as lag.
+fn feed(mut socket: UnixStream, src: &gst::Element, feed: &Feed) {
     let mut len = [0u8; 4];
+    let mut skipping = false;
     loop {
         if socket.read_exact(&mut len).is_err() {
             break;
@@ -839,13 +912,27 @@ fn feed(mut socket: UnixStream, src: &gst::Element, frames: &AtomicU64, ended: &
         if socket.read_exact(&mut data).is_err() {
             break;
         }
+        feed.bytes.fetch_add(n as u64 + 4, Ordering::Relaxed);
+        let key = is_key_frame(&data);
+        let backlog = src.property::<u64>("current-level-buffers");
+        if !skipping && backlog >= MAX_BACKLOG {
+            skipping = true;
+            feed.want_sync.store(true, Ordering::Relaxed);
+        }
+        if skipping {
+            if !key {
+                feed.dropped.fetch_add(1, Ordering::Relaxed);
+                continue;
+            }
+            skipping = false;
+        }
         let buffer = gst::Buffer::from_mut_slice(data);
         if src.emit_by_name::<gst::FlowReturn>("push-buffer", &[&buffer]) != gst::FlowReturn::Ok {
             break;
         }
-        frames.fetch_add(1, Ordering::Relaxed);
+        feed.frames.fetch_add(1, Ordering::Relaxed);
     }
-    ended.store(true, Ordering::Relaxed);
+    feed.ended.store(true, Ordering::Relaxed);
 }
 
 #[cfg(test)]
@@ -857,6 +944,18 @@ mod tests {
         assert_eq!(norm(50.0, 100.0, 100.0, 200.0), (0.5, 0.5));
         assert_eq!(norm(-5.0, 300.0, 100.0, 200.0), (0.0, 1.0));
         assert_eq!(norm(1.0, 1.0, 0.0, 0.0), (0.0, 0.0));
+    }
+
+    #[test]
+    fn finds_key_frames() {
+        let idr = [
+            0, 0, 0, 1, 0x67, 1, 2, 0, 0, 1, 0x68, 3, 0, 0, 1, 0x65, 9, 9,
+        ];
+        assert!(is_key_frame(&idr));
+        let p = [0, 0, 0, 1, 0x41, 9, 9, 9];
+        assert!(!is_key_frame(&p));
+        assert!(!is_key_frame(&[]));
+        assert!(!is_key_frame(&[0, 0, 1]));
     }
 
     #[test]

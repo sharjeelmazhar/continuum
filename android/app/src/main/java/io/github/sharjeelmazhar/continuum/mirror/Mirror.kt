@@ -57,7 +57,12 @@ object Mirror {
             }
             FeatureType.MIRROR_STOP -> if (this.link === link) stop(context)
             FeatureType.MIRROR_INPUT -> if (this.link === link && streaming) {
-                MirrorInput.parse(body)?.let { RemoteControl.instance?.perform(it) }
+                when (val input = MirrorInput.parse(body)) {
+                    null -> {}
+                    // Not an input: the computer asks for a key frame to recover from lost frames.
+                    MirrorInput.Key("sync") -> MirrorService.instance?.requestSync()
+                    else -> RemoteControl.instance?.perform(input)
+                }
             }
         }
     }

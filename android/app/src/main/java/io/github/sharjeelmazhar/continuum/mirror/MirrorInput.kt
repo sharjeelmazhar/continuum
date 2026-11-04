@@ -26,7 +26,7 @@ sealed interface MirrorInput {
         const val MAX_TEXT = 1000
         /** Android refuses longer gestures (GestureDescription.getMaxGestureDuration). */
         const val MAX_GESTURE_MS = 59_000L
-        val KEYS = setOf("back", "home", "recents", "notifications", "screenshot", "lock", "backspace", "delete", "enter", "paste")
+        val KEYS = setOf("back", "home", "recents", "notifications", "screenshot", "lock", "backspace", "delete", "enter", "paste", "sync")
 
         /** Null for anything malformed, out of range or unknown. */
         fun parse(body: JsonObject): MirrorInput? = runCatching {
@@ -155,4 +155,39 @@ object VideoSize {
 
     /** About 8 Mbit/s for a 1080p-class phone screen at 60 fps, scaled by pixel count. */
     fun bitrate(w: Int, h: Int): Int = (w.toLong() * h * 8_000_000L / (864L * 1920)).toInt().coerceIn(2_000_000, 16_000_000)
+}
+
+/**
+ * Adapts the bitrate to the Wi-Fi: when sending blocks for a large share of the time, the link
+ * can't keep up and frames would pile up (lag), so the bitrate drops; when the link is idle, it
+ * climbs back to [target]. Checked once per [WINDOW_NS].
+ */
+class RateControl(private val target: Int, private val floor: Int = 1_500_000) {
+    var bitrate = target
+        private set
+    private var windowStart = -1L
+    private var blocked = 0L
+
+    /** One frame took [blockedNs] to send, starting at [now]. Returns a new bitrate, or null. */
+    fun sent(blockedNs: Long, now: Long): Int? {
+        if (windowStart < 0) windowStart = now
+        blocked += blockedNs
+        val elapsed = now + blockedNs - windowStart
+        if (elapsed < WINDOW_NS) return null
+        val busy = blocked.toDouble() / elapsed
+        windowStart = now + blockedNs
+        blocked = 0
+        val next = when {
+            busy > 0.35 -> maxOf(floor, (bitrate * 0.7).toInt())
+            busy < 0.08 && bitrate < target -> minOf(target, (bitrate * 1.15).toInt())
+            else -> bitrate
+        }
+        if (next == bitrate) return null
+        bitrate = next
+        return next
+    }
+
+    companion object {
+        const val WINDOW_NS = 1_000_000_000L
+    }
 }
