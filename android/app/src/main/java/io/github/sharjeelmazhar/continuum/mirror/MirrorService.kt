@@ -260,6 +260,9 @@ class MirrorService : Service() {
         /** Using the software encoder (hardware one taken by another app); retried every so often. */
         @Volatile
         private var software = false
+        /** Hardware at a smaller size after the encoder was taken once. */
+        @Volatile
+        private var reduced = false
         private var softwareSince = 0L
 
         /** The computer lost frames (e.g. it fell behind): the next frame is a key frame. */
@@ -301,11 +304,14 @@ class MirrorService : Service() {
                         // on the same connection instead of ending, in software if no hardware
                         // one is free. Many failures in a row means it really is broken.
                         if (!crashes.add(System.nanoTime())) throw e
-                        if (!software) {
-                            software = true
-                            softwareSince = System.nanoTime()
+                        // First a smaller hardware encoder (the other app may leave room for
+                        // one), then software. Full size again after a while.
+                        when {
+                            !reduced -> reduced = true
+                            !software -> software = true
                         }
-                        Log.i(TAG, "mirror encoder lost ($e); restarting in ${if (software) "software" else "hardware"}")
+                        softwareSince = System.nanoTime()
+                        Log.i(TAG, "mirror encoder lost ($e); restarting ${if (software) "in software" else "smaller"}")
                         sleep(100)
                     }
                 }
@@ -327,7 +333,10 @@ class MirrorService : Service() {
         private fun encode(out: DataOutputStream) {
             val screen = screenSize()
             // After a while in software, try the hardware encoder again (the other app may be done).
-            if (software && System.nanoTime() - softwareSince > HARDWARE_RETRY_NS) software = false
+            if ((software || reduced) && System.nanoTime() - softwareSince > HARDWARE_RETRY_NS) {
+                software = false
+                reduced = false
+            }
             val codec = (if (software) softwareEncoder() else null) ?: MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
             var surface: Surface? = null
             try {
@@ -335,12 +344,17 @@ class MirrorService : Service() {
                 // as one (smaller picture, retry hardware later).
                 if (isSoftware(codec.codecInfo) && !software) {
                     software = true
+                    reduced = true
                     softwareSince = System.nanoTime()
                 }
                 val caps = codec.codecInfo.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).videoCapabilities
                 // Software encoders are slower: a smaller picture keeps the frame rate up.
-                val max = if (software) minOf(req.max, SOFTWARE_MAX) else req.max
-                val (w, h) = VideoSize.fit(screen.x, screen.y, max, maxOf(caps?.widthAlignment ?: 2, caps?.heightAlignment ?: 2)) { a, b -> caps?.isSizeSupported(a, b) ?: true }
+                val max = when {
+                    software -> minOf(req.max, SOFTWARE_MAX)
+                    reduced -> minOf(req.max, REDUCED_MAX)
+                    else -> req.max
+                }
+                val (w, h) = VideoSize.fit(screen.x, screen.y, max, maxOf(caps?.widthAlignment ?: 2, caps?.heightAlignment ?: 2)) { a, b -> caps?.let { c -> c.isSizeSupported(a, b) && runCatching { c.areSizeAndRateSupported(a, b, 60.0) }.getOrDefault(true) } ?: true }
                 configure(codec, w, h)
                 surface = codec.createInputSurface()
                 codec.start()
@@ -351,7 +365,7 @@ class MirrorService : Service() {
                 var frame = ByteArray(256 * 1024)
                 var checked = System.nanoTime()
                 var lastWrite = System.nanoTime()
-                val rate = RateControl(VideoSize.bitrate(w, h))
+                val rate = RateControl(VideoSize.bitrate(w, h, caps?.bitrateRange?.upper ?: Int.MAX_VALUE))
                 // `adb shell setprop log.tag.Continuum DEBUG` logs frames per second and time
                 // spent sending, to tell a slow encoder from a slow network.
                 val debug = Log.isLoggable(TAG, Log.DEBUG)
@@ -422,7 +436,7 @@ class MirrorService : Service() {
                     if (now - checked > 300_000_000L) {
                         checked = now
                         if (screenSize() != screen) break
-                        if (software && now - softwareSince > HARDWARE_RETRY_NS) break
+                        if ((software || reduced) && now - softwareSince > HARDWARE_RETRY_NS) break
                     }
                 }
             } finally {
@@ -448,7 +462,8 @@ class MirrorService : Service() {
         private fun configure(codec: MediaCodec, w: Int, h: Int) {
             fun format(lowLatency: Boolean) = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-                setInteger(MediaFormat.KEY_BIT_RATE, VideoSize.bitrate(w, h))
+                val caps = codec.codecInfo.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).videoCapabilities
+                setInteger(MediaFormat.KEY_BIT_RATE, VideoSize.bitrate(w, h, caps?.bitrateRange?.upper ?: Int.MAX_VALUE))
                 setInteger(MediaFormat.KEY_FRAME_RATE, 60)
                 setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 10)
                 // A still screen still sends frames, so the computer can tell we're alive.
@@ -477,8 +492,10 @@ class MirrorService : Service() {
         private const val ACTION_STOP = "stop"
         /** Software encoding is capped at this long side (pixels), to keep it smooth. */
         const val SOFTWARE_MAX = 1280
-        /** In software, try the hardware encoder again after this long. */
-        const val HARDWARE_RETRY_NS = 15_000_000_000L
+        /** Hardware encoder size while another app (e.g. a video player) shares the hardware. */
+        const val REDUCED_MAX = 1600
+        /** After falling back (smaller or software), try the full-size hardware encoder again after this long. */
+        const val HARDWARE_RETRY_NS = 30_000_000_000L
 
         /** How long a permission given from the Mirror tile waits for the computer. */
         const val EARLY_WAIT_MS = 30_000L

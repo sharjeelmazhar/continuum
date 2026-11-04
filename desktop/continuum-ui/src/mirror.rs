@@ -25,7 +25,7 @@ use crate::ctx::{Device, dbus_error};
 use crate::daemon::DaemonProxy;
 
 /// Longest side of the video the phone sends, in pixels.
-const MAX_SIDE: u32 = 1920;
+const MAX_SIDE: u32 = 2560;
 /// Largest access unit we accept from the socket (a key frame at high quality is ~1 MB).
 const MAX_FRAME: usize = 8 << 20;
 /// Corner radius as a share of the screen's width (close to modern phones).

@@ -172,8 +172,13 @@ object VideoSize {
         }
     }
 
-    /** About 8 Mbit/s for a 1080p-class phone screen at 60 fps, scaled by pixel count. */
-    fun bitrate(w: Int, h: Int): Int = (w.toLong() * h * 8_000_000L / (864L * 1920)).toInt().coerceIn(2_000_000, 16_000_000)
+    /**
+     * Plenty for sharp text and smooth video on a local network: about 0.2 bits per pixel at
+     * 60 fps (31 Mbit/s for a 1080x2400 screen), within 4-50 Mbit/s and what the encoder allows.
+     * [RateControl] backs off if the Wi-Fi can't keep up.
+     */
+    fun bitrate(w: Int, h: Int, encoderMax: Int = Int.MAX_VALUE): Int =
+        (w.toLong() * h * 60 / 5).toInt().coerceIn(4_000_000, 50_000_000).coerceAtMost(maxOf(encoderMax, 2_000_000))
 }
 
 /**

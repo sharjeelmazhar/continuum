@@ -121,8 +121,10 @@ class MirrorInputTest {
         // Encoder needing 16-pixel sides and at most 1280.
         val (a, b) = VideoSize.fit(1080, 2400, 1920, align = 16) { x, y -> maxOf(x, y) <= 1280 }
         assertTrue(maxOf(a, b) <= 1280 && a % 16 == 0 && b % 16 == 0)
-        assertEquals(8_000_000, VideoSize.bitrate(864, 1920))
-        assertEquals(2_000_000, VideoSize.bitrate(100, 100))
+        assertEquals(31_104_000, VideoSize.bitrate(1080, 2400)) // ~0.2 bits per pixel at 60 fps
+        assertEquals(4_000_000, VideoSize.bitrate(100, 100))
+        assertEquals(50_000_000, VideoSize.bitrate(1440, 3200))
+        assertEquals(20_000_000, VideoSize.bitrate(1080, 2400, encoderMax = 20_000_000))
     }
 }
 
