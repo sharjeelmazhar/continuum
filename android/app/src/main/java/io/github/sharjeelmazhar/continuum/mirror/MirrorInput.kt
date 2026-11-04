@@ -108,6 +108,13 @@ object TextEdit {
      * their text, and some apps (WhatsApp) don't flag it, so text equal to the hint with the
      * cursor at the start (or unknown) counts as empty.
      */
+    /**
+     * A field showing text with the cursor at its very start (0, or 1 after an invisible
+     * marker character) may really be empty and showing its hint: worth checking.
+     */
+    fun mightBeHint(length: Int, selectionStart: Int, selectionEnd: Int): Boolean =
+        length > 1 && selectionStart in -1..1 && selectionEnd in -1..1
+
     fun contents(text: String?, hint: String?, showingHint: Boolean, selectionStart: Int): String {
         val t = text.orEmpty()
         if (showingHint) return ""

@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -100,6 +101,12 @@ class MirrorInputTest {
         // Real text that happens to match the hint, cursor after it: kept.
         assertEquals("Message", TextEdit.contents("Message", "Message", false, 7))
         assertEquals("hello", TextEdit.contents("hello", "Message", false, 0))
+        // WhatsApp: hint reported as text, no hint flag, cursor after an invisible marker.
+        assertTrue(TextEdit.mightBeHint(21, 1, 1))
+        assertTrue(TextEdit.mightBeHint(21, 0, 0))
+        // A cursor further in, or a one-letter field, is ordinary text.
+        assertFalse(TextEdit.mightBeHint(21, 5, 5))
+        assertFalse(TextEdit.mightBeHint(1, 1, 1))
     }
 
     @Test

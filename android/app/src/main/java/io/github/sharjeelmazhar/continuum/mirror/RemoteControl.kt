@@ -192,6 +192,28 @@ class RemoteControl : AccessibilityService() {
         if (node.isMultiLine) edit { text, s, e -> TextEdit.insert(text, s, e, "\n") }
     }
 
+    /**
+     * Whether [node] really holds [length] characters: some apps (WhatsApp) report their grey
+     * hint as the field's text without saying so. Android refuses to put the cursor past the
+     * real text, so moving it to the end tells them apart. The cursor is put back after.
+     */
+    private fun reallyHolds(node: AccessibilityNodeInfo, length: Int): Boolean {
+        val start = node.textSelectionStart
+        val end = node.textSelectionEnd
+        fun select(a: Int, b: Int) = node.performAction(
+            AccessibilityNodeInfo.ACTION_SET_SELECTION,
+            Bundle().apply {
+                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, a)
+                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, b)
+            },
+        )
+        if (!select(length, length)) return false
+        node.refresh()
+        val real = node.textSelectionStart == length
+        if (real && start >= 0) select(start, end)
+        return real
+    }
+
     /** Applies a keyboard-like edit to the focused text field. */
     private fun edit(change: (text: String, start: Int, end: Int) -> TextEdit.Result) {
         val node = focused() ?: return
@@ -204,7 +226,10 @@ class RemoteControl : AccessibilityService() {
             }
             change(secret, secret.length, secret.length).also { secret = it.text }
         } else {
-            val text = TextEdit.contents(node.text?.toString(), node.hintText?.toString(), node.isShowingHintText, node.textSelectionStart)
+            var text = TextEdit.contents(node.text?.toString(), node.hintText?.toString(), node.isShowingHintText, node.textSelectionStart)
+            if (TextEdit.mightBeHint(text.length, node.textSelectionStart, node.textSelectionEnd) && !reallyHolds(node, text.length)) {
+                text = ""
+            }
             change(text, node.textSelectionStart, node.textSelectionEnd)
         }
         val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, result.text) }

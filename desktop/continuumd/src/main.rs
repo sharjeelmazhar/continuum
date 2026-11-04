@@ -195,15 +195,7 @@ async fn run(args: Args) -> Result<(), String> {
         None
     };
 
-    let listener = match TcpListener::bind(("0.0.0.0", args.port)).await {
-        Ok(l) => l,
-        Err(e) => {
-            warn!("port {} unavailable ({e}); using a free port", args.port);
-            TcpListener::bind(("0.0.0.0", 0))
-                .await
-                .map_err(|e| e.to_string())?
-        }
-    };
+    let listener = bind_preferred(args.port).await?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     daemon.port.store(port, Ordering::Relaxed);
     info!(
@@ -238,5 +230,53 @@ async fn run(args: Args) -> Result<(), String> {
         res = server::serve(daemon, listener) => res.map_err(|e| format!("server stopped: {e}")),
         _ = tokio::signal::ctrl_c() => Ok(()),
         _ = term.recv() => Ok(()),
+    }
+}
+
+/// Listens on `port`, waiting for it if something holds it for a moment (at login another
+/// program can briefly have it). Paired phones remember this port, so a random one is the last
+/// resort: they then have to find the computer again over mDNS, which some phones block.
+async fn bind_preferred(port: u16) -> Result<TcpListener, String> {
+    const TRIES: u32 = 30;
+    let mut last = None;
+    for attempt in 0..TRIES {
+        match TcpListener::bind(("0.0.0.0", port)).await {
+            Ok(l) => return Ok(l),
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && port != 0 => {
+                if attempt == 0 {
+                    warn!("port {port} in use; waiting for it");
+                }
+                last = Some(e);
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+            Err(e) => {
+                last = Some(e);
+                break;
+            }
+        }
+    }
+    warn!(
+        "port {port} unavailable ({}); using a free port",
+        last.map(|e| e.to_string()).unwrap_or_default()
+    );
+    TcpListener::bind(("0.0.0.0", 0))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn waits_for_its_port_to_free_up() {
+        let holder = std::net::TcpListener::bind(("0.0.0.0", 0)).unwrap();
+        let port = holder.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            drop(holder);
+        });
+        let l = bind_preferred(port).await.unwrap();
+        assert_eq!(l.local_addr().unwrap().port(), port);
     }
 }
