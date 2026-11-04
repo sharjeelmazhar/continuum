@@ -176,8 +176,9 @@ keyboard. Needs no developer options or USB debugging.
    `mirror.state { "state": "consent" }`.
 2. The phone opens a **data connection** with `data.hello { "token" }`, then sends frames: a
    4-byte big-endian length, then one H.264 access unit (Annex B; key frames start with
-   SPS/PPS). Frames are at most 8 MiB; a still screen repeats a frame every 100 ms, so 15 s of
-   silence means the phone is gone. Rotating the phone starts a new stream configuration (new
+   SPS/PPS). Frames are at most 8 MiB. A length of 0 is a heartbeat (no frame): the phone sends
+   one after 1 s without frames (some encoders send nothing while the screen is still), so 15 s
+   of silence means the phone is gone. Rotating the phone starts a new stream configuration (new
    SPS) at the new size, always with the screen's exact shape.
 3. Desktop → `mirror.input` (only acted on while a stream is live, and only when the user turned
    on the phone's "Continuum remote control" accessibility service). Positions are fractions

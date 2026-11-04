@@ -218,6 +218,8 @@
     <string name="remote_control_label">Continuum remote control</string>
     <string name="remote_control_summary">Use this phone from your computer while its screen is mirrored there</string>
     <string name="remote_control_description">Lets your paired computer tap, swipe, scroll and type on this phone, but only while you are mirroring its screen to it (you tap “Start now” on the phone first, and Android shows that it’s being shared). Continuum reads the text field you type into, nothing else, and sends nothing from this service anywhere.</string>
+    <string name="mirror_popups">Start mirroring without a tap</string>
+    <string name="mirror_popups_summary">Xiaomi phones: allow “Open new windows while running in the background” (on some versions “Display pop-up windows…”), so the phone asks to share its screen by itself</string>
     <string name="settings_mirroring">Screen mirroring</string>
     <string name="settings_remote_control">Control from the computer</string>
     <string name="settings_remote_control_on">On: the computer’s mouse and keyboard work while mirroring</string>
@@ -228,10 +230,12 @@
     <string name="remote_control_restricted">Switch greyed out? Android does this for apps not from the Play Store. Tap App info › ⋮ (top right) › “Allow restricted settings”, then try again.</string>
     <!-- Banking mode (dev/) -->
     <string name="banking_title">Banking mode</string>
-    <string name="banking_on">On: developer options and USB debugging are off, so banking apps open</string>
+    <string name="banking_on">On: developer options, USB debugging and Continuum’s helpers are off, so banking apps open</string>
     <string name="banking_off">Off: developer options are on (banking apps may refuse to open)</string>
     <string name="banking_setup_summary">One tap to switch developer options and USB debugging off for banking apps, and back on</string>
     <string name="banking_hint">Tip: add the Banking mode tile to Quick Settings (pull down twice › edit ✎). If a banking app was already open, close and reopen it.</string>
+    <string name="banking_add_tile">Add to Quick Settings</string>
+    <string name="banking_add_tile_summary">Switch banking mode from the notification shade with one tap</string>
     <string name="banking_open_dev">Open developer options</string>
     <string name="banking_open_dev_summary">Switch them off by hand</string>
     <string name="banking_setup_title">Set up banking mode</string>
@@ -242,8 +246,8 @@
 On Xiaomi phones, also turn on “USB debugging (Security settings)” in developer options before step 2.</string>
     <string name="banking_copy_command">Copy command</string>
     <string name="banking_copied">Command copied</string>
-    <string name="banking_on_toast">Banking mode on: developer options are off. Reopen your banking app.</string>
-    <string name="banking_off_toast">Banking mode off: developer options and USB debugging are back on.</string>
+    <string name="banking_on_toast">Banking mode on: developer options, USB debugging and Continuum’s helpers are off. Reopen your banking app.</string>
+    <string name="banking_off_toast">Banking mode off: developer options, USB debugging and Continuum’s helpers are back on.</string>
     <string name="banking_tile_on">Debugging off</string>
     <string name="banking_tile_off">Debugging on</string>
     <string name="banking_tile_setup">Tap to set up</string>

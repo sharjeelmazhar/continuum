@@ -32,10 +32,14 @@ const MAX_FRAME: usize = 8 << 20;
 const CORNER: f64 = 0.115;
 /// The bar appears only when the pointer is above the phone (never over its status bar).
 const TOP_ZONE: f64 = 0.0;
-/// No room around the screen: the window is just the phone (and the bar above it).
-const MARGIN_SIDE: i32 = 0;
+/// Smallest the phone gets on screen, in pixels.
+const MIN_HEIGHT: i32 = 320;
+/// An invisible border around the phone (not above it: that's the bar) where you drag to
+/// resize, like a window edge.
+const MARGIN_SIDE: i32 = GRIP;
 const MARGIN_TOP: i32 = 0;
-const MARGIN_BOTTOM: i32 = 0;
+const MARGIN_BOTTOM: i32 = GRIP;
+const GRIP: i32 = 8;
 /// Decoders to try, best first. Software decoding is the most reliable with the GTK sink.
 const DECODERS: &[&str] = &["avdec_h264", "openh264dec", "vah264dec", "nvh264dec"];
 
@@ -112,6 +116,8 @@ struct Mirror {
     /// Phone screen size in pixels (from the video), and how tall we show it.
     phone: Cell<(i32, i32)>,
     height: Cell<i32>,
+    /// Never taller than this (95% of the screen): it must not cover the whole screen.
+    max_height: i32,
     pipeline: RefCell<Option<gst::Pipeline>>,
     socket: RefCell<Option<UnixStream>>,
     _bus: RefCell<Option<gst::bus::BusWatchGuard>>,
@@ -151,6 +157,7 @@ impl Mirror {
                 .build()
         };
         let close = button("window-close-symbolic", "Close (Ctrl+W)");
+        close.add_css_class("mirror-close");
         let back = button("go-previous-symbolic", "Back (Esc or right-click)");
         let home = button("go-home-symbolic", "Home (Ctrl+1)");
         let recents = button("view-grid-symbolic", "Recent apps (Ctrl+2)");
@@ -239,7 +246,21 @@ impl Mirror {
             .build();
         root.append(&handle);
         root.append(&screen);
-        window.set_child(Some(&root));
+        // Resize grips over the invisible border: edges and corners.
+        let stage = gtk::Overlay::builder().child(&root).build();
+        let mut grips = Vec::new();
+        for edge in [
+            Edge::Left,
+            Edge::Right,
+            Edge::Bottom,
+            Edge::BottomLeft,
+            Edge::BottomRight,
+        ] {
+            let g = edge.widget();
+            stage.add_overlay(&g);
+            grips.push((edge, g));
+        }
+        window.set_child(Some(&stage));
 
         let css = gtk::CssProvider::new();
         if let Some(display) = gtk::gdk::Display::default() {
@@ -249,7 +270,7 @@ impl Mirror {
                 gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
             );
         }
-        let monitor_h = gtk::gdk::Display::default()
+        let monitor_h: i32 = gtk::gdk::Display::default()
             .and_then(|d| d.monitors().item(0))
             .and_downcast::<gtk::gdk::Monitor>()
             .map_or(1000, |m| m.geometry().height());
@@ -266,6 +287,7 @@ impl Mirror {
             hint,
             css,
             css_name,
+            max_height: ((monitor_h as f64 * 0.95) as i32).max(400),
             phone: Cell::new((1080, 2400)),
             height: Cell::new(((monitor_h as f64 * 0.74) as i32).clamp(420, 1100)),
             pipeline: RefCell::new(None),
@@ -285,6 +307,26 @@ impl Mirror {
             live: Cell::new(false),
         });
         m.resize();
+        for (edge, g) in grips {
+            m.connect_grip(edge, &g);
+        }
+        // Maximised or fullscreen would stretch the phone: undo it at once.
+        {
+            let w = Rc::downgrade(&m);
+            m.window.connect_maximized_notify(move |win| {
+                if win.is_maximized() {
+                    win.unmaximize();
+                    if let Some(m) = w.upgrade() {
+                        m.resize();
+                    }
+                }
+            });
+            m.window.connect_fullscreened_notify(|win| {
+                if win.is_fullscreen() {
+                    win.unfullscreen();
+                }
+            });
+        }
 
         let key = |m: &Rc<Self>, k: &'static str| {
             let w = Rc::downgrade(m);
@@ -349,8 +391,43 @@ impl Mirror {
         } else {
             (self.height.get() as f64 * by).round() as i32
         };
-        self.height.set(h.clamp(320, 2400));
+        self.height.set(h.clamp(MIN_HEIGHT, self.max_height));
         self.resize();
+    }
+
+    /// Dragging a grip scales the phone (its shape never changes).
+    fn connect_grip(self: &Rc<Self>, edge: Edge, grip: &gtk::Box) {
+        let drag = gtk::GestureDrag::new();
+        let start = Rc::new(Cell::new(0));
+        {
+            let start = start.clone();
+            let w = Rc::downgrade(self);
+            drag.connect_drag_begin(move |_, _, _| {
+                if let Some(m) = w.upgrade() {
+                    start.set(m.height.get());
+                }
+            });
+        }
+        let w = Rc::downgrade(self);
+        drag.connect_drag_update(move |_, dx, dy| {
+            let Some(m) = w.upgrade() else { return };
+            let (pw, ph) = m.phone.get();
+            let per_x = ph.max(1) as f64 / pw.max(1) as f64; // height per pixel of width
+            let grow = match edge {
+                Edge::Right => dx * per_x,
+                Edge::Left => -dx * per_x,
+                Edge::Bottom => dy,
+                Edge::BottomRight => (dx * per_x).max(dy),
+                Edge::BottomLeft => (-dx * per_x).max(dy),
+            };
+            let h = (start.get() as f64 + grow).round() as i32;
+            let h = h.clamp(MIN_HEIGHT, m.max_height);
+            if h != m.height.get() {
+                m.height.set(h);
+                m.resize();
+            }
+        });
+        grip.add_controller(drag);
     }
 
     fn show_status(&self, text: Option<&str>, busy: bool) {
@@ -808,6 +885,24 @@ impl Mirror {
                 m.send(json!({ "t": "key", "k": "sync" }));
             }
             if debug && last.0.elapsed() >= Duration::from_secs(2) {
+                // Development aid: the phone's latest frame as a picture, even when the window
+                // is hidden (CONTINUUM_SNAPSHOT=/x.png writes /x.phone.png).
+                if let Some(path) = std::env::var_os("CONTINUUM_SNAPSHOT")
+                    && let Some(p) = m.picture.paintable()
+                {
+                    let (w, h) = (p.intrinsic_width().max(1), p.intrinsic_height().max(1));
+                    let snap = gtk::Snapshot::new();
+                    p.snapshot(&snap, w as f64, h as f64);
+                    let renderer = gtk::gsk::CairoRenderer::new();
+                    if let (Some(node), Ok(())) = (snap.to_node(), renderer.realize(None)) {
+                        let path = std::path::PathBuf::from(path).with_extension("phone.png");
+                        let tmp = path.with_extension("part");
+                        if renderer.render_texture(&node, None).save_to_png(&tmp).is_ok() {
+                            let _ = std::fs::rename(&tmp, &path);
+                        }
+                        renderer.unrealize();
+                    }
+                }
                 let (frames, bytes, shown_now) = (
                     stats.frames.load(Ordering::Relaxed),
                     stats.bytes.load(Ordering::Relaxed),
@@ -913,7 +1008,11 @@ fn feed(mut socket: UnixStream, src: &gst::Element, feed: &Feed) {
             break;
         }
         let n = u32::from_be_bytes(len) as usize;
-        if n == 0 || n > MAX_FRAME {
+        // A zero-length frame is the phone saying it's still there (its screen is still).
+        if n == 0 {
+            continue;
+        }
+        if n > MAX_FRAME {
             tracing_log(&format!("bad frame length {n}"));
             break;
         }
@@ -982,5 +1081,41 @@ mod tests {
             assert!(state_text(s, "Pixel 8").is_some());
         }
         assert!(state_text("started", "Pixel 8").is_none());
+    }
+}
+
+/// Where a resize grip sits.
+#[derive(Clone, Copy)]
+enum Edge {
+    Left,
+    Right,
+    Bottom,
+    BottomLeft,
+    BottomRight,
+}
+
+impl Edge {
+    fn widget(self) -> gtk::Box {
+        let (h, v, cursor) = match self {
+            Edge::Left => (gtk::Align::Start, gtk::Align::Fill, "ew-resize"),
+            Edge::Right => (gtk::Align::End, gtk::Align::Fill, "ew-resize"),
+            Edge::Bottom => (gtk::Align::Fill, gtk::Align::End, "ns-resize"),
+            Edge::BottomLeft => (gtk::Align::Start, gtk::Align::End, "nesw-resize"),
+            Edge::BottomRight => (gtk::Align::End, gtk::Align::End, "nwse-resize"),
+        };
+        let corner = matches!(self, Edge::BottomLeft | Edge::BottomRight);
+        let size = if corner { GRIP * 3 } else { GRIP };
+        let b = gtk::Box::builder().halign(h).valign(v).build();
+        match self {
+            Edge::Left | Edge::Right => b.set_size_request(GRIP, -1),
+            Edge::Bottom => b.set_size_request(-1, GRIP),
+            _ => b.set_size_request(size, size),
+        }
+        // Edges stop below the bar, so it stays easy to grab.
+        if !corner && matches!(self, Edge::Left | Edge::Right) {
+            b.set_margin_top(48);
+        }
+        b.set_cursor_from_name(Some(cursor));
+        b
     }
 }

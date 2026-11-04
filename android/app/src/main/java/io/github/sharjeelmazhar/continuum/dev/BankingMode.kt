@@ -10,9 +10,9 @@ import android.util.Log
 
 /**
  * Banking mode: many banking and wallet apps refuse to open while Developer options or USB
- * debugging are on. One switch turns Developer options, USB debugging and wireless debugging
- * off, and turning it off again restores exactly what was on before. Continuum's accessibility
- * helpers stay on, so the computer can still use the phone (and switch banking mode back). Needs WRITE_SECURE_SETTINGS, granted once from a computer
+ * debugging are on, and many (UBL, for one) also refuse while any accessibility service from
+ * outside the system runs. One switch turns Developer options, USB and wireless debugging and
+ * Continuum's own accessibility helpers off; turning it off restores exactly what was on before. Needs WRITE_SECURE_SETTINGS, granted once from a computer
  * (`adb shell pm grant <package> android.permission.WRITE_SECURE_SETTINGS`); the grant stays
  * after debugging is switched off and across reboots.
  */
@@ -42,8 +42,10 @@ object BankingMode {
         return runCatching {
             if (on) {
                 // Remember what was on, then switch it all off (wireless first, then USB, then the menu).
+                val helpers = ourServices(context).filter { it in enabledServices(context) }
                 prefs.edit()
                     .putBoolean("on", true)
+                    .putStringSet("helpers", helpers.toSet())
                     .putInt("dev", global(context, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED))
                     .putInt("adb", global(context, Settings.Global.ADB_ENABLED))
                     .putInt("wifi", global(context, ADB_WIFI))
@@ -51,6 +53,7 @@ object BankingMode {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) Settings.Global.putInt(cr, ADB_WIFI, 0)
                 Settings.Global.putInt(cr, Settings.Global.ADB_ENABLED, 0)
                 Settings.Global.putInt(cr, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0)
+                if (helpers.isNotEmpty()) setServices(context, enabledServices(context) - helpers.toSet())
             } else {
                 // Nothing saved, or nothing was on (e.g. switched off in Android settings): turn
                 // the usual ones on, since that's what turning banking mode off asks for.
@@ -62,7 +65,9 @@ object BankingMode {
                 Settings.Global.putInt(cr, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, maxOf(dev, if (adb != 0 || wifi != 0) 1 else 0))
                 Settings.Global.putInt(cr, Settings.Global.ADB_ENABLED, adb)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && wifi != 0) Settings.Global.putInt(cr, ADB_WIFI, wifi)
-                prefs.edit().putBoolean("on", false).apply()
+                val helpers = prefs.getStringSet("helpers", emptySet()).orEmpty()
+                if (helpers.isNotEmpty()) setServices(context, enabledServices(context) + helpers)
+                prefs.edit().putBoolean("on", false).putStringSet("helpers", emptySet()).apply()
             }
             true
         }.getOrElse {
@@ -71,10 +76,39 @@ object BankingMode {
         }
     }
 
+    /** Asks Android to put the Banking mode tile in Quick Settings (Android 13+). */
+    fun addTile(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val sb = context.getSystemService(android.app.StatusBarManager::class.java) ?: return
+        val icon = android.graphics.drawable.Icon.createWithResource(context, io.github.sharjeelmazhar.continuum.R.drawable.ic_stat_continuum)
+        runCatching {
+            sb.requestAddTileService(
+                android.content.ComponentName(context, BankingModeTile::class.java),
+                context.getString(io.github.sharjeelmazhar.continuum.R.string.banking_title),
+                icon,
+                context.mainExecutor,
+            ) { result -> Log.i(TAG, "add tile: $result") }
+        }.onFailure { Log.i(TAG, "add tile failed: $it") }
+    }
+
     fun openDeveloperOptions(context: Context) {
         val dev = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         runCatching { context.startActivity(dev) }.onFailure {
             context.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
+    }
+
+    private fun ourServices(context: Context) =
+        listOf(io.github.sharjeelmazhar.continuum.clip.CopyWatcher::class.java, io.github.sharjeelmazhar.continuum.mirror.RemoteControl::class.java)
+            .map { android.content.ComponentName(context, it).flattenToString() }
+
+    private fun enabledServices(context: Context): Set<String> =
+        Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+            .orEmpty().split(':').filter { it.isNotBlank() }.toSet()
+
+    private fun setServices(context: Context, services: Set<String>) {
+        val cr = context.contentResolver
+        Settings.Secure.putString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, services.joinToString(":"))
+        Settings.Secure.putInt(cr, Settings.Secure.ACCESSIBILITY_ENABLED, if (services.isEmpty()) 0 else 1)
     }
 }

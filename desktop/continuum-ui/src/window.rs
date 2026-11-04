@@ -451,7 +451,7 @@ pub fn dev_snapshots(window: &impl IsA<gtk::Window>, suffix: &str) {
     });
 }
 
-fn load_css() {
+pub fn load_css() {
     crate::textsize::apply(&crate::textsize::saved());
     let css = gtk::CssProvider::new();
     css.load_from_string(include_str!("style.css"));

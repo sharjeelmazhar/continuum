@@ -193,8 +193,11 @@ class MirrorService : Service() {
             display = p.createVirtualDisplay("Continuum", w, h, dpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, surface, null, handler)
                 ?: return false
         } else {
-            d.resize(w, h, dpi)
             d.surface = surface
+            // On a still screen some phones (e.g. Qualcomm) send no frame at all until something
+            // changes: a brief 2-pixel resize makes Android draw one now.
+            d.resize(w, h - 2, dpi)
+            handler.postDelayed({ runCatching { if (display === d && d.surface === surface) d.resize(w, h, dpi) } }, 60)
         }
         return true
     }
@@ -262,6 +265,7 @@ class MirrorService : Service() {
                 var config = ByteArray(0)
                 var frame = ByteArray(256 * 1024)
                 var checked = System.nanoTime()
+                var lastWrite = System.nanoTime()
                 val rate = RateControl(VideoSize.bitrate(w, h))
                 // `adb shell setprop log.tag.Continuum DEBUG` logs frames per second and time
                 // spent sending, to tell a slow encoder from a slow network.
@@ -274,6 +278,13 @@ class MirrorService : Service() {
                     if (sync) {
                         sync = false
                         runCatching { codec.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) }) }
+                    }
+                    // Some encoders (e.g. Qualcomm) send nothing while the screen is still: a
+                    // zero-length frame each second tells the computer we're still here.
+                    if (System.nanoTime() - lastWrite > HEARTBEAT_NS) {
+                        out.writeInt(0)
+                        out.flush()
+                        lastWrite = System.nanoTime()
                     }
                     val i = codec.dequeueOutputBuffer(info, 100_000)
                     if (i >= 0) {
@@ -301,6 +312,7 @@ class MirrorService : Service() {
                             out.write(prefix)
                             out.write(frame, 0, size)
                             out.flush()
+                            lastWrite = System.nanoTime()
                             if (debug) {
                                 statFrames++
                                 statSendNs += System.nanoTime() - t0
@@ -364,6 +376,7 @@ class MirrorService : Service() {
         private const val ACTION_STOP = "stop"
         private val EMPTY = ByteArray(0)
         private const val SEND_BUFFER = 128 * 1024
+        private const val HEARTBEAT_NS = 1_000_000_000L
 
         /** How long the permission is kept after the computer stops. */
         const val KEEP_MS = 5 * 60_000L

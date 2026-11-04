@@ -103,11 +103,17 @@ object Mirror {
         this.link = null
     }
 
+    /** Network writes may not happen on the main thread, where many callers are. */
+    private val sender = java.util.concurrent.Executors.newSingleThreadExecutor()
+
     fun state(state: String) {
         val l = link ?: return
-        runCatching {
-            l.send(Envelope.of(FeatureType.MIRROR_STATE, MirrorState.serializer(), MirrorState(state, RemoteControl.instance != null)))
-        }.onFailure { Log.i(TAG, "mirror.state not sent: $it") }
+        val control = RemoteControl.instance != null
+        sender.execute {
+            runCatching {
+                l.send(Envelope.of(FeatureType.MIRROR_STATE, MirrorState.serializer(), MirrorState(state, control)))
+            }.onFailure { Log.i(TAG, "mirror.state not sent: $it") }
+        }
     }
 
     /** The remote-control service was turned on or off: tell a running stream's computer. */

@@ -59,6 +59,7 @@ fn mirror_app(device: Option<String>) -> glib::ExitCode {
             w.present();
             return;
         }
+        window::load_css();
         let hold = app.hold();
         let (app, device) = (app.clone(), device.clone());
         glib::spawn_future_local(async move {

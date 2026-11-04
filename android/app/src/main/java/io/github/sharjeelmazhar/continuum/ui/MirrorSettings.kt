@@ -12,8 +12,10 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountBalance
+import androidx.compose.material.icons.outlined.AddBox
 import androidx.compose.material.icons.outlined.DeveloperMode
 import androidx.compose.material.icons.outlined.Mouse
+import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +52,15 @@ fun MirroringGroup(resumeTick: Int) {
             icon = Icons.Outlined.Mouse,
             onClick = { steps = true },
         )
+        // Xiaomi blocks the "Start now" prompt from opening by itself until this is allowed.
+        if (isXiaomi()) {
+            SettingsRow(
+                stringResource(R.string.mirror_popups),
+                summary = stringResource(R.string.mirror_popups_summary),
+                icon = Icons.Outlined.OpenInNew,
+                onClick = { openXiaomiPermissions(context) },
+            )
+        }
     }
     GroupFootnote(stringResource(R.string.settings_mirroring_hint))
     if (steps) {
@@ -103,6 +114,14 @@ fun BankingGroup(resumeTick: Int) {
                 icon = Icons.Outlined.AccountBalance,
                 onClick = { toggle() },
             ) { Switch(checked = on, onCheckedChange = { toggle() }) }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                SettingsRow(
+                    stringResource(R.string.banking_add_tile),
+                    summary = stringResource(R.string.banking_add_tile_summary),
+                    icon = Icons.Outlined.AddBox,
+                    onClick = { BankingMode.addTile(context) },
+                )
+            }
         } else {
             SettingsRow(
                 stringResource(R.string.banking_title),
@@ -141,4 +160,15 @@ fun BankingGroup(resumeTick: Int) {
             dismissButton = { TextButton(onClick = { setup = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
+}
+
+private fun isXiaomi() = Build.MANUFACTURER.lowercase() in setOf("xiaomi", "redmi", "poco")
+
+/** MIUI/HyperOS "Other permissions" page for this app, or App info if it isn't there. */
+private fun openXiaomiPermissions(context: android.content.Context) {
+    val miui = android.content.Intent("miui.intent.action.APP_PERM_EDITOR")
+        .setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")
+        .putExtra("extra_pkgname", context.packageName)
+        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(miui) }.onFailure { openAppDetails(context) }
 }
