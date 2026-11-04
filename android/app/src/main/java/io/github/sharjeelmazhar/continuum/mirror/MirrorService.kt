@@ -64,11 +64,37 @@ class MirrorService : Service() {
         if (streamer == null) idle()
     }
 
+    /**
+     * Wi-Fi power saving batches packets (frames then arrive in bursts, late): off while
+     * mirroring.
+     */
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
+
+    @Suppress("DEPRECATION")
+    private fun fastWifi(on: Boolean) {
+        if (!on) {
+            runCatching { wifiLock?.release() }
+            wifiLock = null
+            return
+        }
+        if (wifiLock?.isHeld == true) return
+        val wm = applicationContext.getSystemService(android.net.wifi.WifiManager::class.java) ?: return
+        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Low-latency mode needs the app in front; high-performance also works in the background.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            else android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+        } else {
+            android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+        }
+        wifiLock = runCatching { wm.createWifiLock(mode, "Continuum:mirror").apply { setReferenceCounted(false); acquire() } }.getOrNull()
+    }
+
     /** Keeps the phone's screen on (dimmed) while it's mirrored, or the picture would go dark. */
     private var awake: android.os.PowerManager.WakeLock? = null
 
     @Suppress("DEPRECATION")
     private fun keepAwake(on: Boolean) {
+        fastWifi(on)
         if (on) {
             if (awake?.isHeld == true) return
             awake = getSystemService(android.os.PowerManager::class.java)
@@ -231,6 +257,11 @@ class MirrorService : Service() {
         @Volatile
         private var socket: Socket? = null
 
+        /** Using the software encoder (hardware one taken by another app); retried every so often. */
+        @Volatile
+        private var software = false
+        private var softwareSince = 0L
+
         /** The computer lost frames (e.g. it fell behind): the next frame is a key frame. */
         @Volatile
         var sync = false
@@ -241,6 +272,8 @@ class MirrorService : Service() {
         }
 
         override fun run() {
+            // Encoding and sending are on the critical path of every frame.
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
             try {
                 val s = link.open()
                 socket = s
@@ -255,7 +288,27 @@ class MirrorService : Service() {
                 Mirror.streaming = true
                 Mirror.state("started")
                 Log.i(TAG, "mirroring to ${link.computer}")
-                while (running) encode(out)
+                val crashes = CrashWindow()
+                while (running) {
+                    try {
+                        encode(out)
+                    } catch (e: java.io.IOException) {
+                        throw e // the connection: mirroring is over
+                    } catch (e: Exception) {
+                        if (!running) break
+                        // Android takes hardware encoders back from background apps when the app
+                        // on screen needs one (e.g. YouTube playing a video): build a new encoder
+                        // on the same connection instead of ending, in software if no hardware
+                        // one is free. Many failures in a row means it really is broken.
+                        if (!crashes.add(System.nanoTime())) throw e
+                        if (!software) {
+                            software = true
+                            softwareSince = System.nanoTime()
+                        }
+                        Log.i(TAG, "mirror encoder lost ($e); restarting in ${if (software) "software" else "hardware"}")
+                        sleep(100)
+                    }
+                }
             } catch (e: Exception) {
                 if (running) Log.i(TAG, "mirroring ended: $e")
             } finally {
@@ -273,11 +326,15 @@ class MirrorService : Service() {
         /** Encodes at the current screen size until the phone rotates or mirroring stops. */
         private fun encode(out: DataOutputStream) {
             val screen = screenSize()
-            val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+            // After a while in software, try the hardware encoder again (the other app may be done).
+            if (software && System.nanoTime() - softwareSince > HARDWARE_RETRY_NS) software = false
+            val codec = (if (software) softwareEncoder() else null) ?: MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
             var surface: Surface? = null
             try {
                 val caps = codec.codecInfo.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).videoCapabilities
-                val (w, h) = VideoSize.fit(screen.x, screen.y, req.max, maxOf(caps?.widthAlignment ?: 2, caps?.heightAlignment ?: 2)) { a, b -> caps?.isSizeSupported(a, b) ?: true }
+                // Software encoders are slower: a smaller picture keeps the frame rate up.
+                val max = if (software) minOf(req.max, SOFTWARE_MAX) else req.max
+                val (w, h) = VideoSize.fit(screen.x, screen.y, max, maxOf(caps?.widthAlignment ?: 2, caps?.heightAlignment ?: 2)) { a, b -> caps?.isSizeSupported(a, b) ?: true }
                 configure(codec, w, h)
                 surface = codec.createInputSurface()
                 codec.start()
@@ -353,11 +410,13 @@ class MirrorService : Service() {
                             }
                         }
                     }
-                    // Rotation changes the screen's size: start again with the new shape.
+                    // Rotation changes the screen's size: start again with the new shape. In
+                    // software, also go back to hardware now and then.
                     val now = System.nanoTime()
                     if (now - checked > 300_000_000L) {
                         checked = now
                         if (screenSize() != screen) break
+                        if (software && now - softwareSince > HARDWARE_RETRY_NS) break
                     }
                 }
             } finally {
@@ -368,6 +427,15 @@ class MirrorService : Service() {
                 surface?.release()
             }
         }
+
+        /** The phone's built-in software H.264 encoder (needs no hardware), or null. */
+        private fun softwareEncoder(): MediaCodec? = runCatching {
+            val info = android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos.firstOrNull { c ->
+                c.isEncoder && MediaFormat.MIMETYPE_VIDEO_AVC in c.supportedTypes.map { it.lowercase() } &&
+                    (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) c.isSoftwareOnly else c.name.startsWith("OMX.google.") || c.name.startsWith("c2.android."))
+            } ?: return@runCatching null
+            MediaCodec.createByCodecName(info.name)
+        }.getOrNull()
 
         private fun configure(codec: MediaCodec, w: Int, h: Int) {
             fun format(lowLatency: Boolean) = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h).apply {
@@ -381,6 +449,8 @@ class MirrorService : Service() {
                 // No B-frames: every frame can be shown the moment it's decoded.
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
                 if (lowLatency && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+                // Qualcomm encoders ignore KEY_LOW_LATENCY but honour their own key (others ignore it).
+                if (lowLatency) setInteger("vendor.qti-ext-enc-low-latency.enable", 1)
             }
             try {
                 codec.configure(format(true), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
@@ -397,6 +467,11 @@ class MirrorService : Service() {
         private const val EXTRA_CODE = "code"
         private const val EXTRA_DATA = "data"
         private const val ACTION_STOP = "stop"
+        /** Software encoding is capped at this long side (pixels), to keep it smooth. */
+        const val SOFTWARE_MAX = 1280
+        /** In software, try the hardware encoder again after this long. */
+        const val HARDWARE_RETRY_NS = 15_000_000_000L
+
         /** How long a permission given from the Mirror tile waits for the computer. */
         const val EARLY_WAIT_MS = 30_000L
         private val EMPTY = ByteArray(0)

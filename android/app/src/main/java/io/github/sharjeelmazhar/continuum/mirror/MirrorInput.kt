@@ -210,3 +210,22 @@ class RateControl(private val target: Int, private val floor: Int = 1_500_000) {
         const val WINDOW_NS = 1_000_000_000L
     }
 }
+
+/**
+ * Counts encoder failures: true while they're rare enough to keep restarting (at most [MAX]
+ * within [WINDOW_NS]), false once it looks truly broken.
+ */
+class CrashWindow {
+    private val times = ArrayDeque<Long>()
+
+    fun add(now: Long): Boolean {
+        times.addLast(now)
+        while (times.isNotEmpty() && now - times.first() > WINDOW_NS) times.removeFirst()
+        return times.size <= MAX
+    }
+
+    companion object {
+        const val MAX = 6
+        const val WINDOW_NS = 10_000_000_000L
+    }
+}

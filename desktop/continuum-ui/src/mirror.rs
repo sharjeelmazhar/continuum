@@ -884,6 +884,13 @@ impl Mirror {
         let w = Rc::downgrade(self);
         let guard = bus
             .add_watch_local(move |_, msg| {
+                if let gst::MessageView::Error(e) = msg.view() {
+                    eprintln!(
+                        "continuum-ui: mirror: video error: {} ({:?})",
+                        e.error(),
+                        e.debug()
+                    );
+                }
                 if let gst::MessageView::Error(e) = msg.view()
                     && let Some(m) = w.upgrade()
                 {
@@ -1079,7 +1086,8 @@ fn feed(mut socket: UnixStream, src: &gst::Element, feed: &Feed) {
     let mut skipping = false;
     let mut lag = Lag::default();
     loop {
-        if socket.read_exact(&mut len).is_err() {
+        if let Err(e) = socket.read_exact(&mut len) {
+            eprintln!("continuum-ui: mirror: stream closed: {e}");
             break;
         }
         let n = u32::from_be_bytes(len) as usize;
@@ -1088,11 +1096,12 @@ fn feed(mut socket: UnixStream, src: &gst::Element, feed: &Feed) {
             continue;
         }
         if n > MAX_FRAME {
-            tracing_log(&format!("bad frame length {n}"));
+            eprintln!("continuum-ui: mirror: bad frame length {n}");
             break;
         }
         let mut data = vec![0u8; n];
-        if socket.read_exact(&mut data).is_err() {
+        if let Err(e) = socket.read_exact(&mut data) {
+            eprintln!("continuum-ui: mirror: stream closed mid-frame: {e}");
             break;
         }
         feed.bytes.fetch_add(n as u64 + 4, Ordering::Relaxed);
@@ -1110,7 +1119,9 @@ fn feed(mut socket: UnixStream, src: &gst::Element, feed: &Feed) {
             skipping = false;
         }
         let buffer = gst::Buffer::from_mut_slice(data);
-        if src.emit_by_name::<gst::FlowReturn>("push-buffer", &[&buffer]) != gst::FlowReturn::Ok {
+        let flow = src.emit_by_name::<gst::FlowReturn>("push-buffer", &[&buffer]);
+        if flow != gst::FlowReturn::Ok {
+            eprintln!("continuum-ui: mirror: decoder refused a frame: {flow:?}");
             break;
         }
         feed.frames.fetch_add(1, Ordering::Relaxed);

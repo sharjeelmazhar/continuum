@@ -152,3 +152,18 @@ class RateControlTest {
         assertEquals(8_000_000, r.bitrate)
     }
 }
+
+class CrashWindowTest {
+    @Test
+    fun keepsRestartingUnlessFailuresPileUp() {
+        val sec = 1_000_000_000L
+        val w = CrashWindow()
+        // Occasional losses (another app taking the encoder): always restart.
+        repeat(20) { assertTrue(w.add(it * 15 * sec)) }
+        // Many within seconds: give up.
+        val c = CrashWindow()
+        val results = (0 until 8).map { c.add(it * sec / 2) }
+        assertTrue(results.take(CrashWindow.MAX).all { it })
+        assertTrue(!results.last())
+    }
+}
