@@ -3,7 +3,7 @@
 <h1 align="center">Continuum</h1>
 
 <p align="center"><b>Your Android phone, at home on Linux.</b><br>
-Photos, messages, notifications, files and one clipboard between your phone and your GNOME desktop.<br>
+Mirror and use your phone on the desktop. Photos, messages, notifications, files and one clipboard, all on GNOME.<br>
 Like Phone Link and Apple Continuity, but open source and private: no cloud, no account.</p>
 
 <p align="center">
@@ -13,7 +13,52 @@ Like Phone Link and Apple Continuity, but open source and private: no cloud, no 
   <a href="https://sharjeelmazhar.github.io/continuum/"><img alt="Website" src="https://img.shields.io/badge/website-continuum-7c6cff"></a>
 </p>
 
-<p align="center"><img src="docs/assets/desktop-photos.png" width="880" alt="Continuum on GNOME showing a phone's photo gallery"></p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hero-dark.png">
+    <img src="docs/assets/hero-light.png" width="900" alt="Continuum on GNOME: the phone's photo gallery, with the phone's screen mirrored in its own window">
+  </picture>
+</p>
+
+## Phone mirroring
+See your phone's screen in a window on your computer and use it with your mouse and keyboard:
+tap, swipe, scroll and type into any app. Wireless, no cable, no developer options.
+
+<table>
+<tr>
+<td width="300">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/mirror-dark.png">
+    <img src="docs/assets/mirror-light.png" width="280" alt="The phone's screen in a window on the computer">
+  </picture>
+</td>
+<td>
+
+**How to mirror your phone**
+1. On the computer, open **Continuum** and click **Mirror**. You can also open the
+   **Phone Mirroring** app, or tap the **Mirror** tile in the phone's Quick Settings.
+2. On the phone, tap **Share screen** (Android asks each time, for your privacy).
+3. Your phone appears in its own window. Use it like the phone itself.
+
+**Using it**
+- Click to tap, drag to swipe, scroll with the mouse wheel or touchpad.
+- Type with your keyboard into any app, emoji included.
+- Hover above the phone for **Back**, **Home**, **Recent apps**, **Screenshot** and **Close**.
+- Drag the corner to make it bigger or smaller.
+- To control the phone (not only watch it), turn on **Settings → Screen mirroring →
+  Control from the computer** on the phone once.
+
+Up to 60 fps at full screen resolution, using the phone's hardware video encoder.
+Close the window and sharing ends at once.
+
+</td>
+</tr>
+</table>
+
+### Banking mode
+Some banking apps refuse to open while developer options are on. Turn on **Banking mode**
+(phone **Settings**, or its Quick Settings tile) and Continuum turns developer options and USB
+debugging off; turn it off again and they come back as they were.
 
 ## Screenshots
 
@@ -23,13 +68,15 @@ Like Phone Link and Apple Continuity, but open source and private: no cloud, no 
 |---|---|---|
 | <img src="docs/assets/desktop-messages.png" alt="Messages: SMS conversations with a reply box"> | <img src="docs/assets/desktop-notifications.png" alt="Phone notifications with quick reply"> | <img src="docs/assets/desktop-storage.png" alt="Browsing the phone's folders"> |
 
-**On the phone** (Jetpack Compose, light and dark)
+**On the phone** (Jetpack Compose; follows your light or dark theme)
 
-| Home | Settings | Home (dark) | Settings (dark) |
-|---|---|---|---|
-| <img src="docs/assets/phone-home.png" width="200" alt="Phone app home"> | <img src="docs/assets/phone-settings.png" width="200" alt="Phone app settings"> | <img src="docs/assets/phone-home-dark.png" width="200" alt="Phone app home, dark"> | <img src="docs/assets/phone-settings-dark.png" width="200" alt="Phone app settings, dark"> |
+| Home | Settings |
+|---|---|
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/phone-home-dark.png"><img src="docs/assets/phone-home.png" width="260" alt="Phone app home"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/phone-settings-dark.png"><img src="docs/assets/phone-settings.png" width="260" alt="Phone app settings with Screen mirroring and Banking mode"></picture> |
 
 ## Features
+- 📱 **Phone mirroring.** Your phone's screen in a window, controlled with your mouse and keyboard.
+- 🏦 **Banking mode.** Developer options off with one tap, so banking apps open; back on with another.
 - 🖼️ **Gallery.** Your photos and videos, with videos playing in the app. Select several and copy them straight into Files or a chat.
 - 💬 **Messages.** SMS conversations with contact photos; reply from your PC keyboard, with typing help.
 - 🔔 **Notifications** from the phone, with quick reply and their own buttons. Dismiss on the PC and it's gone from the phone.
@@ -43,8 +90,8 @@ Like Phone Link and Apple Continuity, but open source and private: no cloud, no 
 - 🗂️ **Separate notification categories** on the phone, so you pick which Continuum alerts you see.
 - 🌿 **Battery-friendly.** An adaptive connection: responsive while you use it, nearly idle when you don't. Reconnects by itself.
 
-Coming next: calls with an incoming-call banner, phone mirroring, a per-app notification
-allowlist and media controls. See the [roadmap](docs/ROADMAP.md).
+Coming next: calls with an incoming-call banner, a per-app notification allowlist and media
+controls. See the [roadmap](docs/ROADMAP.md).
 
 ## Install
 
@@ -91,7 +138,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 Details in [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## Roadmap
-Calls (M8), phone mirroring (M9), KDE Plasma support and more: see [docs/ROADMAP.md](docs/ROADMAP.md)
+Calls (M8), KDE Plasma support and more: see [docs/ROADMAP.md](docs/ROADMAP.md)
 and the current status in [PROGRESS.md](PROGRESS.md).
 
 ## License
