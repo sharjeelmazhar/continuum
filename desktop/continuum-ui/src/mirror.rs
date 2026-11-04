@@ -158,6 +158,8 @@ impl Mirror {
         };
         let close = button("window-close-symbolic", "Close (Ctrl+W)");
         close.add_css_class("mirror-close");
+        close.set_valign(gtk::Align::Center);
+        close.set_halign(gtk::Align::Center);
         let back = button("go-previous-symbolic", "Back (Esc or right-click)");
         let home = button("go-home-symbolic", "Home (Ctrl+1)");
         let recents = button("view-grid-symbolic", "Recent apps (Ctrl+2)");
@@ -442,6 +444,22 @@ impl Mirror {
                 self.screen.remove_css_class("waiting");
                 self.status.set_visible(false);
             }
+        }
+    }
+
+    /// The stream is over: never leave a frozen picture up. A session that was showing the
+    /// phone closes by itself after a moment (like iPhone Mirroring); one that never got going
+    /// keeps its message so the user sees why.
+    fn finish(self: &Rc<Self>, text: &str) {
+        self.picture.set_paintable(gtk::gdk::Paintable::NONE);
+        self.show_status(Some(text), false);
+        if self.live.get() {
+            let window = self.window.downgrade();
+            glib::timeout_add_local_once(Duration::from_millis(1200), move || {
+                if let Some(w) = window.upgrade() {
+                    w.close();
+                }
+            });
         }
     }
 
@@ -780,7 +798,11 @@ impl Mirror {
                         m.flash_hint();
                     }
                 } else if let Some(text) = state_text(state, &m.device.name) {
-                    m.show_status(Some(&text), state == "consent");
+                    if matches!(state, "stopped" | "error") {
+                        m.finish(&text);
+                    } else {
+                        m.show_status(Some(&text), state == "consent");
+                    }
                 }
             }
         });
@@ -897,7 +919,11 @@ impl Mirror {
                     if let (Some(node), Ok(())) = (snap.to_node(), renderer.realize(None)) {
                         let path = std::path::PathBuf::from(path).with_extension("phone.png");
                         let tmp = path.with_extension("part");
-                        if renderer.render_texture(&node, None).save_to_png(&tmp).is_ok() {
+                        if renderer
+                            .render_texture(&node, None)
+                            .save_to_png(&tmp)
+                            .is_ok()
+                        {
                             let _ = std::fs::rename(&tmp, &path);
                         }
                         renderer.unrealize();
@@ -919,7 +945,7 @@ impl Mirror {
                 last = (Instant::now(), frames, bytes, shown_now);
             }
             if stats.ended.load(Ordering::Relaxed) {
-                m.show_status(Some("Mirroring ended"), false);
+                m.finish("Mirroring ended");
                 return glib::ControlFlow::Break;
             }
             let p = m.picture.paintable();
@@ -974,8 +1000,34 @@ struct Feed {
     ended: AtomicBool,
 }
 
-/// Frames waiting for the decoder before we skip ahead (each one is ~16 ms of lag).
-const MAX_BACKLOG: u64 = 3;
+/// Decides when the picture is really behind (then frames are skipped up to the next key
+/// frame). Wi-Fi often delivers a few frames at once, which the decoder clears in
+/// milliseconds; skipping on such a burst would throw away far more than it saves. So it
+/// takes a backlog that lasts ([LAG_AFTER]) or a big one ([HARD_BACKLOG]).
+#[derive(Default)]
+struct Lag {
+    since: Option<Instant>,
+}
+
+/// A few frames queued is normal; this many queued means lag (~16 ms each).
+const SOFT_BACKLOG: u64 = 3;
+const HARD_BACKLOG: u64 = 10;
+const LAG_AFTER: Duration = Duration::from_millis(250);
+
+impl Lag {
+    fn behind(&mut self, backlog: u64, now: Instant) -> bool {
+        if backlog < SOFT_BACKLOG {
+            self.since = None;
+            return false;
+        }
+        let since = *self.since.get_or_insert(now);
+        if backlog >= HARD_BACKLOG || now.duration_since(since) >= LAG_AFTER {
+            self.since = None;
+            return true;
+        }
+        false
+    }
+}
 
 /// True if the access unit holds an IDR picture or SPS (a fresh start for the decoder).
 fn is_key_frame(au: &[u8]) -> bool {
@@ -1003,6 +1055,7 @@ fn is_key_frame(au: &[u8]) -> bool {
 fn feed(mut socket: UnixStream, src: &gst::Element, feed: &Feed) {
     let mut len = [0u8; 4];
     let mut skipping = false;
+    let mut lag = Lag::default();
     loop {
         if socket.read_exact(&mut len).is_err() {
             break;
@@ -1023,7 +1076,7 @@ fn feed(mut socket: UnixStream, src: &gst::Element, feed: &Feed) {
         feed.bytes.fetch_add(n as u64 + 4, Ordering::Relaxed);
         let key = is_key_frame(&data);
         let backlog = src.property::<u64>("current-level-buffers");
-        if !skipping && backlog >= MAX_BACKLOG {
+        if !skipping && lag.behind(backlog, Instant::now()) {
             skipping = true;
             feed.want_sync.store(true, Ordering::Relaxed);
         }
@@ -1052,6 +1105,23 @@ mod tests {
         assert_eq!(norm(50.0, 100.0, 100.0, 200.0), (0.5, 0.5));
         assert_eq!(norm(-5.0, 300.0, 100.0, 200.0), (0.0, 1.0));
         assert_eq!(norm(1.0, 1.0, 0.0, 0.0), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_burst_is_not_lag_but_a_lasting_backlog_is() {
+        let t = Instant::now();
+        let ms = |n| t + Duration::from_millis(n);
+        let mut lag = Lag::default();
+        // Four frames arrive together, then the decoder catches up.
+        assert!(!lag.behind(4, ms(0)));
+        assert!(!lag.behind(5, ms(5)));
+        assert!(!lag.behind(1, ms(20)));
+        assert!(!lag.behind(3, ms(300))); // a new burst starts its own clock
+        // A backlog that doesn't drain for 250 ms is lag.
+        assert!(!lag.behind(4, ms(400)));
+        assert!(lag.behind(4, ms(560)));
+        // A huge backlog is lag right away.
+        assert!(lag.behind(HARD_BACKLOG, ms(600)));
     }
 
     #[test]

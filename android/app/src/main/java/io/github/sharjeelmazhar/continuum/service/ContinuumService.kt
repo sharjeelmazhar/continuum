@@ -903,6 +903,16 @@ class ContinuumService : Service() {
         fun start(context: Context) =
             ContextCompat.startForegroundService(context, Intent(context, ContinuumService::class.java))
 
+        /**
+         * Brings the connection back when Android restarts one of our helpers (notification
+         * access, accessibility) on its own, e.g. after an app update on phones that don't
+         * deliver MY_PACKAGE_REPLACED (MIUI). Harmless when already running.
+         */
+        fun ensure(context: Context) {
+            if (PairedStore(context).load() == null) return
+            runCatching { start(context) }.onFailure { android.util.Log.i("Continuum", "can't restart the connection yet: $it") }
+        }
+
         fun pair(context: Context, uri: String) = ContextCompat.startForegroundService(
             context,
             Intent(context, ContinuumService::class.java).setAction(ACTION_PAIR).putExtra(EXTRA_URI, uri),

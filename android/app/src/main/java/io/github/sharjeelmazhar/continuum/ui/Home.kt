@@ -300,8 +300,8 @@ private fun QuickAction(icon: ImageVector, label: String, description: String, m
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
-            Spacer(Modifier.height(6.dp))
+            SettingsTile(icon, size = 32.dp)
+            Spacer(Modifier.height(8.dp))
             Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
         }
     }

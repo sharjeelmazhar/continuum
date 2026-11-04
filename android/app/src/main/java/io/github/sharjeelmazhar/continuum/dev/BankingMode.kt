@@ -80,7 +80,7 @@ object BankingMode {
     fun addTile(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         val sb = context.getSystemService(android.app.StatusBarManager::class.java) ?: return
-        val icon = android.graphics.drawable.Icon.createWithResource(context, io.github.sharjeelmazhar.continuum.R.drawable.ic_stat_continuum)
+        val icon = android.graphics.drawable.Icon.createWithResource(context, io.github.sharjeelmazhar.continuum.R.drawable.ic_tile_banking)
         runCatching {
             sb.requestAddTileService(
                 android.content.ComponentName(context, BankingModeTile::class.java),

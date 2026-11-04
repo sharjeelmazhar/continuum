@@ -216,11 +216,7 @@ private fun FeatureTile(f: Feature, modifier: Modifier) {
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconBadge(
-                    f.icon,
-                    tint = if (allowed) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onPrimary,
-                    container = if (allowed) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.primary,
-                )
+                SettingsTile(f.icon, size = 40.dp)
                 Spacer(Modifier.weight(1f))
                 if (allowed) Icon(Icons.Filled.CheckCircle, contentDescription = status, tint = GoodGreen, modifier = Modifier.size(22.dp))
             }

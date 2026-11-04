@@ -77,6 +77,50 @@ fun IconBadge(icon: ImageVector, tint: Color = MaterialTheme.colorScheme.onSecon
     }
 }
 
+/**
+ * The coloured rounded-square tile in front of a settings row (like iOS Settings): a white
+ * glyph on a soft vertical gradient, its colour picked from what the icon means.
+ */
+@Composable
+fun SettingsTile(icon: ImageVector, enabled: Boolean = true, size: androidx.compose.ui.unit.Dp = 34.dp) {
+    val base = tileColor(icon.name)
+    val top = androidx.compose.ui.graphics.lerp(base, Color.White, 0.18f)
+    Box(
+        Modifier
+            .size(size)
+            .clip(RoundedCornerShape(size * 0.265f))
+            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(top, base)))
+            .then(if (enabled) Modifier else Modifier.background(Color.Black.copy(alpha = 0.25f))),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(size * 0.62f))
+    }
+}
+
+/** Apple-style system colours by what the icon means; anything unknown is grey. */
+internal fun tileColor(name: String): Color = when (name.substringAfterLast('.')) {
+    "Notifications", "NotificationsOff" -> Red
+    "Lock" -> Indigo
+    "Screenshot", "ContentPaste", "Language", "DesktopWindows", "OpenInNew", "Folder" -> Blue
+    "PhotoLibrary" -> Orange
+    "Sms" -> Green
+    "UploadFile" -> Purple
+    "Mouse" -> Purple
+    "BatteryChargingFull", "SystemUpdate" -> Green
+    "AccountBalance", "AddBox" -> Teal
+    "RestartAlt" -> Orange
+    else -> Grey
+}
+
+private val Red = Color(0xFFFF3B30)
+private val Orange = Color(0xFFFF9500)
+private val Green = Color(0xFF34C759)
+private val Teal = Color(0xFF30B0C7)
+private val Blue = Color(0xFF007AFF)
+private val Indigo = Color(0xFF5856D6)
+private val Purple = Color(0xFFAF52DE)
+private val Grey = Color(0xFF8E8E93)
+
 /** One settings row: icon, title, optional summary, and something at the end (switch, status). */
 @Composable
 fun SettingsRow(
@@ -129,7 +173,7 @@ private fun RowFrame(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            IconBadge(icon)
+            SettingsTile(icon, enabled)
             Spacer(Modifier.width(16.dp))
         }
         Column(Modifier.weight(1f)) {

@@ -34,6 +34,7 @@ class RemoteControl : AccessibilityService() {
     override fun onServiceConnected() {
         instance = this
         Mirror.controlChanged()
+        io.github.sharjeelmazhar.continuum.service.ContinuumService.ensure(this)
     }
 
     override fun onDestroy() {

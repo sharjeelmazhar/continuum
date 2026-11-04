@@ -116,7 +116,7 @@
         <service
             android:name=".clip.ClipTileService"
             android:exported="true"
-            android:icon="@drawable/ic_stat_continuum"
+            android:icon="@drawable/ic_tile_clipboard"
             android:label="@string/send_clipboard"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
@@ -167,7 +167,7 @@
         <service
             android:name=".dev.BankingModeTile"
             android:exported="true"
-            android:icon="@drawable/ic_stat_continuum"
+            android:icon="@drawable/ic_tile_banking"
             android:label="@string/banking_title"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>

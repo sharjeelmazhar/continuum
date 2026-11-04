@@ -204,6 +204,39 @@ pub fn cache_dir(what: &str, device: &str) -> PathBuf {
     glib::user_cache_dir().join("continuum").join(what).join(id)
 }
 
+/// Continuum's own solid white glyphs for the coloured tiles (64 px SVGs, shown at 12 to 16
+/// px, so they stay sharp on HiDPI screens).
+fn glyph(name: &str) -> Option<&'static [u8]> {
+    Some(match name {
+        "photo" => include_bytes!("../data/glyphs/photo.svg"),
+        "message" => include_bytes!("../data/glyphs/message.svg"),
+        "bell" => include_bytes!("../data/glyphs/bell.svg"),
+        "folder" => include_bytes!("../data/glyphs/folder.svg"),
+        "send" => include_bytes!("../data/glyphs/send.svg"),
+        "phone" => include_bytes!("../data/glyphs/phone.svg"),
+        "speaker" => include_bytes!("../data/glyphs/speaker.svg"),
+        _ => return None,
+    })
+}
+
+/// A coloured rounded-square tile with a white glyph, like macOS System Settings. `colour` is
+/// one of the `tile-*` classes in style.css. Falls back to the theme's `fallback` icons when
+/// the glyph can't be drawn (no SVG support).
+pub fn tile(glyph_name: &str, fallback: &[&'static str], colour: &str, small: bool) -> gtk::Image {
+    let texture = glyph(glyph_name)
+        .and_then(|b| gtk::gdk::Texture::from_bytes(&glib::Bytes::from_static(b)).ok());
+    let tile = match texture {
+        Some(t) => gtk::Image::from_paintable(Some(&t)),
+        None => gtk::Image::from_icon_name(icon(fallback)),
+    };
+    tile.set_css_classes(&["tile", colour]);
+    tile.set_valign(gtk::Align::Center);
+    if small {
+        tile.add_css_class("small");
+    }
+    tile
+}
+
 /// The first icon of `names` the theme has (Yaru and Adwaita differ).
 pub fn icon(names: &[&'static str]) -> &'static str {
     let theme = gtk::gdk::Display::default().map(|d| gtk::IconTheme::for_display(&d));

@@ -84,6 +84,7 @@ class NotificationMirror : NotificationListenerService() {
     }
 
     override fun onListenerConnected() {
+        io.github.sharjeelmazhar.continuum.service.ContinuumService.ensure(this)
         // Android 15+: a "Do Not Disturb (Continuum)" mode left on by an early 0.5 test build
         // (find-my-phone restoring DND). On 15+ this only switches off Continuum's own mode.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
