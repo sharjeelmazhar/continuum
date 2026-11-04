@@ -14,7 +14,18 @@ import io.github.sharjeelmazhar.continuum.R
 class BankingModeTile : TileService() {
     override fun onStartListening() {
         super.onStartListening()
+        BankingMode.setTileAdded(this, true)
         update()
+    }
+
+    override fun onTileAdded() {
+        super.onTileAdded()
+        BankingMode.setTileAdded(this, true)
+    }
+
+    override fun onTileRemoved() {
+        super.onTileRemoved()
+        BankingMode.setTileAdded(this, false)
     }
 
     @SuppressLint("StartActivityAndCollapseDeprecated")

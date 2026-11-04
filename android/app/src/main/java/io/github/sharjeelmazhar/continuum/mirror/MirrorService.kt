@@ -38,8 +38,8 @@ import java.net.Socket
  * Captures the screen (MediaProjection), encodes it with the phone's hardware H.264 encoder at
  * low latency and streams it on a data connection: after `data.hello`, each frame is a 4-byte
  * big-endian length and one access unit (key frames carry SPS/PPS). Rotating the phone starts
- * a new encoder at the new size. After the computer stops, the permission is kept for
- * [KEEP_MS] (encoder off, nothing captured), so the next start needs no tap.
+ * a new encoder at the new size. When mirroring stops (on the phone or the computer), screen
+ * sharing ends at once and its notification goes with it.
  */
 class MirrorService : Service() {
     private val thread = HandlerThread("mirror").apply { start() }
@@ -147,9 +147,8 @@ class MirrorService : Service() {
         keepAwake(false)
         RemoteControl.instance?.forget()
         runCatching { synchronized(this) { display?.surface = null } }
-        foreground(streaming = false)
         handler.removeCallbacks(idleStop)
-        handler.postDelayed(idleStop, KEEP_MS)
+        handler.post(idleStop)
     }
 
     private fun foreground(streaming: Boolean) {
@@ -378,8 +377,6 @@ class MirrorService : Service() {
         private const val SEND_BUFFER = 128 * 1024
         private const val HEARTBEAT_NS = 1_000_000_000L
 
-        /** How long the permission is kept after the computer stops. */
-        const val KEEP_MS = 5 * 60_000L
 
         @Volatile
         var instance: MirrorService? = null

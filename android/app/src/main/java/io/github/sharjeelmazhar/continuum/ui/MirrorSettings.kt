@@ -44,16 +44,20 @@ fun MirroringGroup(resumeTick: Int) {
     val context = LocalContext.current
     val control = remember(resumeTick) { RemoteControl.isEnabled(context) }
     var steps by rememberSaveable { mutableStateOf(false) }
+    // Xiaomi blocks the "Start now" prompt from opening by itself until this is allowed.
+    val popups = remember(resumeTick) { !isXiaomi() || xiaomiPopupsAllowed(context) == true }
     SectionHeader(stringResource(R.string.settings_mirroring))
-    SettingsGroup {
-        SettingsRow(
-            stringResource(R.string.settings_remote_control),
-            summary = stringResource(if (control) R.string.settings_remote_control_on else R.string.settings_remote_control_off),
-            icon = Icons.Outlined.Mouse,
-            onClick = { steps = true },
-        )
-        // Xiaomi blocks the "Start now" prompt from opening by itself until this is allowed.
-        if (isXiaomi()) {
+    // Only what still needs doing; when everything is allowed, just the how-to remains.
+    if (!control || !popups) SettingsGroup {
+        if (!control) {
+            SettingsRow(
+                stringResource(R.string.settings_remote_control),
+                summary = stringResource(R.string.settings_remote_control_off),
+                icon = Icons.Outlined.Mouse,
+                onClick = { steps = true },
+            )
+        }
+        if (!popups) {
             SettingsRow(
                 stringResource(R.string.mirror_popups),
                 summary = stringResource(R.string.mirror_popups_summary),
@@ -114,7 +118,7 @@ fun BankingGroup(resumeTick: Int) {
                 icon = Icons.Outlined.AccountBalance,
                 onClick = { toggle() },
             ) { Switch(checked = on, onCheckedChange = { toggle() }) }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !BankingMode.tileAdded(context)) {
                 SettingsRow(
                     stringResource(R.string.banking_add_tile),
                     summary = stringResource(R.string.banking_add_tile_summary),
@@ -161,6 +165,18 @@ fun BankingGroup(resumeTick: Int) {
         )
     }
 }
+
+/**
+ * MIUI's "Open new windows while running in the background" (app op 10021): true/false, or
+ * null where it can't be read (then the row stays, to be safe).
+ */
+private fun xiaomiPopupsAllowed(context: android.content.Context): Boolean? = runCatching {
+    val ops = context.getSystemService(android.app.AppOpsManager::class.java)
+    val check = android.app.AppOpsManager::class.java.getMethod(
+        "checkOpNoThrow", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, String::class.java,
+    )
+    check.invoke(ops, 10021, android.os.Process.myUid(), context.packageName) as Int == android.app.AppOpsManager.MODE_ALLOWED
+}.getOrNull()
 
 private fun isXiaomi() = Build.MANUFACTURER.lowercase() in setOf("xiaomi", "redmi", "poco")
 

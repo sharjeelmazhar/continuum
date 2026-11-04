@@ -134,13 +134,16 @@ private fun ComputerGroup(state: LinkState, resumeTick: Int, onRemove: () -> Uni
     SectionHeader(stringResource(R.string.settings_computer))
     SettingsGroup {
         SettingsRow(name, summary = status, icon = Icons.Outlined.DesktopWindows)
-        SettingsRow(
-            stringResource(R.string.settings_background),
-            summary = stringResource(if (background.exempt) R.string.settings_background_on else R.string.settings_background_off),
-            icon = Icons.Outlined.BatteryChargingFull,
-            onClick = if (background.exempt) null else ({ requestExemption(context) }),
-        )
-        if (isXiaomi) {
+        // Only what still needs doing: allowed items don't clutter the list.
+        if (!background.exempt) {
+            SettingsRow(
+                stringResource(R.string.settings_background),
+                summary = stringResource(R.string.settings_background_off),
+                icon = Icons.Outlined.BatteryChargingFull,
+                onClick = { requestExemption(context) },
+            )
+        }
+        if (isXiaomi && !background.autostartOk) {
             SettingsRow(
                 stringResource(R.string.settings_autostart),
                 summary = stringResource(R.string.settings_autostart_body),
@@ -180,12 +183,14 @@ private fun ClipboardGroup(resumeTick: Int) {
     SectionHeader(stringResource(R.string.settings_clipboard))
     SettingsGroup {
         ScreenshotSetting()
-        SettingsRow(
-            stringResource(R.string.settings_auto_clip),
-            summary = stringResource(if (autoClip) R.string.settings_auto_clip_on else R.string.settings_auto_clip_off),
-            icon = Icons.Outlined.ContentPaste,
-            onClick = { steps = true },
-        )
+        if (!autoClip) {
+            SettingsRow(
+                stringResource(R.string.settings_auto_clip),
+                summary = stringResource(R.string.settings_auto_clip_off),
+                icon = Icons.Outlined.ContentPaste,
+                onClick = { steps = true },
+            )
+        }
     }
     if (steps) AutoClipboardSteps(onClose = { steps = false })
 }

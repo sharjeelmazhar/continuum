@@ -32,14 +32,25 @@ const DaemonIface = `
 </node>`;
 const DaemonProxy = Gio.DBusProxy.makeProxyWrapper(DaemonIface);
 
+/**
+ * Continuum's own icon (installed with the app), falling back to the theme's when it isn't
+ * there (e.g. a source checkout).
+ */
+function icon(name, fallback) {
+    return Gio.ThemedIcon.new_from_names([`continuum-${name}-symbolic`, fallback]);
+}
+
 /** Menu entries: [label, icon, app page or special action, capability needed]. */
 const ENTRIES = [
-    ['Messages', 'mail-unread-symbolic', 'messages', 'sms'],
-    ['Gallery', 'image-x-generic-symbolic', 'photos', 'photos'],
-    ['Notifications', 'preferences-system-notifications-symbolic', 'notifications', 'notif'],
-    ['Phone Storage', 'folder-symbolic', 'storage', 'files'],
-    ['Send Files…', 'document-send-symbolic', 'send-files', ''],
+    ['Mirror Phone', icon('mirror', 'phone-symbolic'), 'mirror', 'mirror'],
+    ['Messages', icon('messages', 'mail-unread-symbolic'), 'messages', 'sms'],
+    ['Gallery', icon('gallery', 'image-x-generic-symbolic'), 'photos', 'photos'],
+    ['Notifications', icon('notifications', 'preferences-system-notifications-symbolic'), 'notifications', 'notif'],
+    ['Phone Storage', icon('storage', 'folder-symbolic'), 'storage', 'files'],
+    ['Send Files…', icon('send', 'document-send-symbolic'), 'send-files', ''],
 ];
+
+const APP_ICON = () => Gio.ThemedIcon.new_from_names(['continuum-symbolic', 'phone-symbolic']);
 
 function pictureFor(id, type) {
     const custom = GLib.build_filenamev([
@@ -62,7 +73,7 @@ class PhoneToggle extends QuickMenuToggle {
     _init(extension) {
         super._init({
             title: 'Continuum',
-            iconName: 'phone-symbolic',
+            gicon: APP_ICON(),
             toggleMode: false,
         });
         this._ext = extension;
@@ -70,7 +81,7 @@ class PhoneToggle extends QuickMenuToggle {
         this._caps = [];
         this.connect('clicked', () => this._openPage(null));
 
-        this._ring = new PopupMenu.PopupImageMenuItem('Ring', 'audio-volume-high-symbolic');
+        this._ring = new PopupMenu.PopupImageMenuItem('Ring', icon('ring', 'audio-volume-high-symbolic'));
         this._ring.connect('activate', () => this._command('find.ring'));
         this.menu.addMenuItem(this._ring);
         this._items = ENTRIES.map(([label, icon, page, cap]) => {
@@ -80,7 +91,7 @@ class PhoneToggle extends QuickMenuToggle {
             return [item, cap];
         });
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        const open = new PopupMenu.PopupImageMenuItem('Open Continuum', 'go-next-symbolic');
+        const open = new PopupMenu.PopupImageMenuItem('Open Continuum', APP_ICON());
         open.connect('activate', () => this._openPage(null));
         this.menu.addMenuItem(open);
         this.update([]);
@@ -96,7 +107,7 @@ class PhoneToggle extends QuickMenuToggle {
             this.title = 'Continuum';
             this.subtitle = 'No phone paired';
             this.checked = false;
-            this.menu.setHeader('phone-symbolic', 'Continuum', 'Pair a phone in the Continuum app');
+            this.menu.setHeader(APP_ICON(), 'Continuum', 'Pair a phone in the Continuum app');
             this._setItemsVisible([]);
             return;
         }
@@ -155,6 +166,12 @@ class PhoneToggle extends QuickMenuToggle {
         const calls = [];
         if (this._device)
             calls.push(['select-device', this._device[0]]);
+        if (page === 'mirror') {
+            // Phone Mirroring is its own app (own window and dock icon).
+            if (this._device)
+                Gio.Subprocess.new(['continuum-ui', '--mirror', this._device[0]], Gio.SubprocessFlags.NONE);
+            return;
+        }
         if (page === 'send-files')
             calls.push(['send-files', null]);
         else if (page)
@@ -170,7 +187,7 @@ class PhoneIndicator extends SystemIndicator {
     _init(extension) {
         super._init();
         this._icon = this._addIndicator();
-        this._icon.iconName = 'phone-symbolic';
+        this._icon.gicon = APP_ICON();
         this._icon.visible = false;
         this.toggle = new PhoneToggle(extension);
         this.quickSettingsItems.push(this.toggle);

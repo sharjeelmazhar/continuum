@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Quick Settings tile: a clipboard sending upwards (white silhouette; Android tints it). -->
+<!-- Quick Settings tile: send the clipboard to the computer. White silhouette; Android tints it. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -8,11 +8,8 @@
     <path
         android:fillColor="#FFFFFFFF"
         android:fillType="evenOdd"
-        android:pathData="M6,3.5h2v2h-1.5v14.5h11v-14.5h-1.5v-2h2a2,2 0,0 1,2 2v14.5a2,2 0,0 1,-2 2h-12a2,2 0,0 1,-2 -2v-14.5a2,2 0,0 1,2 -2z" />
+        android:pathData="M6,3.5h12a2,2 0,0 1,2 2v15a2,2 0,0 1,-2 2H6a2,2 0,0 1,-2 -2v-15a2,2 0,0 1,2 -2zM6,5.5v15h12v-15z" />
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M9.5,2h5a1,1 0,0 1,1 1v2a1,1 0,0 1,-1 1h-5a1,1 0,0 1,-1 -1v-2a1,1 0,0 1,1 -1z" />
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M12,8.2l4,4.1h-2.7v4.9h-2.6v-4.9h-2.7z" />
+        android:pathData="M9,2h6v4H9zM8.5,12.3h4.3V10l3.9,3.6 -3.9,3.6v-2.3H8.5z" />
 </vector>

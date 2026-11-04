@@ -33,6 +33,8 @@ object FeatureType {
     const val MIRROR_STOP = "mirror.stop"
     const val MIRROR_INPUT = "mirror.input"
     const val MIRROR_STATE = "mirror.state"
+    /** Phone → desktop: open the mirror window (the phone's Quick Settings tile). */
+    const val MIRROR_REQUEST = "mirror.request"
 
     val REQUESTS = setOf(PHOTOS_LIST, PHOTOS_THUMBS, PHOTOS_FETCH, PHOTOS_SEND, SMS_THREADS, SMS_MESSAGES, SMS_SEND, FILES_LIST, FILES_FETCH)
 

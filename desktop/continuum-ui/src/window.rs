@@ -12,52 +12,41 @@ use crate::ctx::{self, Ctx, Device};
 use crate::daemon::{self, DaemonProxy};
 use crate::{battery, messages, notifications, photos, qr, storage};
 
-/// The feature pages, in sidebar order: (stack name, title, theme icons, glyph, tile colour).
-const PAGES: &[(&str, &str, &[&str], &str, &str)] = &[
+/// The feature pages, in sidebar order: (stack name, title, icons to try).
+const PAGES: &[(&str, &str, &[&str])] = &[
     (
         "photos",
         "Gallery",
-        &["image-x-generic-symbolic"],
-        "photo",
-        "tile-orange",
+        &["continuum-gallery-symbolic", "image-x-generic-symbolic"],
     ),
     (
         "messages",
         "Messages",
-        &["chat-bubble-text-symbolic", "mail-unread-symbolic"],
-        "message",
-        "tile-green",
+        &[
+            "continuum-messages-symbolic",
+            "chat-bubble-text-symbolic",
+            "mail-unread-symbolic",
+        ],
     ),
     (
         "notifications",
         "Notifications",
-        &["preferences-system-notifications-symbolic"],
-        "bell",
-        "tile-red",
+        &[
+            "continuum-notifications-symbolic",
+            "preferences-system-notifications-symbolic",
+        ],
     ),
     (
         "storage",
         "Phone Storage",
-        &["folder-symbolic"],
-        "folder",
-        "tile-blue",
+        &["continuum-storage-symbolic", "folder-symbolic"],
     ),
     (
         "files",
         "Send Files",
-        &["document-send-symbolic"],
-        "send",
-        "tile-purple",
+        &["continuum-send-symbolic", "document-send-symbolic"],
     ),
 ];
-
-/// A pill button's inside: a small coloured tile and a label.
-fn pill_content(glyph: &str, icons: &[&'static str], label: &str, colour: &str) -> gtk::Box {
-    let b = gtk::Box::builder().spacing(8).build();
-    b.append(&ctx::tile(glyph, icons, colour, true));
-    b.append(&gtk::Label::new(Some(label)));
-    b
-}
 
 /// The capability each page needs from the phone ("" = always there).
 fn page_cap(page: &str) -> &'static str {
@@ -212,22 +201,25 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     let ring = gtk::Button::builder()
         .css_classes(["pill"])
         .tooltip_text("Ring your phone at full volume, even when it's on silent")
-        .child(&pill_content(
-            "speaker",
-            &["audio-volume-high-symbolic"],
-            "Ring",
-            "tile-orange",
-        ))
+        .child(
+            &adw::ButtonContent::builder()
+                .icon_name(ctx::icon(&[
+                    "continuum-ring-symbolic",
+                    "audio-volume-high-symbolic",
+                ]))
+                .label("Ring")
+                .build(),
+        )
         .build();
     let mirror = gtk::Button::builder()
         .css_classes(["pill"])
         .tooltip_text("Show your phone's screen here and use it with the mouse and keyboard")
-        .child(&pill_content(
-            "phone",
-            &["phone-symbolic"],
-            "Mirror",
-            "tile-purple",
-        ))
+        .child(
+            &adw::ButtonContent::builder()
+                .icon_name(ctx::icon(&["continuum-mirror-symbolic", "phone-symbolic"]))
+                .label("Mirror")
+                .build(),
+        )
         .build();
     let actions = gtk::Box::builder()
         .spacing(8)
@@ -246,14 +238,14 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     let nav = gtk::ListBox::builder()
         .css_classes(["navigation-sidebar"])
         .build();
-    for (_, title, icons, glyph, colour) in PAGES {
+    for (_, title, icons) in PAGES {
         let row = gtk::Box::builder()
             .spacing(12)
             .margin_top(10)
             .margin_bottom(10)
             .margin_start(6)
             .build();
-        row.append(&ctx::tile(glyph, icons, colour, false));
+        row.append(&gtk::Image::from_icon_name(ctx::icon(icons)));
         row.append(
             &gtk::Label::builder()
                 .label(*title)
@@ -1043,7 +1035,7 @@ fn update_features(ui: &Rc<Ui>, d: &Device) {
         if ui.ctx.device().map(|d| d.id) != Some(id) {
             return;
         }
-        for (i, (name, _, _, _, _)) in PAGES.iter().enumerate() {
+        for (i, (name, _, _)) in PAGES.iter().enumerate() {
             let cap = page_cap(name);
             let shown = caps.is_empty() || cap.is_empty() || caps.iter().any(|c| c == cap);
             if let Some(row) = ui.nav.row_at_index(i as i32) {

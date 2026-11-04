@@ -186,6 +186,10 @@ class ContinuumService : Service() {
                 ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(Link.state.value), type)
                 if (loop?.isActive != true) restart(null)
             }
+            ACTION_MIRROR -> {
+                scope.launch { requestMirror() }
+                if (loop?.isActive != true) restart(null) else wake.trySend(Unit)
+            }
             ACTION_SEND -> {
                 val uris = IntentCompat.getParcelableArrayListExtra(intent, EXTRA_URIS, Uri::class.java).orEmpty()
                 scope.launch { queueFiles(uris) }
@@ -698,6 +702,21 @@ class ContinuumService : Service() {
     }
 
     /** Sends a copied text or image to the computer, unless it just came from there. */
+    /** Asks the computer to open its mirror window for this phone (Mirror tile). */
+    private suspend fun requestMirror() {
+        val s = session ?: withTimeoutOrNull(10_000) {
+            Link.state.first { it is LinkState.Connected }
+            session
+        }
+        val sent = s != null && Protocol.CAP_MIRROR in peerCaps &&
+            runCatching { s.send(Envelope(io.github.sharjeelmazhar.continuum.proto.FeatureType.MIRROR_REQUEST)) }.isSuccess
+        if (!sent) {
+            android.os.Handler(mainLooper).post {
+                android.widget.Toast.makeText(this, R.string.mirror_tile_offline, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     private suspend fun sendClipboard(c: ClipContent) {
         if (c.digest == ClipSync.lastDigest) return
         val s = session ?: withTimeoutOrNull(15_000) {
@@ -896,12 +915,17 @@ class ContinuumService : Service() {
         const val ACTION_UNPAIR = "io.github.sharjeelmazhar.continuum.UNPAIR"
         const val EXTRA_URI = "uri"
         const val ACTION_SEND = "io.github.sharjeelmazhar.continuum.SEND"
+        const val ACTION_MIRROR = "io.github.sharjeelmazhar.continuum.MIRROR"
         const val EXTRA_URIS = "uris"
         private const val UPDATE_NOTIFICATION_ID = 2
         private const val WAKE_PREFIX = "continuum-wake 1 "
 
         fun start(context: Context) =
             ContextCompat.startForegroundService(context, Intent(context, ContinuumService::class.java))
+
+        /** Mirror tile: ask the paired computer to mirror this phone. */
+        fun requestMirror(context: Context) =
+            ContextCompat.startForegroundService(context, Intent(context, ContinuumService::class.java).setAction(ACTION_MIRROR))
 
         /**
          * Brings the connection back when Android restarts one of our helpers (notification

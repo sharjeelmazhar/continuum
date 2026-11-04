@@ -194,8 +194,12 @@ keyboard. Needs no developer options or USB debugging.
      `backspace`, `delete`, `enter`, `paste`, and `sync` (not an input: the desktop lost frames and
      asks for a key frame; works without remote control).
    - `{ "t": "text", "s" }`: 1-1000 characters typed into the focused field.
-4. Desktop → `mirror.stop {}`, or it closes the data connection. The phone keeps the permission
-   for 5 minutes, so the next `mirror.start` streams without asking.
+4. Desktop → `mirror.stop {}`, or it closes the data connection. The phone ends screen sharing
+   at once (0.5.9+; before, it kept the permission for 5 minutes), so its notification goes too.
+
+Phone → desktop `mirror.request {}` (0.5.9+, the phone's Mirror tile in Quick Settings): the
+desktop opens its mirror window for that phone, which then sends `mirror.start` as usual. At
+most one window per phone every 5 s.
 
 Phone → desktop `mirror.state { "state", "control" (bool: remote control is on) }`, with
 `state` one of `consent`, `started`, `denied`, `stopped`, `error`, `control` (only `control`

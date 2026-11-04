@@ -30,6 +30,8 @@ pub const NOTIF_REMOVED: &str = "notif.removed";
 pub const MIRROR_START: &str = "mirror.start";
 pub const MIRROR_STOP: &str = "mirror.stop";
 pub const MIRROR_STATE: &str = "mirror.state";
+/// Phone → desktop: the user asked on the phone (Quick Settings tile) to mirror it here.
+pub const MIRROR_REQUEST: &str = "mirror.request";
 
 /// Requests the desktop may send to the phone, with the capability each needs
 /// (see "Requests" in `docs/PROTOCOL.md`). Replies are `<type>.reply`.

@@ -164,6 +164,25 @@
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
+        <activity
+            android:name=".mirror.MirrorRequestActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <service
+            android:name=".mirror.MirrorTile"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_mirror"
+            android:label="@string/mirror_tile"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <service
             android:name=".dev.BankingModeTile"
             android:exported="true"

@@ -549,6 +549,7 @@ async fn session<R: AsyncRead + Unpin>(
                     });
                 }
             }
+            m::MIRROR_REQUEST => open_mirror_window(&device.id),
             m::SMS_CHANGED => daemon.emit(Event::Phone {
                 device: device.id.clone(),
                 kind: msg.kind,
@@ -578,4 +579,82 @@ async fn send(
     tx.send(msg)
         .await
         .map_err(|_| "connection closed".to_owned())
+}
+
+/// A window may open for a well-formed device id once per 5 seconds.
+fn mirror_request_allowed(
+    last: &mut std::collections::HashMap<String, std::time::Instant>,
+    device: &str,
+    now: std::time::Instant,
+) -> bool {
+    if device.is_empty() || !device.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return false;
+    }
+    if last
+        .get(device)
+        .is_some_and(|t| now.duration_since(*t) < std::time::Duration::from_secs(5))
+    {
+        return false;
+    }
+    last.insert(device.to_string(), now);
+    true
+}
+
+/// Opens Phone Mirroring for `device` (asked from the phone's Quick Settings tile). At most one
+/// window start per phone every few seconds, so a phone can't flood the desktop with windows.
+fn open_mirror_window(device: &str) {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::Instant;
+    static LAST: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+    let mut last = LAST.get_or_init(Default::default).lock().unwrap();
+    if !mirror_request_allowed(&mut last, device, Instant::now()) {
+        return;
+    }
+    drop(last);
+    // The UI sits next to the daemon (/usr/bin, ~/.local/bin, target/…).
+    let ui = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("continuum-ui")))
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| "continuum-ui".into());
+    match std::process::Command::new(ui)
+        .args(["--mirror", device])
+        .stdin(std::process::Stdio::null())
+        .spawn()
+    {
+        // Reap it when it closes.
+        Ok(mut child) => drop(std::thread::spawn(move || child.wait())),
+        Err(e) => tracing::warn!("can't open Phone Mirroring: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod mirror_request_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn one_window_per_phone_every_few_seconds() {
+        let mut last = Default::default();
+        let t = Instant::now();
+        assert!(mirror_request_allowed(&mut last, "ab12", t));
+        assert!(!mirror_request_allowed(
+            &mut last,
+            "ab12",
+            t + Duration::from_secs(2)
+        ));
+        assert!(mirror_request_allowed(
+            &mut last,
+            "cd34",
+            t + Duration::from_secs(2)
+        ));
+        assert!(mirror_request_allowed(
+            &mut last,
+            "ab12",
+            t + Duration::from_secs(6)
+        ));
+        assert!(!mirror_request_allowed(&mut last, "../x", t));
+        assert!(!mirror_request_allowed(&mut last, "", t));
+    }
 }

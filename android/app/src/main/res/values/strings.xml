@@ -121,6 +121,14 @@
     <string name="feature_notifs_body">See phone notifications on the computer</string>
     <string name="feature_files">Files</string>
     <string name="feature_files_body">Browse phone storage from the computer</string>
+    <string name="feature_photos_details">See all your phone\'s photos and videos on the computer, newest first.\n\n• On the computer, open Continuum and choose Gallery.\n• Open a photo to see it full size, or copy it and paste it anywhere.\n• Save photos and videos to the computer in one click.\n\nPhotos are read only when the computer asks for them, over your encrypted connection. Nothing is uploaded to the internet.</string>
+    <string name="feature_files_details">Browse your phone\'s storage from the computer, like a USB drive but over Wi-Fi.\n\n• On the computer, choose Phone Storage.\n• Open folders and download any file to the computer.\n• To send files the other way, use Send Files.\n\nAndroid calls this permission “All files access”. Continuum uses it only while you browse from your paired computer.</string>
+    <string name="feature_messages_details">Read and reply to your text messages (SMS) from the computer.\n\n• On the computer, choose Messages to see your conversations.\n• Type a reply there; your phone sends it as a normal text.\n\nMessages go only between your phone and your paired computer. They are never stored on a server.</string>
+    <string name="feature_notifs_details">See your phone\'s notifications on the computer as they arrive.\n\n• Reply to chats right from the notification, where the app allows it.\n• Use the notification\'s buttons, or dismiss it on the computer and it goes from the phone too.\n\nAndroid calls this permission “Notification access”. Notifications go only to your paired computer.</string>
+    <string name="feature_allow">Allow</string>
+    <string name="feature_state_allowed">Allowed</string>
+    <string name="feature_state_some">Partly allowed: only the photos you picked</string>
+    <string name="feature_state_missing">Not allowed yet</string>
     <string name="feature_allowed">Allowed</string>
     <string name="feature_some">Some</string>
     <string name="feature_blocked">Android won\'t ask again. Tap App info › Permissions and allow it there.</string>
@@ -212,8 +220,10 @@
     <string name="mirror_ask_text">Tap, then allow screen sharing</string>
     <string name="mirror_streaming">Showing your screen on %1$s</string>
     <string name="mirror_streaming_text">Everything on your screen is visible there</string>
-    <string name="mirror_ready">Ready to mirror on %1$s</string>
-    <string name="mirror_ready_text">Reopening the window on the computer won’t ask again for 5 minutes</string>
+    <string name="mirror_tile">Mirror to computer</string>
+    <string name="mirror_tile_offline">Can\'t reach your computer. Make sure Continuum is running there and both are on the same Wi-Fi.</string>
+    <string name="mirror_ready">Starting mirroring on %1$s</string>
+    <string name="mirror_ready_text">Goes away when mirroring stops</string>
     <string name="mirror_stop">Stop</string>
     <string name="remote_control_label">Continuum remote control</string>
     <string name="remote_control_summary">Use this phone from your computer while its screen is mirrored there</string>

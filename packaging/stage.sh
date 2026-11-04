@@ -22,6 +22,10 @@ for id in "$APP_ID" "$APP_ID.Mirror"; do
     put "$png" "usr/share/icons/hicolor/$size/apps/$id.png"
   done
 done
+# Continuum's symbolic icons (sidebar, buttons, top-bar menu).
+for svg in "$DATA"/icons/hicolor/scalable/actions/continuum*-symbolic.svg; do
+  put "$svg" "usr/share/icons/hicolor/scalable/actions/$(basename "$svg")"
+done
 put "$DATA/$APP_ID.Daemon.service" "usr/share/dbus-1/services/$APP_ID.Daemon.service"
 sed 's|^ExecStart=.*|ExecStart=/usr/bin/continuumd|' "$DATA/continuumd.service" > "$DEST/.unit"
 put "$DEST/.unit" usr/lib/systemd/user/continuumd.service && rm "$DEST/.unit"

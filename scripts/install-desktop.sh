@@ -30,6 +30,7 @@ if [ "${1:-}" = "--uninstall" ]; then
     "$SHARE/applications/$APP_ID.desktop" "$SHARE/icons/hicolor/scalable/apps/$APP_ID.svg" \
     "$SHARE"/icons/hicolor/*/apps/$APP_ID.png \
     "$SHARE/applications/$APP_ID.Mirror.desktop" "$SHARE"/icons/hicolor/*/apps/$APP_ID.Mirror.png \
+    "$SHARE"/icons/hicolor/scalable/actions/continuum*-symbolic.svg \
     "$SHARE/dbus-1/services/$APP_ID.Daemon.service" \
     "$SHARE/nautilus-python/extensions/continuum-nautilus.py" "$SHARE/kio/servicemenus/continuum-send.desktop"
   # Without this, a stale icon cache still lists the removed icons, and the system package's
@@ -61,6 +62,9 @@ for id in "$APP_ID" "$APP_ID.Mirror"; do
     size="$(basename "$(dirname "$(dirname "$png")")")"
     put "$png" "$SHARE/icons/hicolor/$size/apps/$id.png"
   done
+done
+for svg in "$DATA"/icons/hicolor/scalable/actions/continuum*-symbolic.svg; do
+  put "$svg" "$SHARE/icons/hicolor/scalable/actions/$(basename "$svg")"
 done
 put "$DATA/$APP_ID.Daemon.service" "$SHARE/dbus-1/services/$APP_ID.Daemon.service"
 put "$DATA/continuumd.service" "$UNITS/continuumd.service"

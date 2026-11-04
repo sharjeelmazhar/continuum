@@ -12,6 +12,10 @@ import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -137,12 +141,12 @@ fun FeaturesSection(refreshKey: Int) {
 
     val items = listOf(
         Feature(
-            Icons.Outlined.PhotoLibrary, stringResource(R.string.feature_photos), stringResource(R.string.feature_photos_body), photos,
+            Icons.Outlined.PhotoLibrary, stringResource(R.string.feature_photos), stringResource(R.string.feature_photos_body), stringResource(R.string.feature_photos_details), photos,
             hint = if (photosBlocked && photos == Access.Missing) stringResource(R.string.feature_blocked) else null,
             onAllow = { if (photosBlocked) openAppInfo(context) else photoRequest.launch(photoPermissions) },
         ),
         Feature(
-            Icons.Outlined.Folder, stringResource(R.string.feature_files), stringResource(R.string.feature_files_body), files,
+            Icons.Outlined.Folder, stringResource(R.string.feature_files), stringResource(R.string.feature_files_body), stringResource(R.string.feature_files_details), files,
             hint = if (filesBlocked && files == Access.Missing) stringResource(R.string.feature_blocked) else null,
             onAllow = {
                 when {
@@ -153,7 +157,7 @@ fun FeaturesSection(refreshKey: Int) {
             },
         ),
         Feature(
-            Icons.Outlined.Sms, stringResource(R.string.feature_messages), stringResource(R.string.feature_messages_body), sms,
+            Icons.Outlined.Sms, stringResource(R.string.feature_messages), stringResource(R.string.feature_messages_body), stringResource(R.string.feature_messages_details), sms,
             hint = when {
                 sms == Access.Allowed || !smsBlocked -> null
                 // Android 15+ treats texts as a restricted setting for apps not from a store.
@@ -163,7 +167,7 @@ fun FeaturesSection(refreshKey: Int) {
             onAllow = { if (smsBlocked) openAppInfo(context) else smsRequest.launch(smsPermissions) },
         ),
         Feature(
-            Icons.Outlined.Notifications, stringResource(R.string.feature_notifs), stringResource(R.string.feature_notifs_body), notifs,
+            Icons.Outlined.Notifications, stringResource(R.string.feature_notifs), stringResource(R.string.feature_notifs_body), stringResource(R.string.feature_notifs_details), notifs,
             hint = if (notifs == Access.Missing && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) stringResource(R.string.feature_notifs_hint) else null,
             onAllow = { NotifBridge.openSettings(context) },
         ),
@@ -193,6 +197,7 @@ private class Feature(
     val icon: ImageVector,
     val title: String,
     val body: String,
+    val details: String,
     val access: Access,
     val hint: String?,
     val onAllow: () -> Unit,
@@ -208,7 +213,9 @@ private fun FeatureTile(f: Feature, modifier: Modifier) {
         Access.Partial -> stringResource(R.string.feature_some)
         Access.Missing -> stringResource(R.string.feature_tap_allow)
     }
-    val click = if (allowed) Modifier else Modifier.clickable(role = Role.Button, onClick = f.onAllow)
+    var open by rememberSaveable { mutableStateOf(false) }
+    val click = Modifier.clickable(role = Role.Button, onClick = { open = true })
+    if (open) FeatureDetails(f, onClose = { open = false })
     Surface(
         shape = RoundedCornerShape(24.dp),
         color = container,
@@ -216,7 +223,11 @@ private fun FeatureTile(f: Feature, modifier: Modifier) {
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                SettingsTile(f.icon, size = 40.dp)
+                IconBadge(
+                    f.icon,
+                    tint = if (allowed) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onPrimary,
+                    container = if (allowed) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.primary,
+                )
                 Spacer(Modifier.weight(1f))
                 if (allowed) Icon(Icons.Filled.CheckCircle, contentDescription = status, tint = GoodGreen, modifier = Modifier.size(22.dp))
             }
@@ -230,4 +241,44 @@ private fun FeatureTile(f: Feature, modifier: Modifier) {
             }
         }
     }
+}
+
+/** What a feature does, how to use it and what Android permission it needs, with Allow if missing. */
+@Composable
+private fun FeatureDetails(f: Feature, onClose: () -> Unit) {
+    val allowed = f.access == Access.Allowed
+    AlertDialog(
+        onDismissRequest = onClose,
+        icon = { IconBadge(f.icon) },
+        title = { Text(f.title) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                FormattedText(f.details)
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (allowed) Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = GoodGreen, modifier = Modifier.size(18.dp))
+                    if (allowed) Spacer(Modifier.width(6.dp))
+                    Text(
+                        stringResource(
+                            when (f.access) {
+                                Access.Allowed -> R.string.feature_state_allowed
+                                Access.Partial -> R.string.feature_state_some
+                                Access.Missing -> R.string.feature_state_missing
+                            },
+                        ),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (allowed) GoodGreen else MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (allowed) {
+                TextButton(onClick = onClose) { Text(stringResource(R.string.done)) }
+            } else {
+                TextButton(onClick = { onClose(); f.onAllow() }) { Text(stringResource(R.string.feature_allow)) }
+            }
+        },
+        dismissButton = if (allowed) null else ({ TextButton(onClick = onClose) { Text(stringResource(R.string.cancel)) } }),
+    )
 }

@@ -24,9 +24,8 @@ data class MirrorState(val state: String, val control: Boolean)
 
 /**
  * Screen mirroring to the computer (docs/PROTOCOL.md, "Screen mirroring"): `mirror.start`
- * asks the user once (Android's "Start now"), then [MirrorService] streams the screen. The
- * permission is kept for a few minutes after the computer closes the window, so reopening it
- * needs no tap on the phone.
+ * asks the user (Android's "Start now"), then [MirrorService] streams the screen until either
+ * side stops.
  */
 object Mirror {
     /** The connection mirroring runs over: its computer's name, the control channel, a data socket. */

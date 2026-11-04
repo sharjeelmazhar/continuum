@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Quick Settings tile: the phone shown on the computer. White silhouette; Android tints it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M3,3.5h18a2,2 0,0 1,2 2v10.5a2,2 0,0 1,-2 2h-6.5v1.8h3V21.5H6.5v-1.7h3V18H3a2,2 0,0 1,-2 -2V5.5a2,2 0,0 1,2 -2zM3,5.5V16h18V5.5z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M10.2,7h3.6a1.2,1.2 0,0 1,1.2 1.2v5.6a1.2,1.2 0,0 1,-1.2 1.2h-3.6A1.2,1.2 0,0 1,9 13.8V8.2A1.2,1.2 0,0 1,10.2 7z" />
+</vector>

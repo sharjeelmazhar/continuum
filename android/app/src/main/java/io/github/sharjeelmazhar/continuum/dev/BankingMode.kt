@@ -76,6 +76,12 @@ object BankingMode {
         }
     }
 
+    /** Whether the Banking mode tile is in Quick Settings (Android tells the tile). */
+    fun tileAdded(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("tile", false)
+
+    fun setTileAdded(context: Context, added: Boolean) =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("tile", added).apply()
+
     /** Asks Android to put the Banking mode tile in Quick Settings (Android 13+). */
     fun addTile(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
@@ -87,7 +93,11 @@ object BankingMode {
                 context.getString(io.github.sharjeelmazhar.continuum.R.string.banking_title),
                 icon,
                 context.mainExecutor,
-            ) { result -> Log.i(TAG, "add tile: $result") }
+            ) { result ->
+                Log.i(TAG, "add tile: $result")
+                // 1 = already added, 2 = added.
+                if (result == 1 || result == 2) setTileAdded(context, true)
+            }
         }.onFailure { Log.i(TAG, "add tile failed: $it") }
     }
 
