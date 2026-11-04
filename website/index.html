@@ -10,6 +10,7 @@
 <meta property="og:description" content="Photos, messages, notifications, files and clipboard between Android and Linux. Open source, private, no cloud.">
 <meta property="og:image" content="img/photos.webp">
 <link rel="icon" href="img/logo.png">
+<script>try { const t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
 <style>
   :root {
     --bg: #0b0c10;
@@ -23,16 +24,13 @@
     --green: #34c759;
     --radius: 18px;
   }
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #f6f7fb;
-      --bg2: #ffffff;
-      --card: #ffffff;
-      --line: #e3e6ee;
-      --text: #12141b;
-      --dim: #5b6274;
-    }
-  }
+  :root { --shadow: 0 30px 80px rgba(0,0,0,.5); --shadow-soft: 0 18px 50px rgba(0,0,0,.45); --band: #101219; color-scheme: dark; }
+  @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
+      --bg: #f6f7fb; --bg2: #ffffff; --card: #ffffff; --line: #e3e6ee; --text: #12141b; --dim: #5b6274; --band: #eceef6;
+      --shadow: 0 24px 60px rgba(30,34,60,.13); --shadow-soft: 0 14px 34px rgba(30,34,60,.12); color-scheme: light; } }
+  :root[data-theme="light"] {
+      --bg: #f6f7fb; --bg2: #ffffff; --card: #ffffff; --line: #e3e6ee; --text: #12141b; --dim: #5b6274; --band: #eceef6;
+      --shadow: 0 24px 60px rgba(30,34,60,.13); --shadow-soft: 0 14px 34px rgba(30,34,60,.12); color-scheme: light; }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; } }
@@ -59,18 +57,19 @@
   nav .links a { text-decoration: none; color: var(--dim); padding: 10px 10px; border-radius: 10px; }
   nav .links a:hover { color: var(--text); }
   nav .links a.gh { color: var(--text); border: 1px solid var(--line); padding: 9px 14px; border-radius: 999px; }
+  nav .links { align-items: center; }
   @media (max-width: 680px) { nav .links a:not(.gh) { display: none; } }
 
-  header { text-align: center; padding: 76px 0 40px; position: relative; overflow: hidden; }
+  header { text-align: center; padding: 44px 0 30px; position: relative; overflow: hidden; }
   header::before { content: ""; position: absolute; inset: -40% -10% auto; height: 560px; z-index: -1;
     background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 38%, transparent), transparent),
                 radial-gradient(closest-side at 70% 60%, color-mix(in srgb, var(--accent2) 26%, transparent), transparent); }
-  header img.logo { width: 104px; height: 104px; filter: drop-shadow(0 12px 40px rgba(124,108,255,.45)); }
-  h1 { font-size: clamp(32px, 6.4vw, 68px); line-height: 1.05; letter-spacing: -0.035em; margin: 22px 0 14px; }
+  header img.logo { width: 76px; height: 76px; filter: drop-shadow(0 12px 40px rgba(124,108,255,.45)); }
+  h1 { font-size: clamp(32px, 6.4vw, 68px); line-height: 1.05; letter-spacing: -0.035em; margin: 16px 0 12px; }
   h1 span { background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .lead { color: var(--dim); font-size: clamp(17px, 2.2vw, 21px); max-width: 720px; margin: 0 auto; }
 
-  .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin: 32px 0 10px; }
+  .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin: 24px 0 8px; }
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 48px; padding: 12px 22px; border-radius: 999px;
          text-decoration: none; font-weight: 650; border: 1px solid var(--line); background: var(--card); color: var(--text);
          font: inherit; font-weight: 650; cursor: pointer; transition: transform .15s ease; }
@@ -81,9 +80,8 @@
   @media (max-width: 420px) { .cta .btn { width: 100%; } }
   .meta { color: var(--dim); font-size: 14px; min-height: 22px; }
 
-  .shot { margin: 44px auto 0; max-width: 1040px; border-radius: 14px; overflow: hidden;
-          box-shadow: 0 30px 80px rgba(0,0,0,.45), 0 0 0 1px var(--line); }
-  .shot img { display: block; width: 100%; height: auto; }
+  .shot { margin: 36px auto 0; max-width: 1040px; }
+  .shot img { display: block; width: 100%; height: auto; filter: drop-shadow(var(--shadow-soft)); }
 
   section { padding: 88px 0 0; scroll-margin-top: 40px; }
   h2 { font-size: clamp(28px, 4vw, 40px); line-height: 1.15; letter-spacing: -0.025em; margin: 0 0 10px; text-align: center; }
@@ -114,7 +112,6 @@
   .mode button:hover { color: var(--text); }
   .mode button[aria-pressed="true"] { background: var(--text); color: var(--bg); }
   .mode svg { width: 16px; height: 16px; }
-  .phone .mode-row { margin: 22px 0 0; }
 
   .phone { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: center; }
   .phone .pics { display: flex; justify-content: center; gap: 18px; }
@@ -153,8 +150,25 @@
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
   .chips span { font-size: 13px; color: var(--dim); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }
 
-  .shot video { display: block; width: 100%; height: auto; aspect-ratio: 1280 / 720; background: #1d1f26; }
-  .shot.video { margin-top: 0; }
+  .shot.video { max-width: 1120px; border-radius: 26px; overflow: hidden; box-shadow: var(--shadow);
+                outline: 1px solid color-mix(in srgb, var(--line) 70%, transparent); outline-offset: -1px; }
+  .shot video { display: block; width: 100%; height: auto; aspect-ratio: 1600 / 846; background: var(--bg2); }
+  .badge { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px; padding: 6px 14px 6px 8px; border-radius: 999px;
+           border: 1px solid var(--line); background: color-mix(in srgb, var(--card) 80%, transparent); font-size: 14px; color: var(--dim); text-decoration: none; }
+  .badge b { color: white; background: linear-gradient(135deg, var(--accent), var(--accent2)); border-radius: 999px; padding: 2px 9px; font-size: 12px; letter-spacing: .02em; }
+  .badge:hover { color: var(--text); }
+  .band { background: var(--band); padding-bottom: 88px; margin-top: 88px; }
+  .card { transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
+  .grid .card:hover, .built .card:hover, .stat:hover { transform: translateY(-3px); box-shadow: var(--shadow-soft); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+  .grid .card.big { grid-column: span 2; padding: 28px; background:
+      linear-gradient(var(--card), var(--card)) padding-box,
+      linear-gradient(135deg, color-mix(in srgb, var(--accent) 70%, transparent), color-mix(in srgb, var(--accent2) 60%, transparent)) border-box;
+      border: 1px solid transparent; }
+  .grid .card.big h3 { font-size: 22px; }
+  .grid .card.big p { font-size: 16px; }
+  @media (max-width: 560px) { .grid .card.big { grid-column: auto; padding: 18px; } .grid .card.big h3 { font-size: 18px; } }
+  nav .mode button { min-height: 34px; padding: 5px 10px; font-size: 13px; }
+  @media (max-width: 680px) { nav .mode button span { display: none; } }
   .note { text-align: center; color: var(--dim); font-size: 14px; margin: 14px auto 0; max-width: 680px; }
 
   .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
@@ -186,6 +200,10 @@
       <a href="#setup">Install</a>
       <a href="#privacy">Privacy</a>
       <a class="gh" href="https://github.com/sharjeelmazhar/continuum">GitHub</a>
+      <div class="mode" role="group" aria-label="Light or dark page">
+        <button type="button" data-mode="light" aria-pressed="false" title="Light"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg><span>Light</span></button>
+        <button type="button" data-mode="dark" aria-pressed="true" title="Dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg><span>Dark</span></button>
+      </div>
     </div>
   </div>
 </nav>
@@ -193,8 +211,9 @@
 <header>
   <div class="wrap">
     <img class="logo" src="img/logo.png" alt="Continuum logo">
+    <div><a class="badge" href="#demo"><b>NEW</b> Phone mirroring in 0.5.10</a></div>
     <h1>Your Android phone,<br><span>at home on Linux.</span></h1>
-    <p class="lead">Phone mirroring, photos and videos, messages, notifications with quick reply, phone storage, files at full Wi-Fi speed and one clipboard across your phone and your GNOME desktop. Like Phone Link and Apple Continuity, but open source and private.</p>
+    <p class="lead">Mirror and use your phone from the desktop. Photos, messages, notifications, files at full Wi-Fi speed and one clipboard, on GNOME. Like Phone Link and Apple Continuity, but open source and private.</p>
     <div class="cta">
       <a class="btn primary" id="dl-apk" href="https://github.com/sharjeelmazhar/continuum/releases/latest/download/Continuum.apk">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.6 9.48l1.84-3.18a.38.38 0 0 0-.66-.38l-1.86 3.22a11.5 11.5 0 0 0-9.84 0L5.22 5.92a.38.38 0 0 0-.66.38L6.4 9.48A10.8 10.8 0 0 0 1 18h22a10.8 10.8 0 0 0-5.4-8.52zM7 15.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5zm10 0a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5z"/></svg>
@@ -206,32 +225,20 @@
       </a>
     </div>
     <div class="meta" id="release-meta">Free and open source (GPL-3.0)</div>
-    <div class="shot"><img id="hero-img" src="img/photos.webp" alt="Continuum on GNOME showing a phone's photo gallery" width="1180" height="780" fetchpriority="high"></div>
+    <div class="shot video" id="demo"><video id="demo-video" autoplay muted loop playsinline preload="auto" width="1600" height="846"
+      poster="video/mirror-dark.webp" aria-label="Screen recording: Continuum on GNOME with the phone mirrored in a window and used with the mouse">
+      <source src="video/mirror-dark.mp4" type="video/mp4"></video></div>
+    <p class="note">A real screen recording, sped up 1.5×: the desktop app, and the phone mirrored next to it and used with the mouse. Recorded with the Android emulator and demo photos; a real phone mirrors at up to 60 fps.</p>
   </div>
 </header>
-
-<section id="demo">
-  <div class="wrap">
-    <h2>Your phone, live on your desktop</h2>
-    <p class="sub">A real screen recording, not an animation. Click Mirror, and the phone's screen opens in its own window. Then just use it with your mouse: open an app, swipe through photos, swipe up to go home.</p>
-    <div class="mode-row"><div class="mode" role="group" aria-label="Show the app in light or dark style">
-      <button type="button" data-mode="light" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>Light</button>
-      <button type="button" data-mode="dark" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>Dark</button>
-    </div></div>
-    <div class="shot video"><video id="demo-video" autoplay muted loop playsinline preload="metadata" width="1280" height="720"
-      poster="video/mirror-dark.webp" aria-label="Screen recording: Continuum on GNOME, the phone mirrored in a window and controlled with the mouse">
-      <source src="video/mirror-dark.mp4" type="video/mp4"></video></div>
-    <p class="note">Recorded on GNOME with the Android emulator and demo photos. A real phone's hardware encoder mirrors at up to 60 fps.</p>
-  </div>
-</section>
 
 <section id="features">
   <div class="wrap">
     <h2>Everything on your phone, one click away</h2>
     <p class="sub">Open the app, or use the Continuum tile in GNOME Quick Settings, right next to Wi-Fi and Bluetooth.</p>
     <div class="grid">
-      <div class="card"><div class="ico">📱</div><h3>Phone mirroring</h3><p>Your phone's screen in its own window on the PC, at up to 60 fps. Use it with the mouse and keyboard, or start it from the phone's Quick Settings. No cable, no USB debugging.</p></div>
-      <div class="card"><div class="ico">🏦</div><h3>Banking mode</h3><p>Banking apps that refuse to open with developer options on? After a one-time setup, one tap in Quick Settings switches them off, and back on when you're done.</p></div>
+      <div class="card big"><div class="ico">📱</div><h3>Phone mirroring</h3><p>Your phone's screen in its own window on the PC, at up to 60 fps. Tap, swipe, scroll and type with your mouse and keyboard, or start it from the phone's Quick Settings. No cable, no USB debugging.</p></div>
+      <div class="card big"><div class="ico">🏦</div><h3>Banking mode</h3><p>Banking apps that refuse to open with developer options on? After a one-time setup, one tap in Quick Settings switches them off, and back on when you're done.</p></div>
       <div class="card"><div class="ico">🖼️</div><h3>Gallery</h3><p>Your photos and videos, with videos playing right in the app. Select several and copy them straight into Files or a chat.</p></div>
       <div class="card"><div class="ico">💬</div><h3>Messages</h3><p>Your SMS conversations with contact photos. Reply from the keyboard you're already typing on, with typing help.</p></div>
       <div class="card"><div class="ico">🔔</div><h3>Notifications</h3><p>Phone notifications on the desktop with quick reply and their own buttons. Dismiss one and it's gone from the phone too.</p></div>
@@ -248,7 +255,7 @@
   </div>
 </section>
 
-<section id="look">
+<section id="look" class="band">
   <div class="wrap">
     <h2>A native GNOME app</h2>
     <p class="sub">Built with GTK 4 and libadwaita, so it fits right in, in light and dark.</p>
@@ -258,10 +265,6 @@
       <button role="tab" aria-selected="false" aria-controls="tab-img" data-img="notifications" data-alt="Notifications: phone notifications with quick reply">Notifications</button>
       <button role="tab" aria-selected="false" aria-controls="tab-img" data-img="storage" data-alt="Phone Storage: the phone's folders">Phone Storage</button>
     </div>
-    <div class="mode-row"><div class="mode" role="group" aria-label="Show the app in light or dark style">
-      <button type="button" data-mode="light" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>Light</button>
-      <button type="button" data-mode="dark" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>Dark</button>
-    </div></div>
     <div class="shot" style="margin-top:0"><img id="tab-img" role="tabpanel" src="img/photos.webp" alt="Gallery: the phone's photos and videos" width="1180" height="780" loading="lazy"></div>
   </div>
 </section>
@@ -278,10 +281,6 @@
         <img data-phone="phone-settings" src="img/phone-settings.webp" alt="The Continuum phone app's settings" width="540" height="1202" loading="lazy">
       </picture>
     </div>
-    <div class="mode-row phone-mode"><div class="mode" role="group" aria-label="Show the app in light or dark style">
-      <button type="button" data-mode="light" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>Light</button>
-      <button type="button" data-mode="dark" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>Dark</button>
-    </div></div>
     <div class="text">
       <h2>A phone app that stays out of the way</h2>
       <p class="sub">Set it up once. After that it reconnects by itself whenever you're home, even after a reboot.</p>
@@ -295,7 +294,7 @@
   </div>
 </section>
 
-<section id="speed">
+<section id="speed" class="band">
   <div class="wrap">
     <h2>Fast, measured on real phones</h2>
     <p class="sub">Measured at home: PC on gigabit Ethernet, phone on a Wi-Fi 6 router's 5 GHz band, random 2–2.5 GB files that arrived byte for byte.</p>
@@ -366,7 +365,12 @@
 <script>
   // Light or dark app screenshots: follows the visitor's system, and the Light/Dark buttons switch it.
   // Desktop shots are dark by default (name-light.webp for light); phone shots the other way round.
-  let mode = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  // The whole page follows the system theme; the Light/Dark switch in the bar overrides it (remembered).
+  const sysLight = matchMedia('(prefers-color-scheme: light)');
+  let saved = null;
+  try { saved = localStorage.getItem('theme'); } catch (e) {}
+  let mode = saved === 'light' || saved === 'dark' ? saved : (sysLight.matches ? 'light' : 'dark');
+  sysLight.addEventListener('change', e => { if (!saved) { mode = e.matches ? 'light' : 'dark'; applyMode(); } });
   const desktopImg = name => 'img/' + name + (mode === 'light' ? '-light' : '') + '.webp';
   const phoneImg = name => 'img/' + name + (mode === 'dark' ? '-dark' : '') + '.webp';
   document.querySelectorAll('.pics source').forEach(s => s.remove());
@@ -375,7 +379,8 @@
     v.removeAttribute('autoplay'); v.controls = true;
   }
   const applyMode = () => {
-    document.getElementById('hero-img').src = desktopImg('photos');
+    if (saved) document.documentElement.dataset.theme = mode; else delete document.documentElement.dataset.theme;
+    document.querySelector('meta[name="theme-color"]').content = mode === 'light' ? '#f6f7fb' : '#0b0c10';
     const v = document.getElementById('demo-video');
     const want = 'video/mirror-' + mode + '.mp4';
     if (v && !v.currentSrc.endsWith(want)) {
@@ -389,7 +394,8 @@
     document.querySelectorAll('.mode button').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === mode));
   };
   document.querySelectorAll('.mode button').forEach(b => b.addEventListener('click', () => {
-    mode = b.dataset.mode;
+    mode = saved = b.dataset.mode;
+    try { localStorage.setItem('theme', mode); } catch (e) {}
     applyMode();
     tabs.forEach(t => { new Image().src = desktopImg(t.dataset.img); });
   }));
@@ -435,7 +441,7 @@
       const apk = asset(/^Continuum-.*\.apk$/);
       const v = rel.tag_name.replace(/^v/, '');
       // The buttons keep the fixed releases/latest link, so a stale answer here can't point at an old app.
-      const date = new Date(rel.published_at).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+      const date = new Date(rel.published_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
       document.getElementById('release-meta').textContent =
         `Version ${v} · ${date}` + (apk ? ` · ${(apk.size / 1e6).toFixed(1)} MB` : '') + ' · Free and open source';
     })
