@@ -3,22 +3,42 @@
 > Read this first in every session. Update it before ending a session.
 
 ## Current
-- **Milestone:** v0.5.0 (3 November 2026): Phone Link-style app (photos/videos, messages,
-  notifications with quick reply, phone storage, ring, files-to-clipboard, GNOME Quick Settings
-  tile), website on GitHub Pages (`website/`, `.github/workflows/pages.yml`), prebuilt desktop
-  bundle in releases.
+- **Milestone:** v0.5.10 (4 November 2026): Phone Mirroring (M9: own app and dock icon,
+  borderless rounded window, live mouse/keyboard control, Mirror tile on the phone, Mirror Phone
+  in GNOME Quick Settings) and Banking mode, on top of the v0.5 Phone Link-style app. Website on
+  GitHub Pages (`website/`), desktop bundle + deb/rpm/Arch + apt/dnf/pacman repos per release.
+- **How to release:** bump `desktop/Cargo.toml` version, write `.github/release-notes/vX.Y.Z.md`,
+  push main, wait for CI, then push tag `vX.Y.Z`. The Release workflow builds the signed APK
+  (versionCode = major*10000+minor*100+patch), bundle and packages, and triggers Pages for the
+  repos and site. Local test builds: `assembleRelease -PversionCode=… -PversionName=…` with the
+  key env vars (see CLAUDE.local.md); deb: first 41 lines of packaging/build-packages.sh.
 - **Distro test (resumable):** serve a local site first (`/data2/vms/continuum-test/site`, built with packaging/build-packages.sh + build-repos.sh + website/install.sh; `python3 -m http.server 8000 --bind 192.168.122.1 -d /data2/vms/continuum-test/site`), then `VM_DIR=/data2/vms KEEP=1 SITE=http://192.168.122.1:8000 scripts/test-distros.sh`; after release, without SITE (fedora, arch, ubuntu GNOME VMs; reruns skip finished steps; results in /data2/vms/continuum-test/<distro>/result.txt).
-- **Next task:** M9 follow-ups after v0.5.9: confirm Banking mode with a second banking app, a live
-  drag test of the mirror resize grips, test on a Samsung phone. Then: VA-API decoding,
-  a desktop "Set up banking mode" button that runs the one-time adb grant. After that:
-  measure v0.5.2 raw downloads on a fast phone (S24 Ultra got 57 MB/s PC->phone,
-  36 MB/s phone->PC with the old base64 path); check the model-code table in
-  continuum-ui/src/models.rs against real devices. Then, in order of value:
+- **Next task:** `phone-ping` (owner's helper in ~/.local/bin) sends through GSConnect, which is
+  no longer installed, so pings fail silently: add a desktop → phone "show this notification"
+  message to Continuum (e.g. `notify.show`, rate-limited, plain text) and point phone-ping at
+  it. Then M9 follow-ups: confirm Banking mode with a second banking app, a live drag test of
+  the mirror resize grips, test on a Samsung phone, measure end-to-end mirror latency. Then:
+  VA-API decoding; a desktop "Set up banking mode" button that runs the one-time adb grant.
+  After that: measure raw downloads on a fast phone (S24 Ultra); check continuum-ui/src/models.rs
+  against real devices. Then, in order of value:
   1. Notification allowlist (per-app mute, from PC and phone); hide content while locked.
   2. Photo viewer next/previous; message search.
-  3. Calls (M8), then phone mirroring (M9).
+  3. Calls (M8).
   4. Leftovers: MIUI watchdog; Android 8-9 TLS; 6-digit pairing; re-announce after suspend;
      transfer speed plan (`docs/benchmarks/transfer-speed.md`).
+- **Mirroring facts (for debugging):** phone → desktop stream is length-prefixed H.264 on a data
+  connection (docs/PROTOCOL.md "Screen mirroring"). Desktop debug: `CONTINUUM_MIRROR_DEBUG=1
+  continuum-ui --mirror <id>` (fps, Mbit/s, skipped, and why a stream ended). Phone debug:
+  `adb shell setprop log.tag.Continuum DEBUG`, then `adb logcat --pid=<pid> -s Continuum`
+  (YouTube floods the shared log, so filter by pid live). Video apps take the hardware encoder
+  (CodecException 0xffffffe0): the phone restarts smaller (REDUCED_MAX 1600), then in software
+  (SOFTWARE_MAX 1280), full size again every 30 s. On the test Redmi the largest 60 fps size is
+  832x1850. Xiaomi phones ask on screen to confirm every `adb install` (owner must tap).
+- **Owner preferences learned:** auto-rotate stays off and the phone's Quick Settings order must
+  not change (never `cmd statusbar add-tile` on the real phone; check `mCurrentRotation` before
+  any `input tap`); no coloured icon tiles (plain symbolic icons, Continuum's own set in
+  desktop/data/icons/hicolor/scalable/actions); settings show only what still needs doing
+  (except remote control, always shown); explanations as formatted dialogs.
 - **Known limits:** Ring can lift the phone's Do Not Disturb only up to Android 14 (Android 15+
   forbids it; alarms still ring through the default "Priority" DND, not "Total silence").
   Android won't let an app hide its own foreground notification: "In the notification shade" off
@@ -42,12 +62,13 @@
 | M6 | Universal clipboard | ✅ (real-phone check of auto copy pending) |
 | M7 | Notifications (allowlist, quick reply) | 🟡 mirror, popup Reply, dismiss done; allowlist next |
 | M8 | Calls (iOS-style banner, accept/decline) | ☐ |
-| M9 | Phone mirroring (borderless rounded window) | 🟡 emulator done; real phone next |
+| M9 | Phone mirroring (borderless rounded window) | ✅ v0.5.9-0.5.10 (latency measurement, Samsung test left) |
 | M10 | Settings, shell tile, find phone, media | ☐ |
 | M10b | KDE Plasma support (Dolphin menu, tray widget) | ☐ |
 | M11 | Hardening and release | ☐ |
 
 ## Log (newest first)
+- 4 November 2026: v0.5.10. Mirroring survived YouTube: video apps take the phone's hardware encoder; now rebuilt on the same connection (smaller hardware, then software, full size every 30 s). Full 60 fps resolution and ~0.2 bit/pixel bitrate (up to 50 Mbit/s, encoder-capped, RateControl backs off). Wi-Fi lock (power save off), URGENT_DISPLAY encoder thread, Qualcomm low-latency vendor key. Desktop logs why a stream ended. Tested on the Redmi: 20 Shorts swipes without a drop, 720x1600 hardware at ~55-60 fps during video. Found phone-ping broken (GSConnect gone).
 - 4 November 2026: v0.5.9 released (Phone Mirroring, Banking mode, Mirror tile, fixes). CI and Release green; APK, desktop bundle, deb/rpm/Arch on the release; apt/dnf/pacman repos and website updated.
 - 4 November 2026: review + fixes before 0.5.9. Desktop announces `mirror.view` (it never advertised mirroring, so the phone's Mirror tile gave up); the phone sends heartbeats / `mirror.request` only to such desktops (older desktops ended the stream on a zero-length frame). Mirror tile asks "Start now" right away and keeps the permission 30 s for the computer; tested end to end on the Android 17 emulator (tile -> PC window -> stream -> close -> notification and service gone). Hint detection never wipes text in fields without selection support. Banking mode keeps saved helpers if switched on twice and matches accessibility entries in short or long form. Remote control row always visible (security). Resize grips measured in surface coordinates (no swinging). Pairing refused while the port isn't bound yet. Stop-then-start race fixed (`stopping`).
 - 4 November 2026: M9 polish on the real Redmi. Banking mode confirmed with a real banking app (opens with it on, warns with it off); it also pauses Continuum's accessibility helpers because banking apps check enabled accessibility services. Mirror window: resize from edges/corners keeping the phone's shape, round red close, closes by itself when sharing ends after it was live (no frozen picture). Lag skip now needs a backlog that lasts 250 ms or 10+ frames: Wi-Fi bursts had made it drop ~half the frames (26 → ~50 fps in motion, 0 skipped). Phone reconnects after an app update even where MY_PACKAGE_REPLACED isn't delivered (MIUI): the notification listener and remote-control service restart the connection. Icons: macOS-style coloured tiles with Continuum's own solid SVG glyphs (desktop sidebar, Mirror/Ring), iOS-style coloured tiles in Android settings and the home screen (same colour per feature on both), Quick Settings tiles get their own bank / clipboard icons, new Phone Mirroring app icon.
