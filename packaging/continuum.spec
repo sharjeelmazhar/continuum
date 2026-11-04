@@ -34,6 +34,8 @@ fi
 /usr/bin/continuum-ui
 /usr/share/applications/io.github.sharjeelmazhar.Continuum.desktop
 /usr/share/icons/hicolor/*/apps/io.github.sharjeelmazhar.Continuum.png
+/usr/share/applications/io.github.sharjeelmazhar.Continuum.Mirror.desktop
+/usr/share/icons/hicolor/*/apps/io.github.sharjeelmazhar.Continuum.Mirror.png
 /usr/share/dbus-1/services/io.github.sharjeelmazhar.Continuum.Daemon.service
 /usr/lib/systemd/user/continuumd.service
 /usr/lib/systemd/user/continuumd-update.path

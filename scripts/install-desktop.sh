@@ -29,8 +29,12 @@ if [ "${1:-}" = "--uninstall" ]; then
   rm -f "$BIN/continuumd" "$BIN/continuum-ui" "$UNITS/continuumd.service" \
     "$SHARE/applications/$APP_ID.desktop" "$SHARE/icons/hicolor/scalable/apps/$APP_ID.svg" \
     "$SHARE"/icons/hicolor/*/apps/$APP_ID.png \
+    "$SHARE/applications/$APP_ID.Mirror.desktop" "$SHARE"/icons/hicolor/*/apps/$APP_ID.Mirror.png \
     "$SHARE/dbus-1/services/$APP_ID.Daemon.service" \
     "$SHARE/nautilus-python/extensions/continuum-nautilus.py" "$SHARE/kio/servicemenus/continuum-send.desktop"
+  # Without this, a stale icon cache still lists the removed icons, and the system package's
+  # icon shows blank in the dock.
+  gtk-update-icon-cache -q -f -t "$SHARE/icons/hicolor" 2>/dev/null || true
   gnome-extensions disable "$EXT" 2>/dev/null || true
   rm -rf "$SHARE/gnome-shell/extensions/$EXT"
   systemctl --user daemon-reload
@@ -49,11 +53,14 @@ fi
 echo "==> Installing"
 put "$ROOT/desktop/target/release/continuumd" "$BIN/continuumd" 755
 put "$ROOT/desktop/target/release/continuum-ui" "$BIN/continuum-ui" 755
-put "$DATA/$APP_ID.desktop" "$SHARE/applications/$APP_ID.desktop"
 rm -f "$SHARE/icons/hicolor/scalable/apps/$APP_ID.svg" # old icon (before v0.4)
-for png in "$DATA"/icons/hicolor/*/apps/$APP_ID.png; do
-  size="$(basename "$(dirname "$(dirname "$png")")")"
-  put "$png" "$SHARE/icons/hicolor/$size/apps/$APP_ID.png"
+# Continuum, and Phone Mirroring (its own app and dock icon).
+for id in "$APP_ID" "$APP_ID.Mirror"; do
+  put "$DATA/$id.desktop" "$SHARE/applications/$id.desktop"
+  for png in "$DATA"/icons/hicolor/*/apps/$id.png; do
+    size="$(basename "$(dirname "$(dirname "$png")")")"
+    put "$png" "$SHARE/icons/hicolor/$size/apps/$id.png"
+  done
 done
 put "$DATA/$APP_ID.Daemon.service" "$SHARE/dbus-1/services/$APP_ID.Daemon.service"
 put "$DATA/continuumd.service" "$UNITS/continuumd.service"

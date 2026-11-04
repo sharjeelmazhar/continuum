@@ -14,10 +14,13 @@ put() { install -D -m "${3:-644}" "$1" "$DEST/$2"; }
 
 put "$BIN/continuumd" usr/bin/continuumd 755
 put "$BIN/continuum-ui" usr/bin/continuum-ui 755
-put "$DATA/$APP_ID.desktop" "usr/share/applications/$APP_ID.desktop"
-for png in "$DATA"/icons/hicolor/*/apps/$APP_ID.png; do
-  size="$(basename "$(dirname "$(dirname "$png")")")"
-  put "$png" "usr/share/icons/hicolor/$size/apps/$APP_ID.png"
+# Continuum, and Phone Mirroring (its own app and dock icon).
+for id in "$APP_ID" "$APP_ID.Mirror"; do
+  put "$DATA/$id.desktop" "usr/share/applications/$id.desktop"
+  for png in "$DATA"/icons/hicolor/*/apps/$id.png; do
+    size="$(basename "$(dirname "$(dirname "$png")")")"
+    put "$png" "usr/share/icons/hicolor/$size/apps/$id.png"
+  done
 done
 put "$DATA/$APP_ID.Daemon.service" "usr/share/dbus-1/services/$APP_ID.Daemon.service"
 sed 's|^ExecStart=.*|ExecStart=/usr/bin/continuumd|' "$DATA/continuumd.service" > "$DEST/.unit"

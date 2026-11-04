@@ -127,6 +127,8 @@ struct Mirror {
     /// The phone can be controlled (its Accessibility helper is on).
     control: Cell<bool>,
     closed: Cell<bool>,
+    /// The picture is showing.
+    live: Cell<bool>,
 }
 
 impl Mirror {
@@ -280,6 +282,7 @@ impl Mirror {
             scroll_due: Cell::new(false),
             control: Cell::new(true),
             closed: Cell::new(false),
+            live: Cell::new(false),
         });
         m.resize();
 
@@ -689,6 +692,11 @@ impl Mirror {
                 let body: serde_json::Value = serde_json::from_str(args.body).unwrap_or_default();
                 let state = body["state"].as_str().unwrap_or("");
                 m.control.set(body["control"].as_bool().unwrap_or(false));
+                // Status travels apart from the video and can arrive after the picture is up:
+                // once it's live, only an ending (stopped, denied, error) may cover it.
+                if m.live.get() && matches!(state, "consent" | "started" | "control") {
+                    continue;
+                }
                 if state == "started" {
                     m.show_status(Some(&format!("Starting {}…", m.device.name)), true);
                     if !m.control.get() {
@@ -823,6 +831,7 @@ impl Mirror {
             let n = stats.frames.load(Ordering::Relaxed);
             if n > 0 && p.is_some_and(|p| p.intrinsic_width() > 0) && m.status.is_visible() {
                 m.show_status(None, false);
+                m.live.set(true);
                 m.screen.grab_focus();
             }
             glib::ControlFlow::Continue

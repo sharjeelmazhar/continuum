@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Phone Mirroring
+Comment=Use your Android phone from this computer
+Exec=continuum-ui --mirror
+Icon=io.github.sharjeelmazhar.Continuum.Mirror
+Terminal=false
+Type=Application
+Categories=Utility;Network;GTK;
+Keywords=phone;android;mirror;screen;scrcpy;continuity;
+StartupNotify=true
+StartupWMClass=io.github.sharjeelmazhar.Continuum.Mirror

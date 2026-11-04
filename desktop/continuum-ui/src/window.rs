@@ -1032,7 +1032,20 @@ fn mirror_phone(ui: &Rc<Ui>) {
     else {
         return;
     };
-    crate::mirror::open(&app, p, d);
+    // Phone Mirroring runs as its own app, so it gets its own icon in the dock.
+    let spawned = std::env::current_exe().and_then(|exe| {
+        std::process::Command::new(exe)
+            .arg("--mirror")
+            .arg(&d.id)
+            .spawn()
+    });
+    match spawned {
+        // Reap it when it exits, without blocking the window.
+        Ok(mut child) => {
+            std::thread::spawn(move || child.wait());
+        }
+        Err(_) => crate::mirror::open(&app, p, d),
+    }
 }
 
 fn ring_phone(ui: &Rc<Ui>) {
