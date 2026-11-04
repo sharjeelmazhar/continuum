@@ -331,6 +331,12 @@ class MirrorService : Service() {
             val codec = (if (software) softwareEncoder() else null) ?: MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
             var surface: Surface? = null
             try {
+                // Android may hand out a software encoder when no hardware one is free: treat it
+                // as one (smaller picture, retry hardware later).
+                if (isSoftware(codec.codecInfo) && !software) {
+                    software = true
+                    softwareSince = System.nanoTime()
+                }
                 val caps = codec.codecInfo.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).videoCapabilities
                 // Software encoders are slower: a smaller picture keeps the frame rate up.
                 val max = if (software) minOf(req.max, SOFTWARE_MAX) else req.max
@@ -428,11 +434,13 @@ class MirrorService : Service() {
             }
         }
 
+        private fun isSoftware(c: android.media.MediaCodecInfo) =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) c.isSoftwareOnly else c.name.startsWith("OMX.google.") || c.name.startsWith("c2.android.")
+
         /** The phone's built-in software H.264 encoder (needs no hardware), or null. */
         private fun softwareEncoder(): MediaCodec? = runCatching {
             val info = android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos.firstOrNull { c ->
-                c.isEncoder && MediaFormat.MIMETYPE_VIDEO_AVC in c.supportedTypes.map { it.lowercase() } &&
-                    (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) c.isSoftwareOnly else c.name.startsWith("OMX.google.") || c.name.startsWith("c2.android."))
+                c.isEncoder && MediaFormat.MIMETYPE_VIDEO_AVC in c.supportedTypes.map { it.lowercase() } && isSoftware(c)
             } ?: return@runCatching null
             MediaCodec.createByCodecName(info.name)
         }.getOrNull()
