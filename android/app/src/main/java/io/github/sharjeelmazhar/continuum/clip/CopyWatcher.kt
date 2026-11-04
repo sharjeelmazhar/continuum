@@ -30,6 +30,8 @@ class CopyWatcher : AccessibilityService() {
     private var overlay: View? = null
     private var pending = false
     private var armedUntil = 0L
+    private var armedAt = 0L
+    private var armedPackage: CharSequence? = null
 
     private val copyWords: Set<String> by lazy {
         val local = runCatching { Resources.getSystem().getString(android.R.string.copy) }.getOrNull()
@@ -38,6 +40,8 @@ class CopyWatcher : AccessibilityService() {
 
     override fun onAccessibilityEvent(e: AccessibilityEvent) {
         if (e.packageName == packageName) return
+        // Content changes are frequent: ignore them at once unless a Copy toolbar was just shown.
+        if (e.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED && armedPackage == null) return
         val labels = buildList {
             e.text.forEach { add(it.toString()) }
             e.contentDescription?.let { add(it.toString()) }
@@ -49,6 +53,18 @@ class CopyWatcher : AccessibilityService() {
         val toolbarWithCopy = e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && labels.any { it in copyWords }
         if (toolbarWithCopy) {
             armedUntil = now + 10_000
+            armedAt = now
+            armedPackage = e.packageName
+            return
+        }
+        // Xiaomi (MIUI/HyperOS) and some other phones report nothing when "Copy" is tapped in
+        // an app's own toolbar: the toolbar closing only changes that app's window content.
+        if (e.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+            if (now < armedUntil && now - armedAt > 400 && e.packageName == armedPackage) {
+                armedUntil = 0
+                armedPackage = null
+                schedule()
+            }
             return
         }
         // The toolbar closing (after "Copy", "Cut", or a tap elsewhere) is the system UI changing
