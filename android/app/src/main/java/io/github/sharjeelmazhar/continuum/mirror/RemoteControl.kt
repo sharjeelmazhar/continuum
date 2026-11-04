@@ -204,8 +204,7 @@ class RemoteControl : AccessibilityService() {
             }
             change(secret, secret.length, secret.length).also { secret = it.text }
         } else {
-            val hint = node.isShowingHintText
-            val text = if (hint) "" else node.text?.toString().orEmpty()
+            val text = TextEdit.contents(node.text?.toString(), node.hintText?.toString(), node.isShowingHintText, node.textSelectionStart)
             change(text, node.textSelectionStart, node.textSelectionEnd)
         }
         val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, result.text) }

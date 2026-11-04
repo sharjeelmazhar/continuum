@@ -92,6 +92,17 @@ class MirrorInputTest {
     }
 
     @Test
+    fun anEmptyFieldsHintIsNotText() {
+        assertEquals("", TextEdit.contents("Message", "Message", false, 0)) // WhatsApp
+        assertEquals("", TextEdit.contents("Message", "Message", false, -1))
+        assertEquals("", TextEdit.contents("Search", null, true, 0))
+        assertEquals("", TextEdit.contents(null, "Message", false, -1))
+        // Real text that happens to match the hint, cursor after it: kept.
+        assertEquals("Message", TextEdit.contents("Message", "Message", false, 7))
+        assertEquals("hello", TextEdit.contents("hello", "Message", false, 0))
+    }
+
+    @Test
     fun videoSizeKeepsTheScreenShape() {
         assertEquals(864 to 1920, VideoSize.fit(1080, 2400, 1920))
         assertEquals(1080 to 2400, VideoSize.fit(1080, 2400, 2560)) // never upscaled

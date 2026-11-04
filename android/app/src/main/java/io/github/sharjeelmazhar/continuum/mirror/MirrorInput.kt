@@ -103,6 +103,18 @@ object Gestures {
 object TextEdit {
     data class Result(val text: String, val cursor: Int)
 
+    /**
+     * What a field really contains. Empty fields often report their grey hint ("Message") as
+     * their text, and some apps (WhatsApp) don't flag it, so text equal to the hint with the
+     * cursor at the start (or unknown) counts as empty.
+     */
+    fun contents(text: String?, hint: String?, showingHint: Boolean, selectionStart: Int): String {
+        val t = text.orEmpty()
+        if (showingHint) return ""
+        if (!hint.isNullOrEmpty() && t == hint && selectionStart <= 0) return ""
+        return t
+    }
+
     /** Replaces the selection [start]..[end] (cursor when equal; -1 = at the end) with [insert]. */
     fun insert(text: String, start: Int, end: Int, insert: String): Result {
         val (s, e) = range(text, start, end)
