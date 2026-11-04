@@ -153,6 +153,20 @@
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
   .chips span { font-size: 13px; color: var(--dim); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }
 
+  .shot video { display: block; width: 100%; height: auto; aspect-ratio: 1280 / 720; background: #1d1f26; }
+  .shot.video { margin-top: 0; }
+  .note { text-align: center; color: var(--dim); font-size: 14px; margin: 14px auto 0; max-width: 680px; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 26px 24px; }
+  .stat .num { font-size: clamp(40px, 6vw, 56px); font-weight: 750; letter-spacing: -0.03em; line-height: 1;
+               background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .stat .num small { font-size: 0.42em; font-weight: 650; letter-spacing: 0; }
+  .stat h3 { margin: 12px 0 4px; font-size: 17px; }
+  .stat p { margin: 0; color: var(--dim); font-size: 15px; }
+  .built { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+  @media (max-width: 859px) { .stats, .built { grid-template-columns: 1fr; } }
+
   .privacy { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
   @media (max-width: 959px) { .privacy { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 559px) { .privacy { grid-template-columns: 1fr; } }
@@ -166,6 +180,7 @@
   <div class="wrap">
     <a class="brand" href="#"><img src="img/logo.png" alt=""><b>Continuum</b></a>
     <div class="links">
+      <a href="#demo">Demo</a>
       <a href="#features">Features</a>
       <a href="#phone">Phone app</a>
       <a href="#setup">Install</a>
@@ -194,6 +209,21 @@
     <div class="shot"><img id="hero-img" src="img/photos.webp" alt="Continuum on GNOME showing a phone's photo gallery" width="1180" height="780" fetchpriority="high"></div>
   </div>
 </header>
+
+<section id="demo">
+  <div class="wrap">
+    <h2>Your phone, live on your desktop</h2>
+    <p class="sub">A real screen recording, not an animation. Click Mirror, and the phone's screen opens in its own window. Then just use it with your mouse: open an app, swipe through photos, swipe up to go home.</p>
+    <div class="mode-row"><div class="mode" role="group" aria-label="Show the app in light or dark style">
+      <button type="button" data-mode="light" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>Light</button>
+      <button type="button" data-mode="dark" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>Dark</button>
+    </div></div>
+    <div class="shot video"><video id="demo-video" autoplay muted loop playsinline preload="metadata" width="1280" height="720"
+      poster="video/mirror-dark.webp" aria-label="Screen recording: Continuum on GNOME, the phone mirrored in a window and controlled with the mouse">
+      <source src="video/mirror-dark.mp4" type="video/mp4"></video></div>
+    <p class="note">Recorded on GNOME with the Android emulator and demo photos. A real phone's hardware encoder mirrors at up to 60 fps.</p>
+  </div>
+</section>
 
 <section id="features">
   <div class="wrap">
@@ -265,6 +295,24 @@
   </div>
 </section>
 
+<section id="speed">
+  <div class="wrap">
+    <h2>Fast, measured on real phones</h2>
+    <p class="sub">Measured at home: PC on gigabit Ethernet, phone on a Wi-Fi 6 router's 5 GHz band, random 2–2.5 GB files that arrived byte for byte.</p>
+    <div class="stats">
+      <div class="stat"><div class="num">57 <small>MB/s</small></div><h3>Galaxy S24 Ultra</h3><p>PC to phone: a 2 GB file in 36 seconds.</p></div>
+      <div class="stat"><div class="num">41 <small>MB/s</small></div><h3>Redmi Note 11</h3><p>A mid-range phone, on average over four 2.5 GB transfers. Its Wi-Fi is the limit here.</p></div>
+      <div class="stat"><div class="num">60 <small>fps</small></div><h3>Phone mirroring</h3><p>Full screen resolution with the phone's hardware video encoder, about 55–60 fps on the Redmi.</p></div>
+    </div>
+    <p class="note">A faster phone or router means faster transfers: Continuum moves files in 1 MB pieces with large network buffers, to keep fast Wi-Fi 6 and Wi-Fi 7 links full.</p>
+    <div class="built">
+      <div class="card"><div class="ico">🦀</div><h3>Written in Rust</h3><p>The desktop side is Rust (tokio and rustls): fast, light on memory, and safe from whole classes of crashes and security bugs.</p></div>
+      <div class="card"><div class="ico">✅</div><h3>Tested on every change</h3><p>More than 150 automated tests run on every change, plus checks on real phones and the Android emulator before each release.</p></div>
+      <div class="card"><div class="ico">🔁</div><h3>Transfers that don't break</h3><p>An interrupted transfer picks up where it stopped. Every file is checked with SHA-256 before it's kept.</p></div>
+    </div>
+  </div>
+</section>
+
 <section id="setup">
   <div class="wrap">
     <h2>Set up in two minutes</h2>
@@ -322,8 +370,19 @@
   const desktopImg = name => 'img/' + name + (mode === 'light' ? '-light' : '') + '.webp';
   const phoneImg = name => 'img/' + name + (mode === 'dark' ? '-dark' : '') + '.webp';
   document.querySelectorAll('.pics source').forEach(s => s.remove());
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const v = document.getElementById('demo-video');
+    v.removeAttribute('autoplay'); v.controls = true;
+  }
   const applyMode = () => {
     document.getElementById('hero-img').src = desktopImg('photos');
+    const v = document.getElementById('demo-video');
+    const want = 'video/mirror-' + mode + '.mp4';
+    if (v && !v.currentSrc.endsWith(want)) {
+      v.poster = 'video/mirror-' + mode + '.webp';
+      v.querySelector('source').src = want; v.load();
+      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) v.play().catch(() => {});
+    }
     const sel = document.querySelector('.tabs button[aria-selected="true"]');
     if (sel) document.getElementById('tab-img').src = desktopImg(sel.dataset.img);
     document.querySelectorAll('img[data-phone]').forEach(i => { i.src = phoneImg(i.dataset.phone); });

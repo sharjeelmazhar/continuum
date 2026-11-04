@@ -24,6 +24,16 @@ Like Phone Link and Apple Continuity, but open source and private: no cloud, no 
 See your phone's screen in a window on your computer and use it with your mouse and keyboard:
 tap, swipe, scroll and type into any app. Wireless, no cable, no developer options.
 
+<p align="center">
+  <a href="https://sharjeelmazhar.github.io/continuum/#demo">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/demo-dark.jpg">
+      <img src="docs/assets/demo-light.jpg" width="720" alt="Watch the screen recording: the phone mirrored on GNOME and used with the mouse">
+    </picture>
+  </a><br>
+  <sub>▶ <a href="https://sharjeelmazhar.github.io/continuum/#demo">Watch the real screen recording</a> (light and dark)</sub>
+</p>
+
 <table>
 <tr>
 <td width="300">
@@ -92,6 +102,19 @@ debugging off; turn it off again and they come back as they were.
 
 Coming next: calls with an incoming-call banner, a per-app notification allowlist and media
 controls. See the [roadmap](docs/ROADMAP.md).
+
+## Speed
+Measured at home: PC on gigabit Ethernet, phone on a Wi-Fi 6 router's 5 GHz band, random 2–2.5 GB files
+that arrived byte for byte.
+
+| Phone | PC → phone |
+|---|---|
+| Galaxy S24 Ultra | **57 MB/s** (2 GB in 36 s) |
+| Redmi Note 11 (mid-range; its Wi-Fi is the limit) | **41 MB/s** (average of four 2.5 GB runs) |
+
+Phone mirroring runs at full screen resolution with the phone's hardware encoder, about 55–60 fps on the
+Redmi. The desktop side is written in Rust (tokio, rustls), and more than 150 automated tests run on every
+change. Details in [docs/benchmarks/transfer-speed.md](docs/benchmarks/transfer-speed.md).
 
 ## Install
 

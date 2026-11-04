@@ -84,3 +84,9 @@ Needs the phone on 5 GHz Wi-Fi, GSConnect connected and Continuum paired. Device
 the current pairing (set `CT_ID`, `GS_ID`, `PHONE` and `NIC`; see the script header).
 
 Raw data from 3 November 2026: `docs/benchmarks/data/2026-11-03-set-a.csv` and `2026-11-03-set-b.csv`.
+
+## Fast phone: Galaxy S24 Ultra (measured later on 3 November 2026)
+Same PC and router, the phone on the 5 GHz network, one random 2 GB file each way, files matched exactly:
+- **PC → phone: 57 MB/s** (2 GB in 36 s).
+- **Phone → PC: 36 MB/s** (2 GB in 57 s). That build sent phone downloads over the message connection;
+  they now use the raw transfer connection like sends do (not re-measured on the S24 yet).
