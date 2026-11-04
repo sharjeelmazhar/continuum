@@ -47,16 +47,15 @@ fun MirroringGroup(resumeTick: Int) {
     // Xiaomi blocks the "Start now" prompt from opening by itself until this is allowed.
     val popups = remember(resumeTick) { !isXiaomi() || xiaomiPopupsAllowed(context) == true }
     SectionHeader(stringResource(R.string.settings_mirroring))
-    // Only what still needs doing; when everything is allowed, just the how-to remains.
-    if (!control || !popups) SettingsGroup {
-        if (!control) {
-            SettingsRow(
-                stringResource(R.string.settings_remote_control),
-                summary = stringResource(R.string.settings_remote_control_off),
-                icon = Icons.Outlined.Mouse,
-                onClick = { steps = true },
-            )
-        }
+    // Only what still needs doing, except remote control: it lets the computer operate the
+    // phone, so whether it's on is always visible (and one tap away from turning off).
+    SettingsGroup {
+        SettingsRow(
+            stringResource(R.string.settings_remote_control),
+            summary = stringResource(if (control) R.string.settings_remote_control_on else R.string.settings_remote_control_off),
+            icon = Icons.Outlined.Mouse,
+            onClick = { if (control) RemoteControl.openSettings(context) else steps = true },
+        )
         if (!popups) {
             SettingsRow(
                 stringResource(R.string.mirror_popups),

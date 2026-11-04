@@ -50,9 +50,19 @@ class MirrorService : Service() {
     @Volatile
     private var streamer: Streamer? = null
 
-    val ready get() = projection != null
+    /** Set when it's shutting down: a start arriving then must ask again, not stream here. */
+    @Volatile
+    private var stopping = false
+
+    val ready get() = projection != null && !stopping
 
     private val idleStop = Runnable { stopSelf() }
+
+    /** A permission from the Mirror tile that the computer never used. */
+    private val earlyTimeout = Runnable {
+        Mirror.early = false
+        if (streamer == null) idle()
+    }
 
     /** Keeps the phone's screen on (dimmed) while it's mirrored, or the picture would go dark. */
     private var awake: android.os.PowerManager.WakeLock? = null
@@ -103,7 +113,17 @@ class MirrorService : Service() {
             projection = p
         }
         instance = this
-        Mirror.takePending()?.let { stream(it) } ?: idle()
+        val pending = Mirror.takePending()
+        when {
+            pending != null -> stream(pending)
+            // From the Mirror tile: the computer's mirror.start is on its way.
+            Mirror.early -> {
+                handler.removeCallbacks(idleStop)
+                handler.removeCallbacks(earlyTimeout)
+                handler.postDelayed(earlyTimeout, EARLY_WAIT_MS)
+            }
+            else -> idle()
+        }
         return START_NOT_STICKY
     }
 
@@ -125,7 +145,9 @@ class MirrorService : Service() {
 
     fun stream(req: Mirror.Request) = handler.post {
         val link = Mirror.link ?: return@post
+        Mirror.early = false
         handler.removeCallbacks(idleStop)
+        handler.removeCallbacks(earlyTimeout)
         streamer?.halt()
         streamer = Streamer(req, link).also { it.start() }
         keepAwake(true)
@@ -147,6 +169,7 @@ class MirrorService : Service() {
         keepAwake(false)
         RemoteControl.instance?.forget()
         runCatching { synchronized(this) { display?.surface = null } }
+        stopping = true
         handler.removeCallbacks(idleStop)
         handler.post(idleStop)
     }
@@ -279,8 +302,9 @@ class MirrorService : Service() {
                         runCatching { codec.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) }) }
                     }
                     // Some encoders (e.g. Qualcomm) send nothing while the screen is still: a
-                    // zero-length frame each second tells the computer we're still here.
-                    if (System.nanoTime() - lastWrite > HEARTBEAT_NS) {
+                    // zero-length frame each second tells the computer we're still here (only to
+                    // computers that understand it: older ones end the stream on it).
+                    if (link.viewer && System.nanoTime() - lastWrite > HEARTBEAT_NS) {
                         out.writeInt(0)
                         out.flush()
                         lastWrite = System.nanoTime()
@@ -373,6 +397,8 @@ class MirrorService : Service() {
         private const val EXTRA_CODE = "code"
         private const val EXTRA_DATA = "data"
         private const val ACTION_STOP = "stop"
+        /** How long a permission given from the Mirror tile waits for the computer. */
+        const val EARLY_WAIT_MS = 30_000L
         private val EMPTY = ByteArray(0)
         private const val SEND_BUFFER = 128 * 1024
         private const val HEARTBEAT_NS = 1_000_000_000L

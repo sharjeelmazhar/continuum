@@ -21,6 +21,8 @@ object Protocol {
     const val CAP_FIND = "find"
     /** Screen mirroring: `mirror.start` / `mirror.stop` / `mirror.input`, phone sends `mirror.state`. */
     const val CAP_MIRROR = "mirror"
+    /** Desktop: shows mirroring and understands heartbeats (zero-length frames) and `mirror.request`. */
+    const val CAP_MIRROR_VIEW = "mirror.view"
     /** Downloads (`*.fetch` with a `token`) stream over a raw data connection, not as parts. */
     const val CAP_FETCH_RAW = "fetch.raw"
     /** The computer paces its keepalive by our `presence` (slow pings while nobody uses the phone). */

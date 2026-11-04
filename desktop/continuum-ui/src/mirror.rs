@@ -397,22 +397,28 @@ impl Mirror {
         self.resize();
     }
 
-    /// Dragging a grip scales the phone (its shape never changes).
+    /// Dragging a grip scales the phone (its shape never changes). Distances are measured in
+    /// window (surface) coordinates: the grip itself moves as the window grows, so offsets from
+    /// it would shrink back and the size would swing.
     fn connect_grip(self: &Rc<Self>, edge: Edge, grip: &gtk::Box) {
         let drag = gtk::GestureDrag::new();
-        let start = Rc::new(Cell::new(0));
+        let start = Rc::new(Cell::new((0, 0.0, 0.0)));
+        let pos = |g: &gtk::GestureDrag| g.current_event().and_then(|e| e.position());
         {
             let start = start.clone();
             let w = Rc::downgrade(self);
-            drag.connect_drag_begin(move |_, _, _| {
-                if let Some(m) = w.upgrade() {
-                    start.set(m.height.get());
+            drag.connect_drag_begin(move |g, _, _| {
+                if let (Some(m), Some((x, y))) = (w.upgrade(), pos(g)) {
+                    start.set((m.height.get(), x, y));
                 }
             });
         }
         let w = Rc::downgrade(self);
-        drag.connect_drag_update(move |_, dx, dy| {
+        drag.connect_drag_update(move |g, _, _| {
             let Some(m) = w.upgrade() else { return };
+            let Some((x, y)) = pos(g) else { return };
+            let (h0, x0, y0) = start.get();
+            let (dx, dy) = (x - x0, y - y0);
             let (pw, ph) = m.phone.get();
             let per_x = ph.max(1) as f64 / pw.max(1) as f64; // height per pixel of width
             let grow = match edge {
@@ -422,7 +428,7 @@ impl Mirror {
                 Edge::BottomRight => (dx * per_x).max(dy),
                 Edge::BottomLeft => (-dx * per_x).max(dy),
             };
-            let h = (start.get() as f64 + grow).round() as i32;
+            let h = (h0 as f64 + grow).round() as i32;
             let h = h.clamp(MIN_HEIGHT, m.max_height);
             if h != m.height.get() {
                 m.height.set(h);

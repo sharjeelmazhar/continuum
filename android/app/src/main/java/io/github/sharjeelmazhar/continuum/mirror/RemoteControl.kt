@@ -2,7 +2,6 @@ package io.github.sharjeelmazhar.continuum.mirror
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Path
@@ -196,8 +195,12 @@ class RemoteControl : AccessibilityService() {
      * Whether [node] really holds [length] characters: some apps (WhatsApp) report their grey
      * hint as the field's text without saying so. Android refuses to put the cursor past the
      * real text, so moving it to the end tells them apart. The cursor is put back after.
+     * When the field can't be asked (no selection support), the text counts as real: wrongly
+     * dropping a draft is far worse than a stray hint.
      */
     private fun reallyHolds(node: AccessibilityNodeInfo, length: Int): Boolean {
+        val canSelect = node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SET_SELECTION }
+        if (!canSelect) return true
         val start = node.textSelectionStart
         val end = node.textSelectionEnd
         fun select(a: Int, b: Int) = node.performAction(
@@ -248,11 +251,8 @@ class RemoteControl : AccessibilityService() {
         var instance: RemoteControl? = null
             private set
 
-        fun isEnabled(context: Context): Boolean {
-            val me = ComponentName(context, RemoteControl::class.java).flattenToString()
-            val list = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
-            return list.split(':').any { it.equals(me, ignoreCase = true) }
-        }
+        fun isEnabled(context: Context): Boolean =
+            io.github.sharjeelmazhar.continuum.dev.BankingMode.serviceOn(context, RemoteControl::class.java)
 
         fun openSettings(context: Context) {
             context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

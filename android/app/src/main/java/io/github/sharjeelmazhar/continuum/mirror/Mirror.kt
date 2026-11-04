@@ -28,8 +28,11 @@ data class MirrorState(val state: String, val control: Boolean)
  * side stops.
  */
 object Mirror {
-    /** The connection mirroring runs over: its computer's name, the control channel, a data socket. */
-    class Link(val computer: String, val send: (Envelope) -> Unit, val open: () -> SSLSocket)
+    /**
+     * The connection mirroring runs over: its computer's name, the control channel, a data
+     * socket, and whether the computer announced `mirror.view` (heartbeats, `mirror.request`).
+     */
+    class Link(val computer: String, val send: (Envelope) -> Unit, val open: () -> SSLSocket, val viewer: Boolean = false)
 
     data class Request(val token: String, val max: Int)
 
@@ -42,6 +45,17 @@ object Mirror {
 
     @Volatile
     private var pending: Request? = null
+
+    /**
+     * The user started mirroring from the phone (Mirror tile): the "Start now" prompt is shown
+     * before the computer's `mirror.start` arrives, and the permission waits for it.
+     */
+    @Volatile
+    var early = false
+
+    /** The "Start now" prompt is on screen; a `mirror.start` arriving now just waits for it. */
+    @Volatile
+    var asking = false
 
     /** True while a stream is going to the computer; remote control works only then. */
     @Volatile
@@ -76,7 +90,7 @@ object Mirror {
         }
         pending = req
         state("consent")
-        ask(context.applicationContext, link.computer)
+        if (!asking) ask(context.applicationContext, link.computer)
     }
 
     /** The consent activity and the service take the waiting request once. */

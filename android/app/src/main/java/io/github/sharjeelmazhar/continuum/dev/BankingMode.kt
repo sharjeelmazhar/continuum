@@ -42,7 +42,9 @@ object BankingMode {
         return runCatching {
             if (on) {
                 // Remember what was on, then switch it all off (wireless first, then USB, then the menu).
-                val helpers = ourServices(context).filter { it in enabledServices(context) }
+                // Already on (e.g. debugging turned back on by hand): keep what was saved then.
+                val before = if (prefs.getBoolean("on", false)) prefs.getStringSet("helpers", emptySet()).orEmpty() else emptySet()
+                val helpers = enabledServices(context).filter { isOurs(context, it) }.toSet() + before
                 prefs.edit()
                     .putBoolean("on", true)
                     .putStringSet("helpers", helpers.toSet())
@@ -53,7 +55,7 @@ object BankingMode {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) Settings.Global.putInt(cr, ADB_WIFI, 0)
                 Settings.Global.putInt(cr, Settings.Global.ADB_ENABLED, 0)
                 Settings.Global.putInt(cr, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0)
-                if (helpers.isNotEmpty()) setServices(context, enabledServices(context) - helpers.toSet())
+                if (helpers.isNotEmpty()) setServices(context, enabledServices(context).filterNot { isOurs(context, it) }.toSet())
             } else {
                 // Nothing saved, or nothing was on (e.g. switched off in Android settings): turn
                 // the usual ones on, since that's what turning banking mode off asks for.
@@ -108,13 +110,26 @@ object BankingMode {
         }
     }
 
-    private fun ourServices(context: Context) =
-        listOf(io.github.sharjeelmazhar.continuum.clip.CopyWatcher::class.java, io.github.sharjeelmazhar.continuum.mirror.RemoteControl::class.java)
-            .map { android.content.ComponentName(context, it).flattenToString() }
+    /** One of Continuum's own accessibility helpers, in either the long or short (`pkg/.Cls`) form. */
+    private fun isOurs(context: Context, entry: String): Boolean {
+        val c = android.content.ComponentName.unflattenFromString(entry) ?: return false
+        return c.packageName == context.packageName && c.className in setOf(
+            io.github.sharjeelmazhar.continuum.clip.CopyWatcher::class.java.name,
+            io.github.sharjeelmazhar.continuum.mirror.RemoteControl::class.java.name,
+        )
+    }
 
+    /** Entries as Android stores them; other apps' entries are kept exactly as they are. */
     private fun enabledServices(context: Context): Set<String> =
         Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
             .orEmpty().split(':').filter { it.isNotBlank() }.toSet()
+
+    /** Whether [cls] (ours) is switched on, whichever form Android stored it in. */
+    fun serviceOn(context: Context, cls: Class<*>): Boolean =
+        Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+            .orEmpty().split(':').any {
+                android.content.ComponentName.unflattenFromString(it)?.let { c -> c.packageName == context.packageName && c.className == cls.name } == true
+            }
 
     private fun setServices(context: Context, services: Set<String>) {
         val cr = context.contentResolver

@@ -45,6 +45,12 @@ class MirrorRequestActivity : Activity() {
         super.onCreate(savedInstanceState)
         if (PairedStore(this).load() != null) {
             ContinuumService.requestMirror(this)
+            // Ask for "Start now" while the user is here (later, from the background, Android
+            // may not let the prompt open).
+            if (MirrorService.instance?.ready != true) {
+                Mirror.early = true
+                startActivity(Intent(this, MirrorConsentActivity::class.java))
+            }
         } else {
             packageManager.getLaunchIntentForPackage(packageName)?.let { startActivity(it) }
         }

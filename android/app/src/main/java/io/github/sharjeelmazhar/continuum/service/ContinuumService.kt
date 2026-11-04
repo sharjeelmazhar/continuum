@@ -431,6 +431,7 @@ class ContinuumService : Service() {
                 pc.name,
                 { env -> session.send(env) },
                 { Tls.connect(host, port, Identity.get(), Crypto.unhex(pc.fingerprint)!!) },
+                viewer = Protocol.CAP_MIRROR_VIEW in peerCaps,
             )
             val features = Features(this, scope, session, peerCaps, pc.name, { uris -> queueFiles(uris) }, mirrorLink) { out, token ->
                 sendDownload(session, pc, out, token)
@@ -708,7 +709,8 @@ class ContinuumService : Service() {
             Link.state.first { it is LinkState.Connected }
             session
         }
-        val sent = s != null && Protocol.CAP_MIRROR in peerCaps &&
+        // Only computers that announce mirror.view (0.5.9+) understand the request.
+        val sent = s != null && Protocol.CAP_MIRROR_VIEW in peerCaps &&
             runCatching { s.send(Envelope(io.github.sharjeelmazhar.continuum.proto.FeatureType.MIRROR_REQUEST)) }.isSuccess
         if (!sent) {
             android.os.Handler(mainLooper).post {

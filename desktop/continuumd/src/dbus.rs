@@ -73,9 +73,15 @@ impl Api {
     }
 
     /// Opens pairing for two minutes. Returns the QR link and its lifetime in seconds.
-    fn start_pairing(&self) -> (String, u32) {
+    fn start_pairing(&self) -> zbus::fdo::Result<(String, u32)> {
+        // Still waiting for its port at start-up: a QR code now would carry port 0.
+        if self.daemon.port.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+            return Err(zbus::fdo::Error::Failed(
+                "Continuum is still starting. Try again in a few seconds.".into(),
+            ));
+        }
         let uri = self.daemon.start_pairing(sysinfo::lan_addresses());
-        (uri.to_uri(), PAIRING_TTL.as_secs() as u32)
+        Ok((uri.to_uri(), PAIRING_TTL.as_secs() as u32))
     }
 
     fn cancel_pairing(&self) {

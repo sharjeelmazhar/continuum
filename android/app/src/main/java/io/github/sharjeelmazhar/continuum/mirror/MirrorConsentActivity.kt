@@ -11,7 +11,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 class MirrorConsentActivity : ComponentActivity() {
     private val ask = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val data = r.data
-        if (r.resultCode == RESULT_OK && data != null) MirrorService.begin(this, r.resultCode, data) else Mirror.denied()
+        Mirror.asking = false
+        if (r.resultCode == RESULT_OK && data != null) {
+            MirrorService.begin(this, r.resultCode, data)
+        } else {
+            Mirror.early = false
+            Mirror.denied()
+        }
         finish()
     }
 
@@ -19,10 +25,12 @@ class MirrorConsentActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Mirror.cancelAsk(this)
         if (savedInstanceState != null) return
-        if (!Mirror.hasPending() || MirrorService.instance?.ready == true) {
+        // Asked by the computer (pending), or by the user from the Mirror tile (early).
+        if (!(Mirror.hasPending() || Mirror.early) || MirrorService.instance?.ready == true) {
             finish()
             return
         }
+        Mirror.asking = true
         val mpm = getSystemService(MediaProjectionManager::class.java)
         // The whole screen only: mirroring a single app would look broken on the computer.
         val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -31,6 +39,8 @@ class MirrorConsentActivity : ComponentActivity() {
             mpm.createScreenCaptureIntent()
         }
         runCatching { ask.launch(intent) }.onFailure {
+            Mirror.asking = false
+            Mirror.early = false
             Mirror.state("error")
             finish()
         }

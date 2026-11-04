@@ -178,7 +178,6 @@
     <!-- Settings -->
     <string name="settings_computer">Your computer</string>
     <string name="settings_background">Run in the background</string>
-    <string name="settings_background_on">Allowed. Continuum stays connected with the app closed.</string>
     <string name="settings_background_off">Not allowed. Tap to allow.</string>
     <string name="settings_autostart">Autostart</string>
     <string name="settings_autostart_body">Xiaomi phones need this on to reconnect after a restart.</string>
@@ -232,7 +231,7 @@
     <string name="mirror_popups_summary">Xiaomi phones: allow “Open new windows while running in the background” (on some versions “Display pop-up windows…”), so the phone asks to share its screen by itself</string>
     <string name="settings_mirroring">Screen mirroring</string>
     <string name="settings_remote_control">Control from the computer</string>
-    <string name="settings_remote_control_on">On: the computer’s mouse and keyboard work while mirroring</string>
+    <string name="settings_remote_control_on">On: the computer’s mouse and keyboard work while mirroring. Tap to turn it off.</string>
     <string name="settings_remote_control_off">Off: the computer only shows your screen</string>
     <string name="settings_mirroring_hint">Click Mirror in Continuum on the computer. The first time, the phone asks you to allow screen sharing. No developer options or USB debugging needed.</string>
     <string name="remote_control_steps">1. Tap Turn on, find “Continuum remote control” (on some phones under Downloaded apps or Installed services) and switch it on.

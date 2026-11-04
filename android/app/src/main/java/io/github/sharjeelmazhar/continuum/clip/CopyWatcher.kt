@@ -1,7 +1,6 @@
 package io.github.sharjeelmazhar.continuum.clip
 
 import android.accessibilityservice.AccessibilityService
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.res.Resources
@@ -142,11 +141,8 @@ class CopyWatcher : AccessibilityService() {
         private const val TAG = "Continuum"
         private const val SYSTEM_UI = "com.android.systemui"
 
-        fun isEnabled(context: Context): Boolean {
-            val me = ComponentName(context, CopyWatcher::class.java).flattenToString()
-            val list = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
-            return list.split(':').any { it.equals(me, ignoreCase = true) }
-        }
+        fun isEnabled(context: Context): Boolean =
+            io.github.sharjeelmazhar.continuum.dev.BankingMode.serviceOn(context, CopyWatcher::class.java)
 
         fun openSettings(context: Context) {
             context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

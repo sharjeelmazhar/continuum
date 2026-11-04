@@ -197,6 +197,9 @@ keyboard. Needs no developer options or USB debugging.
 4. Desktop → `mirror.stop {}`, or it closes the data connection. The phone ends screen sharing
    at once (0.5.9+; before, it kept the permission for 5 minutes), so its notification goes too.
 
+Desktops that show mirroring announce the `mirror.view` cap (0.5.9+). Only to them does the
+phone send heartbeats and `mirror.request`.
+
 Phone → desktop `mirror.request {}` (0.5.9+, the phone's Mirror tile in Quick Settings): the
 desktop opens its mirror window for that phone, which then sends `mirror.start` as usual. At
 most one window per phone every 5 s.

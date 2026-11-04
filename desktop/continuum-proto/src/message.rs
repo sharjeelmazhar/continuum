@@ -82,6 +82,7 @@ pub const CAPS: &[&str] = &[
     "find",
     "presence",
     "notif.icons",
+    CAP_MIRROR_VIEW,
 ];
 pub const CAP_PHOTOS: &str = "photos";
 pub const CAP_SMS: &str = "sms";
@@ -92,6 +93,8 @@ pub const CAP_FETCH_RAW: &str = "fetch.raw";
 pub const CAP_FIND: &str = "find";
 /// The phone can mirror its screen (`mirror.*`, see PROTOCOL.md).
 pub const CAP_MIRROR: &str = "mirror";
+/// The desktop shows mirroring: it takes heartbeats (zero-length frames) and `mirror.request`.
+pub const CAP_MIRROR_VIEW: &str = "mirror.view";
 /// The desktop understands `presence` and paces its keepalive by it.
 pub const CAP_PRESENCE: &str = "presence";
 /// The desktop remembers app icons, so the phone sends each app's icon once per connection.
