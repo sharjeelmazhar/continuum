@@ -22,4 +22,5 @@ debugging are on. Users would have to switch them on for mirroring and off for b
 ## Consequences
 - Works with debugging off. Android shows its screen-sharing indicator while mirroring.
 - Screens marked secure (banking apps, DRM video) show black, as Android intends.
-- Drags are replayed on release, not live; live dragging needs ADB-level injection (later).
+- Touch is live (continued accessibility strokes): drags and touchpad scrolling follow the
+  pointer as it moves, and the phone flings on its own when the finger lifts.

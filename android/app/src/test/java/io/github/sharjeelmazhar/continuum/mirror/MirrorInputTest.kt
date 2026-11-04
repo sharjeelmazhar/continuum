@@ -18,6 +18,9 @@ class MirrorInputTest {
         assertEquals(MirrorInput.Point(0.6, 0.3, 40), t.points[1])
         assertEquals(MirrorInput.Scroll(0.5, 0.5, 0.0, -0.2), parse("""{"t":"scroll","x":0.5,"y":0.5,"dx":0,"dy":-0.2}"""))
         assertEquals(MirrorInput.Key("home"), parse("""{"t":"key","k":"home"}"""))
+        assertEquals(MirrorInput.Finger(MirrorInput.Phase.DOWN, 0.1, 0.9), parse("""{"t":"down","x":0.1,"y":0.9}"""))
+        assertEquals(MirrorInput.Finger(MirrorInput.Phase.MOVE, 0.2, 0.8), parse("""{"t":"move","x":0.2,"y":0.8}"""))
+        assertEquals(MirrorInput.Finger(MirrorInput.Phase.UP, 1.0, 0.0), parse("""{"t":"up","x":1,"y":0}"""))
         assertEquals(MirrorInput.Text("héllo 👋"), parse("""{"t":"text","s":"héllo 👋"}"""))
     }
 
@@ -37,6 +40,9 @@ class MirrorInputTest {
             """{"t":"text","s":"a\u0000b"}""",
             """{"t":"text","s":"${"x".repeat(1001)}"}""",
             """{"t":"nope"}""",
+            """{"t":"move","x":2,"y":0.5}""",
+            """{"t":"down","x":0.5}""",
+            """{"t":"DOWN","x":0.5,"y":0.5}""",
             """{}""",
         )
         bad.forEach { assertNull(it, parse(it)) }

@@ -28,16 +28,14 @@ use crate::daemon::DaemonProxy;
 const MAX_SIDE: u32 = 1920;
 /// Largest access unit we accept from the socket (a key frame at high quality is ~1 MB).
 const MAX_FRAME: usize = 8 << 20;
-/// Points kept per touch gesture (the phone accepts at most 200).
-const MAX_POINTS: usize = 120;
 /// Corner radius as a share of the screen's width (close to modern phones).
 const CORNER: f64 = 0.115;
-/// The bar appears when the pointer is above the phone, or this close to its top edge.
-const TOP_ZONE: f64 = 4.0;
-/// Room around the screen for its shadow.
-const MARGIN_SIDE: i32 = 26;
-const MARGIN_TOP: i32 = 10;
-const MARGIN_BOTTOM: i32 = 30;
+/// The bar appears only when the pointer is above the phone (never over its status bar).
+const TOP_ZONE: f64 = 0.0;
+/// No room around the screen: the window is just the phone (and the bar above it).
+const MARGIN_SIDE: i32 = 0;
+const MARGIN_TOP: i32 = 0;
+const MARGIN_BOTTOM: i32 = 0;
 /// Decoders to try, best first. Software decoding is the most reliable with the GTK sink.
 const DECODERS: &[&str] = &["avdec_h264", "openh264dec", "vah264dec", "nvh264dec"];
 
@@ -80,17 +78,6 @@ fn norm(x: f64, y: f64, w: f64, h: f64) -> (f64, f64) {
     ((x / w).clamp(0.0, 1.0), (y / h).clamp(0.0, 1.0))
 }
 
-/// Keeps at most `max` points, always the first and the last.
-fn thin(points: &[[f64; 3]], max: usize) -> Vec<[f64; 3]> {
-    if points.len() <= max || max < 2 {
-        return points.to_vec();
-    }
-    let step = (points.len() - 1) as f64 / (max - 1) as f64;
-    (0..max)
-        .map(|i| points[((i as f64 * step).round() as usize).min(points.len() - 1)])
-        .collect()
-}
-
 /// Window size for a phone screen of `pw`×`ph` pixels shown `height` pixels tall.
 fn screen_size(pw: i32, ph: i32, height: i32) -> (i32, i32) {
     let (pw, ph) = (pw.max(1) as f64, ph.max(1) as f64);
@@ -131,8 +118,10 @@ struct Mirror {
     outbox: Outbox,
     /// Pointer position over the screen, for the scroll wheel.
     pointer: Cell<(f64, f64)>,
-    touch: RefCell<Vec<[f64; 3]>>,
-    touch_start: Cell<Option<Instant>>,
+    /// When the last `move` went out (they're sent at most once a frame).
+    last_move: Cell<Instant>,
+    /// The touchpad's finger on the phone during a two-finger scroll.
+    finger: Cell<Option<(f64, f64)>>,
     scroll: Cell<(f64, f64)>,
     scroll_due: Cell<bool>,
     /// The phone can be controlled (its Accessibility helper is on).
@@ -285,8 +274,8 @@ impl Mirror {
                 busy: Cell::new(false),
             },
             pointer: Cell::new((0.5, 0.5)),
-            touch: RefCell::new(Vec::new()),
-            touch_start: Cell::new(None),
+            last_move: Cell::new(Instant::now()),
+            finger: Cell::new(None),
             scroll: Cell::new((0.0, 0.0)),
             scroll_due: Cell::new(false),
             control: Cell::new(true),
@@ -335,6 +324,9 @@ impl Mirror {
         self.bar.set_size_request(w, -1);
         // The window is the screen plus the bar above it and the margins for the shadow.
         let bar_h = self.bar.measure(gtk::Orientation::Vertical, w).1;
+        if std::env::var_os("CONTINUUM_MIRROR_DEBUG").is_some() {
+            tracing_log(&format!("resize screen {w}x{h} bar {bar_h} window {}x{}", self.window.width(), self.window.height()));
+        }
         self.window
             .set_default_size(w + 2 * MARGIN_SIDE, h + bar_h + MARGIN_TOP + MARGIN_BOTTOM);
         let radius = (w.min(h) as f64 * CORNER).round();
@@ -381,7 +373,14 @@ impl Mirror {
         if std::env::var_os("CONTINUUM_MIRROR_DEBUG").is_some() {
             tracing_log(&format!("input {input}"));
         }
-        self.outbox.queue.borrow_mut().push_back(input.to_string());
+        {
+            // A newer position replaces a move still waiting to go out.
+            let mut q = self.outbox.queue.borrow_mut();
+            if input["t"] == "move" && q.back().is_some_and(|b| b.contains(r#""t":"move""#)) {
+                q.pop_back();
+            }
+            q.push_back(input.to_string());
+        }
         if self.outbox.busy.replace(true) {
             return;
         }
@@ -426,7 +425,7 @@ impl Mirror {
                     .screen
                     .compute_bounds(&m.window)
                     .map_or(0.0, |b| b.y() as f64);
-                if y <= top + TOP_ZONE {
+                if y < top + TOP_ZONE {
                     m.bar.add_css_class("shown");
                 } else {
                     m.bar.remove_css_class("shown");
@@ -454,7 +453,8 @@ impl Mirror {
         }
         self.screen.add_controller(over_screen);
 
-        // Touch with the left button: the path, replayed on the phone when released.
+        // Touch with the left button, live: the phone's finger goes down, follows the mouse and
+        // lifts with it, like on iPhone Mirroring.
         let drag = gtk::GestureDrag::builder().button(1).build();
         {
             let w = Rc::downgrade(self);
@@ -462,38 +462,31 @@ impl Mirror {
                 let Some(m) = w.upgrade() else { return };
                 m.screen.grab_focus();
                 let (nx, ny) = m.norm(x, y);
-                m.touch_start.set(Some(Instant::now()));
-                *m.touch.borrow_mut() = vec![[nx, ny, 0.0]];
+                m.last_move.set(Instant::now());
+                m.send(json!({ "t": "down", "x": round4(nx), "y": round4(ny) }));
             });
             let w = Rc::downgrade(self);
             drag.connect_drag_update(move |g, dx, dy| {
                 let Some(m) = w.upgrade() else { return };
-                let (Some((x0, y0)), Some(t0)) = (g.start_point(), m.touch_start.get()) else {
+                let Some((x0, y0)) = g.start_point() else {
                     return;
                 };
-                let (nx, ny) = m.norm(x0 + dx, y0 + dy);
-                let ms = t0.elapsed().as_secs_f64() * 1000.0;
-                let mut t = m.touch.borrow_mut();
                 // About one point per frame is plenty.
-                if t.last().is_some_and(|p| ms - p[2] >= 12.0) {
-                    t.push([nx, ny, ms]);
+                if m.last_move.get().elapsed() < Duration::from_millis(12) {
+                    return;
                 }
+                m.last_move.set(Instant::now());
+                let (nx, ny) = m.norm(x0 + dx, y0 + dy);
+                m.send(json!({ "t": "move", "x": round4(nx), "y": round4(ny) }));
             });
             let w = Rc::downgrade(self);
             drag.connect_drag_end(move |g, dx, dy| {
                 let Some(m) = w.upgrade() else { return };
-                let (Some((x0, y0)), Some(t0)) = (g.start_point(), m.touch_start.take()) else {
+                let Some((x0, y0)) = g.start_point() else {
                     return;
                 };
                 let (nx, ny) = m.norm(x0 + dx, y0 + dy);
-                let ms = t0.elapsed().as_secs_f64() * 1000.0;
-                let mut points = std::mem::take(&mut *m.touch.borrow_mut());
-                points.push([nx, ny, ms]);
-                let p: Vec<_> = thin(&points, MAX_POINTS)
-                    .iter()
-                    .map(|p| json!([round4(p[0]), round4(p[1]), p[2].round() as i64]))
-                    .collect();
-                m.send(json!({ "t": "touch", "p": p }));
+                m.send(json!({ "t": "up", "x": round4(nx), "y": round4(ny) }));
             });
         }
         self.screen.add_controller(drag);
@@ -513,12 +506,38 @@ impl Mirror {
         }
         self.screen.add_controller(click);
 
-        // Scrolling: collected for a moment, then one swipe on the phone.
+        // Touchpad: two fingers drag the phone's screen live (it flings on its own when you
+        // let go). Mouse wheel: each burst of notches becomes one swipe.
         let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
         {
             let w = Rc::downgrade(self);
+            scroll.connect_scroll_begin(move |_| {
+                let Some(m) = w.upgrade() else { return };
+                let (x, y) = m.pointer.get();
+                m.finger.set(Some((x, y)));
+                m.last_move.set(Instant::now());
+                m.send(json!({ "t": "down", "x": round4(x), "y": round4(y) }));
+            });
+            let w = Rc::downgrade(self);
+            scroll.connect_scroll_end(move |_| {
+                let Some(m) = w.upgrade() else { return };
+                if let Some((x, y)) = m.finger.take() {
+                    m.send(json!({ "t": "up", "x": round4(x), "y": round4(y) }));
+                }
+            });
+            let w = Rc::downgrade(self);
             scroll.connect_scroll(move |c, dx, dy| {
                 let Some(m) = w.upgrade() else { return glib::Propagation::Proceed };
+                if let Some((x, y)) = m.finger.get() {
+                    let (w, h) = (m.screen.width().max(1) as f64, m.screen.height().max(1) as f64);
+                    let (x, y) = ((x - dx / w).clamp(0.0, 1.0), (y - dy / h).clamp(0.0, 1.0));
+                    m.finger.set(Some((x, y)));
+                    if m.last_move.get().elapsed() >= Duration::from_millis(12) {
+                        m.last_move.set(Instant::now());
+                        m.send(json!({ "t": "move", "x": round4(x), "y": round4(y) }));
+                    }
+                    return glib::Propagation::Stop;
+                }
                 let (sx, sy) = if c.unit() == gtk::gdk::ScrollUnit::Surface {
                     let (w, h) = (m.screen.width().max(1) as f64, m.screen.height().max(1) as f64);
                     (dx / w, dy / h)
@@ -838,17 +857,6 @@ mod tests {
         assert_eq!(norm(50.0, 100.0, 100.0, 200.0), (0.5, 0.5));
         assert_eq!(norm(-5.0, 300.0, 100.0, 200.0), (0.0, 1.0));
         assert_eq!(norm(1.0, 1.0, 0.0, 0.0), (0.0, 0.0));
-    }
-
-    #[test]
-    fn thinning_keeps_ends_and_count() {
-        let pts: Vec<[f64; 3]> = (0..500).map(|i| [i as f64, 0.0, i as f64]).collect();
-        let t = thin(&pts, 120);
-        assert_eq!(t.len(), 120);
-        assert_eq!(t[0][0], 0.0);
-        assert_eq!(t[119][0], 499.0);
-        assert!(t.windows(2).all(|w| w[0][2] < w[1][2]));
-        assert_eq!(thin(&pts[..3], 120).len(), 3);
     }
 
     #[test]

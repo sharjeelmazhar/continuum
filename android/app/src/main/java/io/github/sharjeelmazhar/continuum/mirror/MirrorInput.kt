@@ -12,6 +12,9 @@ import kotlinx.serialization.json.longOrNull
  */
 sealed interface MirrorInput {
     data class Touch(val points: List<Point>) : MirrorInput
+    /** A live finger: `down`, then `move`s, then `up`, played on the phone as they arrive. */
+    data class Finger(val phase: Phase, val x: Double, val y: Double) : MirrorInput
+    enum class Phase { DOWN, MOVE, UP }
     data class Scroll(val x: Double, val y: Double, val dx: Double, val dy: Double) : MirrorInput
     data class Key(val key: String) : MirrorInput
     data class Text(val text: String) : MirrorInput
@@ -43,6 +46,11 @@ sealed interface MirrorInput {
                     }
                     Touch(points)
                 }
+                "down", "move", "up" -> Finger(
+                    Phase.valueOf(str(body["t"])!!.uppercase()),
+                    frac(body["x"]) ?: return null,
+                    frac(body["y"]) ?: return null,
+                )
                 "scroll" -> {
                     val dx = signed(body["dx"]) ?: return null
                     val dy = signed(body["dy"]) ?: return null

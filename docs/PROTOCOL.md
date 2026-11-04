@@ -182,7 +182,10 @@ keyboard. Needs no developer options or USB debugging.
 3. Desktop → `mirror.input` (only acted on while a stream is live, and only when the user turned
    on the phone's "Continuum remote control" accessibility service). Positions are fractions
    of the screen (0..1):
-   - `{ "t": "touch", "p": [[x, y, ms], …] }`: 1-200 points, `ms` since the press, not
+   - `{ "t": "down" | "move" | "up", "x", "y" }`: a live finger (mouse drag, touchpad
+     scroll): it goes down, follows each `move` as it arrives and lifts on `up` (or after 3 s
+     without input). The phone plays it as one continued stroke.
+   - `{ "t": "touch", "p": [[x, y, ms], …] }`: a whole gesture at once, 1-200 points, `ms` since the press, not
      decreasing, < 59 s. A still touch is a tap (or a long press when held).
    - `{ "t": "scroll", "x", "y", "dx", "dy" }`: `dx`/`dy` in -1..1 of the screen size;
      positive `dy` scrolls down.

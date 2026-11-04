@@ -164,7 +164,6 @@ window.mirror-window.background {
 /* No background under the picture: black would show as a thin ring at the rounded edge. */
 .mirror-screen {
   color: #fff;
-  box-shadow: 0 12px 32px alpha(black, 0.30);
 }
 .mirror-screen.waiting { background: #111; }
 .mirror-screen:focus-visible { outline: none; }

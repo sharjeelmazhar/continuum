@@ -58,11 +58,96 @@ class RemoteControl : AccessibilityService() {
         runCatching {
             when (input) {
                 is MirrorInput.Touch -> screenSize().let { dispatch(Gestures.touch(input, it.x, it.y)) }
+                is MirrorInput.Finger -> screenSize().let { finger(input, it.x, it.y) }
                 is MirrorInput.Scroll -> screenSize().let { dispatch(Gestures.scroll(input, it.x, it.y)) }
                 is MirrorInput.Key -> key(input.key)
                 is MirrorInput.Text -> edit { text, s, e -> TextEdit.insert(text, s, e, input.text) }
             }
         }.onFailure { Log.i(TAG, "input failed: $it") }
+    }
+
+    // A live finger: one stroke that keeps going (StrokeDescription.continueStroke). Each piece
+    // is sent when the one before has played, with the points that came in meanwhile, so the
+    // phone follows the mouse as it moves instead of replaying the drag at the end.
+    private var live: GestureDescription.StrokeDescription? = null
+    private var playing = false
+    private var lastX = 0f
+    private var lastY = 0f
+    private var lastSent = 0L
+    private val waiting = ArrayList<Pair<Float, Float>>()
+    private var lifting = false
+    private val liftIfIdle = Runnable { if (live != null) finger(MirrorInput.Finger(MirrorInput.Phase.UP, -1.0, -1.0), 0, 0) }
+
+    private fun finger(f: MirrorInput.Finger, w: Int, h: Int) {
+        val x = if (f.x < 0) lastX else (f.x * (w - 1)).toFloat()
+        val y = if (f.y < 0) lastY else (f.y * (h - 1)).toFloat()
+        main.removeCallbacks(liftIfIdle)
+        when (f.phase) {
+            MirrorInput.Phase.DOWN -> {
+                live = null
+                waiting.clear()
+                lifting = false
+                lastX = x
+                lastY = y
+                val path = Path().apply { moveTo(x, y) }
+                play(GestureDescription.StrokeDescription(path, 0, 1, true))
+            }
+            MirrorInput.Phase.MOVE -> if (live != null || playing) waiting.add(x to y)
+            MirrorInput.Phase.UP -> if (live != null || playing) {
+                waiting.add(x to y)
+                lifting = true
+            }
+        }
+        // A computer that went away mid-drag must not leave the finger on the screen.
+        if (live != null || playing) main.postDelayed(liftIfIdle, 3_000)
+        next()
+    }
+
+    private fun next() {
+        val prev = live ?: return
+        if (playing || (waiting.isEmpty() && !lifting)) return
+        val path = Path().apply { moveTo(lastX, lastY) }
+        if (waiting.isEmpty()) waiting.add(lastX to lastY)
+        waiting.forEach { (x, y) -> path.lineTo(x, y) }
+        val (endX, endY) = waiting.last()
+        // A piece that doesn't move still needs a length.
+        if (endX == lastX && endY == lastY) path.lineTo(endX + 0.5f, endY)
+        waiting.clear()
+        val now = android.os.SystemClock.uptimeMillis()
+        val duration = (now - lastSent).coerceIn(8, 120)
+        val goOn = !lifting
+        lastX = endX
+        lastY = endY
+        if (!goOn) lifting = false
+        val stroke = runCatching { prev.continueStroke(path, 0, duration, goOn) }.getOrNull() ?: run {
+            live = null
+            return
+        }
+        play(stroke)
+        if (!goOn) live = null
+    }
+
+    private fun play(stroke: GestureDescription.StrokeDescription) {
+        playing = true
+        if (stroke.willContinue()) live = stroke
+        lastSent = android.os.SystemClock.uptimeMillis()
+        val ok = dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                playing = false
+                next()
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                playing = false
+                live = null
+                waiting.clear()
+                lifting = false
+            }
+        }, main)
+        if (!ok) {
+            playing = false
+            live = null
+        }
     }
 
     private fun dispatch(stroke: Stroke) {
