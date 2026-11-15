@@ -110,6 +110,20 @@ class MirrorInputTest {
     }
 
     @Test
+    fun aFieldThatCantMoveItsCursorIsShowingItsHint() {
+        // WhatsApp: "Message" reported as text, no hint, no cursor (-1), no "set selection".
+        assertTrue(TextEdit.emptyBehindText(true, "Message", null, -1, -1))
+        assertTrue(TextEdit.emptyBehindText(true, "Search", null, 0, 0))
+        // Its own hint with a stale cursor left from the last edit (Backspace on an empty field).
+        assertTrue(TextEdit.emptyBehindText(true, "Message", "Message", 1, 1))
+        // Not editable, a selection, or something that looks like a real draft: keep it.
+        assertFalse(TextEdit.emptyBehindText(false, "Message", null, -1, -1))
+        assertFalse(TextEdit.emptyBehindText(true, "Message", null, 0, 4))
+        assertFalse(TextEdit.emptyBehindText(true, "Dear Sam,\nthanks for the photos", null, -1, -1))
+        assertFalse(TextEdit.emptyBehindText(true, "x".repeat(41), null, -1, -1))
+    }
+
+    @Test
     fun videoSizeKeepsTheScreenShape() {
         assertEquals(864 to 1920, VideoSize.fit(1080, 2400, 1920))
         assertEquals(1080 to 2400, VideoSize.fit(1080, 2400, 2560)) // never upscaled

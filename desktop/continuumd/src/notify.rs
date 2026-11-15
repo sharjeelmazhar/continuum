@@ -83,8 +83,6 @@ pub struct Notifier {
     /// "device/key" → when the user replied to it from the desktop; the phone app's repost
     /// (the chat with the reply added) doesn't pop up again.
     replied: Mutex<HashMap<String, std::time::Instant>>,
-    /// The notification server has a reply field of its own (KDE Plasma).
-    inline_reply: bool,
     daemon: Arc<Daemon>,
 }
 
@@ -98,10 +96,6 @@ fn locked<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 impl Notifier {
     pub async fn new(conn: &Connection, daemon: Arc<Daemon>) -> zbus::Result<Arc<Self>> {
         let proxy = NotificationsProxy::new(conn).await?;
-        let inline_reply = proxy
-            .get_capabilities()
-            .await
-            .is_ok_and(|c| c.iter().any(|c| c == "inline-reply"));
         let me = Arc::new(Self {
             conn: conn.clone(),
             proxy: proxy.clone(),
@@ -113,7 +107,6 @@ impl Notifier {
             live: Mutex::new(HashMap::new()),
             dismissed: Mutex::new(Default::default()),
             replied: Mutex::new(HashMap::new()),
-            inline_reply,
             daemon,
         });
         let mut replies = proxy.receive_notification_replied().await?;
@@ -320,6 +313,15 @@ impl Notifier {
             .unwrap_or(0)
     }
 
+    /// The notification server has a reply field of its own (KDE Plasma). Asked each time: the
+    /// server may have started (or changed) after us.
+    async fn inline_reply(&self) -> bool {
+        self.proxy
+            .get_capabilities()
+            .await
+            .is_ok_and(|c| c.iter().any(|c| c == "inline-reply"))
+    }
+
     /// Answers the phone notification behind our popup `id` with `text` (typed into the
     /// popup itself: KDE's reply field or the GNOME Shell extension's).
     pub async fn reply_to(&self, id: u32, text: &str) -> Result<(), String> {
@@ -490,7 +492,7 @@ impl Notifier {
         );
         let mut hints = HashMap::from([("desktop-entry", Value::from(APP_ID))]);
         let mut actions = vec!["default".to_owned(), "Open".to_owned()];
-        if n.reply && self.inline_reply {
+        if n.reply && self.inline_reply().await {
             // Plasma shows a reply field right in the notification.
             actions.extend(["inline-reply".to_owned(), "Reply".to_owned()]);
             hints.insert("x-kde-reply-placeholder-text", Value::from("Reply…"));

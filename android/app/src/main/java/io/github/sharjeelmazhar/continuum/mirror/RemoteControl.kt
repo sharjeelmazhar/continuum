@@ -181,7 +181,13 @@ class RemoteControl : AccessibilityService() {
         }
     }
 
-    private fun focused(): AccessibilityNodeInfo? = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf { it.isEditable }
+    private fun focused(): AccessibilityNodeInfo? {
+        val node = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (node?.isEditable != true && Log.isLoggable(TAG, Log.DEBUG)) {
+            Log.d(TAG, "no text field has focus (focus: ${node?.className}, editable=${node?.isEditable})")
+        }
+        return node?.takeIf { it.isEditable }
+    }
 
     private fun enter() {
         val node = focused() ?: return
@@ -195,12 +201,18 @@ class RemoteControl : AccessibilityService() {
      * Whether [node] really holds [length] characters: some apps (WhatsApp) report their grey
      * hint as the field's text without saying so. Android refuses to put the cursor past the
      * real text, so moving it to the end tells them apart. The cursor is put back after.
-     * When the field can't be asked (no selection support), the text counts as real: wrongly
-     * dropping a draft is far worse than a stray hint.
+     * Android offers moving the cursor in every text field that has text, so an editable field
+     * that shows a short line, doesn't offer it, and has no cursor is really empty (WhatsApp's
+     * message box: "Message", no hint flag, cursor -1). See [TextEdit.emptyBehindText].
      */
     private fun reallyHolds(node: AccessibilityNodeInfo, length: Int): Boolean {
         val canSelect = node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SET_SELECTION }
-        if (!canSelect) return true
+        if (!canSelect) {
+            return !TextEdit.emptyBehindText(
+                node.isEditable, node.text?.toString().orEmpty(), node.hintText?.toString(),
+                node.textSelectionStart, node.textSelectionEnd,
+            )
+        }
         val start = node.textSelectionStart
         val end = node.textSelectionEnd
         fun select(a: Int, b: Int) = node.performAction(
@@ -220,6 +232,9 @@ class RemoteControl : AccessibilityService() {
     /** Applies a keyboard-like edit to the focused text field. */
     private fun edit(change: (text: String, start: Int, end: Int) -> TextEdit.Result) {
         val node = focused() ?: return
+        // Android caches nodes and updates them asynchronously: without this, fast keys (a held
+        // Backspace) all read the text from before the previous edit and only one goes through.
+        node.refresh()
         val result = if (node.isPassword) {
             // We can't read a password field: keep what was typed here since it got focus.
             val id = node.hashCode()
@@ -229,8 +244,16 @@ class RemoteControl : AccessibilityService() {
             }
             change(secret, secret.length, secret.length).also { secret = it.text }
         } else {
+            if (Log.isLoggable(TAG, Log.DEBUG)) {
+                Log.d(TAG, "edit: ${node.text?.length} chars, hint=${node.hintText?.length}, showingHint=${node.isShowingHintText}, " +
+                    "sel=${node.textSelectionStart}..${node.textSelectionEnd}, editable=${node.isEditable}, " +
+                    "canSelect=${node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SET_SELECTION }}")
+            }
             var text = TextEdit.contents(node.text?.toString(), node.hintText?.toString(), node.isShowingHintText, node.textSelectionStart)
-            if (TextEdit.mightBeHint(text.length, node.textSelectionStart, node.textSelectionEnd) && !reallyHolds(node, text.length)) {
+            val noCursor = node.actionList.none { it.id == AccessibilityNodeInfo.ACTION_SET_SELECTION }
+            if ((noCursor || TextEdit.mightBeHint(text.length, node.textSelectionStart, node.textSelectionEnd)) &&
+                text.isNotEmpty() && !reallyHolds(node, text.length)
+            ) {
                 text = ""
             }
             change(text, node.textSelectionStart, node.textSelectionEnd)

@@ -115,6 +115,21 @@ object TextEdit {
     fun mightBeHint(length: Int, selectionStart: Int, selectionEnd: Int): Boolean =
         length > 1 && selectionStart in -1..1 && selectionEnd in -1..1
 
+    /**
+     * A field that shows text but can't move its cursor is empty and showing its hint: Android
+     * (and Compose, Flutter, Chrome) always offer moving the cursor in a field that has text.
+     * An empty native field reports no cursor (-1) or 0. As a guard for odd fields that never
+     * offer it, only a short single line counts (hints are "Message", "Search", ...).
+     */
+    fun emptyBehindText(editable: Boolean, text: String, hint: String?, selectionStart: Int, selectionEnd: Int): Boolean {
+        if (!editable || text.isEmpty()) return false
+        // Its own hint, in a field without a cursor: whatever the (stale) selection says.
+        if (text == hint) return true
+        return text.length <= HINT_MAX && '\n' !in text && selectionStart in -1..1 && selectionEnd in -1..1
+    }
+
+    private const val HINT_MAX = 40
+
     fun contents(text: String?, hint: String?, showingHint: Boolean, selectionStart: Int): String {
         val t = text.orEmpty()
         if (showingHint) return ""

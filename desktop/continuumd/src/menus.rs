@@ -106,6 +106,7 @@ fn exec_quote(s: &str) -> String {
 fn write_if_changed(path: &Path, content: &str) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     if std::fs::read_to_string(path).ok().as_deref() != Some(content) {
+        // Executable: Plasma 6 shows a non-executable service menu but refuses to run it.
         let tmp = path.with_extension("part");
         std::fs::write(&tmp, content)?;
         std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
