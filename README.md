@@ -87,12 +87,15 @@ debugging off; turn it off again and they come back as they were.
 ## Features
 - 📱 **Phone mirroring.** Your phone's screen in a window, controlled with your mouse and keyboard.
 - 🏦 **Banking mode.** Developer options off with one tap, so banking apps open; back on with another.
-- 🖼️ **Gallery.** Your photos and videos, with videos playing in the app. Select several and copy them straight into Files or a chat.
+- 🖼️ **Gallery.** Your photos and videos, with videos playing in the app. Select several and copy them straight into Files or a chat, under their names from the phone. Loaded before you open the app.
 - 💬 **Messages.** SMS conversations with contact photos; reply from your PC keyboard, with typing help.
-- 🔔 **Notifications** from the phone, with quick reply and their own buttons. Dismiss on the PC and it's gone from the phone.
+- 🔔 **Notifications** from the phone, with their own buttons. **Reply right in the notification** (GNOME's banner and the list under the clock, KDE Plasma's notifications); it clears itself once you've answered, on the PC or the phone. Dismiss on the PC and it's gone from the phone.
 - 📁 **Phone storage.** Browse every folder on the phone and download any file, no cable needed.
 - ⚡ **Send files both ways** at full Wi-Fi speed, with progress on both sides: the PC is in the Android
-  share sheet, and "Send to ⟨phone⟩" is in the Files right-click menu.
+  share sheet, and right-click any files or folders for "Send to ⟨phone⟩" (Files, the GNOME desktop, KDE's Dolphin
+  and Plasma desktop; one entry per connected phone). Folders go as a .zip.
+- 📣 **Alerts on your phone.** `continuum-ping "Needs your password" "Please come to the PC."` shows a notification
+  on your phone, for scripts, long jobs and AI assistants.
 - 📋 **Shared clipboard.** Copy on one device, paste on the other. Phone screenshots land straight on the PC's clipboard.
 - 🎛️ **GNOME Quick Settings tile** with the phone's battery, connection and Ring.
 - 🔊 **Find my phone.** Ring it at full volume, even on silent.

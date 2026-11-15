@@ -3,7 +3,11 @@
 > Read this first in every session. Update it before ending a session.
 
 ## Current
-- **Milestone:** v0.5.10 (4 November 2026): Phone Mirroring (M9: own app and dock icon,
+- **Milestone:** v0.5.11 (15 November 2026): instant start at login (no greeter daemon, gallery
+  preload, 4 s dead-link detection + wake nudge, patient UI retries), right-click "Send to <phone>"
+  in Files (Nautilus 4.1 fix), GNOME desktop (DING scripts), Dolphin/Plasma (daemon-managed service
+  menu), folders as .zip, inline reply in GNOME (extension) and KDE (inline-reply), reply clears
+  the desktop notification, `ping.show` / `continuum-ping`. Before that v0.5.10 (4 November 2026): Phone Mirroring (M9: own app and dock icon,
   borderless rounded window, live mouse/keyboard control, Mirror tile on the phone, Mirror Phone
   in GNOME Quick Settings) and Banking mode, on top of the v0.5 Phone Link-style app. Website on
   GitHub Pages (`website/`), desktop bundle + deb/rpm/Arch + apt/dnf/pacman repos per release.
@@ -13,10 +17,13 @@
   repos and site. Local test builds: `assembleRelease -PversionCode=… -PversionName=…` with the
   key env vars (see CLAUDE.local.md); deb: first 41 lines of packaging/build-packages.sh.
 - **Distro test (resumable):** serve a local site first (`/data2/vms/continuum-test/site`, built with packaging/build-packages.sh + build-repos.sh + website/install.sh; `python3 -m http.server 8000 --bind 192.168.122.1 -d /data2/vms/continuum-test/site`), then `VM_DIR=/data2/vms KEEP=1 SITE=http://192.168.122.1:8000 scripts/test-distros.sh`; after release, without SITE (fedora, arch, ubuntu GNOME VMs; reruns skip finished steps; results in /data2/vms/continuum-test/<distro>/result.txt).
-- **Next task:** `phone-ping` (owner's helper in ~/.local/bin) sends through GSConnect, which is
-  no longer installed, so pings fail silently: add a desktop → phone "show this notification"
-  message to Continuum (e.g. `notify.show`, rate-limited, plain text) and point phone-ping at
-  it. Then M9 follow-ups: confirm Banking mode with a second banking app, a live drag test of
+- **Next task:** confirm on the owner's Redmi (after it updates to 0.5.11): phone-ping arrives,
+  replying on the phone closes the PC copy (WhatsApp), gallery opens instantly after a reboot.
+  Phone → PC auto-copy isn't detected on the Android 17 emulator (its Copy toolbar and
+  ClipboardOverlay report no labels to accessibility; only window titles would show it, which needs
+  canRetrieveWindowContent: owner's decision). Site URL: the repo is `continuum` (lowercase), so
+  `/Continuum` 404s; renaming the repo would break existing apt/dnf sources (owner's decision).
+  Then M9 follow-ups: confirm Banking mode with a second banking app, a live drag test of
   the mirror resize grips, test on a Samsung phone, measure end-to-end mirror latency. Then:
   VA-API decoding; a desktop "Set up banking mode" button that runs the one-time adb grant.
   After that: measure raw downloads on a fast phone (S24 Ultra); check continuum-ui/src/models.rs
@@ -68,6 +75,7 @@
 | M11 | Hardening and release | ☐ |
 
 ## Log (newest first)
+- 15 November 2026: v0.5.11. Slow start at login: the global user unit also ran for the GDM greeter (uid 60578), which held port 47820 until login (16 s wait); now `ConditionUser=!@system` + the daemon exits for uids outside login.defs UID_MIN..UID_MAX. Requests hung 20 s on a dead link: pending requests now fail when the connection drops, any user action probes within 4 s (any pace; no instant kill when switching to fast), and lost links get wake nudges (reconnect < 1 s on the emulator). UI: gallery list cached (`~/.cache/continuum/gallery/<id>/list.json`), daemon preloads list + thumbnails 3 s after connect, read-only requests wait up to 15 s for a reconnect (gallery visible 2.5 s after a cold app start). Gallery copy offered image/jpeg too, so Nautilus pasted one "Pasted image.png": files-only now (image data only for a single received file). Nautilus extension asked for Nautilus 4.0/3.0 only (Ubuntu has 4.1): picks the newest installed version; connected phones only; folders allowed. DING right-click uses ~/.local/share/nautilus/scripts: daemon syncs "Send to <phone>" scripts + KDE servicemenu per connected phone (menus.rs, removed on stop); static KDE menu dropped. Folders → stored zip (folders.rs). Notification flood: GNOME returns a new id when the replaced notification is gone; ids are now kept, dismissed progress stays hidden. Inline reply: GNOME Shell extension (inlineReply.js, InjectionManager on NotificationMessage._addAction, ReplyToNotification D-Bus), KDE inline-reply + NotificationReplied; reply closes the popup and silences the chat's repost 20 s; phone flags `own` (last MessagingStyle message is the user's) so phone-side replies close the PC copy (NotifOutbox counts it as a change). `ping.show` request + "Alerts from your computer" channel (12/min), `Ping` D-Bus, `continuumd ping`, `/usr/bin/continuum-ping`; ~/.local/bin/phone-ping uses it. Transfer button: drawn arrow (up = to phone, down = from phone) with a moving band. Tested: emulator (Android 17) all reply paths, SMS reply sent, PC↔phone text and image clipboard, phone screenshot → PC, folder zip + files via the DING script path, Nautilus paste of 1 and 2 files; GNOME inline reply in a headless nested gnome-shell (banner + date menu). Nested-shell test briefly overwrote the owner's real enabled-extensions (dconf activated outside the test env); restored all 19 at once.
 - 4 November 2026: Website redesign: the recording is the hero (1.5x speed; app and phone cut out of the raw take with rounded masks and put close together on the owner's GNOME wallpaper, ~/.config/background "zoom" crop, soft shadows), one Light/Dark switch in the bar for the whole page (follows the system, remembered in localStorage), theme-aware soft shadows (no black box/line around screenshots: drop-shadow on transparent shots), NEW badge, spotlight cards for mirroring + Banking mode, banded sections, hover lift, dates as day month year.
 - 4 November 2026: Website + README demo: real GNOME screen recording (org.gnome.Shell.Screencast ScreencastArea, held open by scripts/demo/rec.py; it stops when the caller exits) of the app + phone mirroring on the emulator, mouse driven by ydotool (scripts/demo/take.sh), light and dark (website/video/mirror-*.mp4, 1.5-1.8 MB). Emulator gallery now has 51 Unsplash photos (picsum.photos) + 6 pan-zoom clips made from them. New gallery shots, "Fast, measured on real phones" section (S24 Ultra 57 MB/s PC→phone, Redmi 41 MB/s, 60 fps mirroring), Rust + 150 tests + resumable cards. Mouse settings and theme restored after recording.
 - 4 November 2026: README: Phone mirroring section (how to mirror, controls), Banking mode, light/dark images via `<picture>` (hero = desktop window + mirror window, emulator demo content; computer name painted as "My PC" because the phone keeps the name from pairing). Mirroring survived a light/dark switch on the phone. v0.5.10 released after GitHub 500s (outage) and a rerun: APK, bundle, deb/rpm/Arch, apt repo at 0.5.10, website. One CI `cargo test` on main failed once and passed on rerun (flaky test, log not available; find it).
