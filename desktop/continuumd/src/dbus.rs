@@ -265,16 +265,19 @@ impl Api {
         let replied = (kind == "notif.reply")
             .then(|| serde_json::Value::get(&body, "key").and_then(|k| k.as_str()))
             .flatten()
-            .map(str::to_owned);
+            .map(|k| {
+                let text = serde_json::Value::get(&body, "text").and_then(|t| t.as_str());
+                (k.to_owned(), text.unwrap_or_default().to_owned())
+            });
         self.daemon
             .command(id, kind, body)
             .await
             .map_err(zbus::fdo::Error::Failed)?;
-        if let Some(key) = replied {
+        if let Some((key, text)) = replied {
             self.daemon.emit(Event::Phone {
                 device: id.to_owned(),
                 kind: "notif.replied".into(),
-                body: serde_json::json!({ "key": key }).to_string(),
+                body: serde_json::json!({ "key": key, "text": text }).to_string(),
             });
         }
         Ok(())
@@ -427,7 +430,11 @@ pub async fn run(daemon: Arc<Daemon>) -> zbus::Result<connection::Connection> {
                         } else if kind == "notif.replied"
                             && let Ok(k) = serde_json::from_str::<NotifKey>(&body)
                         {
-                            n.on_replied(&device, &k.key).await;
+                            let text = serde_json::from_str::<serde_json::Value>(&body)
+                                .ok()
+                                .and_then(|v| v.get("text")?.as_str().map(str::to_owned))
+                                .unwrap_or_default();
+                            n.on_replied(&device, &k.key, &text).await;
                         }
                     }
                     Api::phone_event(&emitter, &device, &kind, &body).await

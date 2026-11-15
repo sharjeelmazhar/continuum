@@ -89,7 +89,7 @@ debugging off; turn it off again and they come back as they were.
 - 🏦 **Banking mode.** Developer options off with one tap, so banking apps open; back on with another.
 - 🖼️ **Gallery.** Your photos and videos, with videos playing in the app. Select several and copy them straight into Files or a chat, under their names from the phone. Loaded before you open the app.
 - 💬 **Messages.** SMS conversations with contact photos; reply from your PC keyboard, with typing help.
-- 🔔 **Notifications** from the phone, with their own buttons. **Reply right in the notification** (GNOME's banner and the list under the clock, KDE Plasma's notifications); it clears itself once you've answered, on the PC or the phone. Dismiss on the PC and it's gone from the phone.
+- 🔔 **Notifications** from the phone, with their own buttons. **Reply right in the notification** (GNOME's banner and the list under the clock, KDE Plasma's notifications); once you've answered, on the PC or the phone, it clears itself on both. Dismiss on the PC and it's gone from the phone.
 - 📁 **Phone storage.** Browse every folder on the phone and download any file, no cable needed.
 - ⚡ **Send files both ways** at full Wi-Fi speed, with progress on both sides: the PC is in the Android
   share sheet, and right-click any files or folders for "Send to ⟨phone⟩" (Files, the GNOME desktop, KDE's Dolphin

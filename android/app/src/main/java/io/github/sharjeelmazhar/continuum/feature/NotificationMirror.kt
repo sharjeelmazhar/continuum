@@ -9,6 +9,8 @@ import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
@@ -23,6 +25,21 @@ import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
+
+/**
+ * After a reply from the computer, the phone's copy of the notification goes away too (the
+ * computer's already does). It's cleared when the app updates it to show the reply, or after
+ * [SETTLE_MS] if the app leaves it as it was; a newer message from the other person keeps it.
+ */
+object ReplyCleanup {
+    const val SETTLE_MS = 3_000L
+    const val WINDOW_MS = 15_000L
+
+    fun shouldClear(repliedAt: Long?, now: Long, postTime: Long, ownLast: Boolean): Boolean {
+        if (repliedAt == null || now - repliedAt > WINDOW_MS || now < repliedAt) return false
+        return ownLast || postTime <= repliedAt
+    }
+}
 
 /** What the notification listener reports to the connection (see [NotifBridge.events]). */
 sealed interface NotifEvent {
@@ -80,6 +97,9 @@ object NotifBridge {
  */
 class NotificationMirror : NotificationListenerService() {
     private val shown = ConcurrentHashMap<String, StatusBarNotification>()
+    /** Notifications answered from the computer, by key: when the reply was sent. */
+    private val replied = ConcurrentHashMap<String, Long>()
+    private val main by lazy { Handler(Looper.getMainLooper()) }
     private val apps = object : LinkedHashMap<String, Pair<String, String>>(32, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<String, String>>?) = size > 64
     }
@@ -120,6 +140,8 @@ class NotificationMirror : NotificationListenerService() {
         // An update the phone itself doesn't alert for (e.g. progress) doesn't pop up either, nor
         // a chat whose newest message is the user's own reply (sent from the phone or desktop).
         val own = known && lastMessageIsMine(sbn.notification)
+        // Answered from the computer: the app's update showing the reply clears it on the phone too.
+        if (clearIfAnswered(sbn, own)) return
         val quiet = own || known && sbn.notification.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0
         NotifBridge.events.tryEmit(NotifEvent.Posted(describe(sbn, quiet).copy(own = own)))
     }
@@ -143,7 +165,23 @@ class NotificationMirror : NotificationListenerService() {
         val results = Bundle().apply { inputs.forEach { putCharSequence(it.resultKey, text) } }
         val intent = Intent().addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
         RemoteInput.addResultsToIntent(inputs, intent, results)
-        return runCatching { action.actionIntent.send(this, 0, intent) }.isSuccess
+        val sent = runCatching { action.actionIntent.send(this, 0, intent) }.isSuccess
+        if (sent) {
+            replied[key] = System.currentTimeMillis()
+            // Apps that don't update their notification after a reply: clear it a moment later.
+            main.postDelayed({ shown[key]?.let { clearIfAnswered(it, lastMessageIsMine(it.notification)) } }, ReplyCleanup.SETTLE_MS)
+        }
+        return sent
+    }
+
+    /** Clears a notification the user answered from the computer (see [ReplyCleanup]). */
+    private fun clearIfAnswered(sbn: StatusBarNotification, ownLast: Boolean): Boolean {
+        val now = System.currentTimeMillis()
+        replied.entries.removeIf { now - it.value > ReplyCleanup.WINDOW_MS }
+        if (!ReplyCleanup.shouldClear(replied[sbn.key], now, sbn.postTime, ownLast)) return false
+        replied.remove(sbn.key)
+        runCatching { cancelNotification(sbn.key) }
+        return true
     }
 
     fun action(key: String, index: Int): Boolean {

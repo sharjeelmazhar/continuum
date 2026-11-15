@@ -234,7 +234,7 @@ impl Transfers {
         progress: impl Fn(Progress),
     ) -> Result<(), String> {
         let tid = p.offer.transfer_id.clone();
-        let _done = ActiveGuard(&self.active, tid);
+        let done = ActiveGuard(&self.active, tid);
         let bytes = p.offer.files.iter().map(|f| f.size).sum();
         progress(Progress::Started {
             device: p.device_name.clone(),
@@ -280,6 +280,9 @@ impl Transfers {
             saved: names,
             error: result.clone().err(),
         };
+        // Free the transfer before reporting: a sender that resumes at once must not be told
+        // it's still being received.
+        drop(done);
         if let Ok(msg) = Message::with_body(SHARE_RESULT, &report) {
             let _ = p.control.send(msg).await;
         }

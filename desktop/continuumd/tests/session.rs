@@ -437,7 +437,9 @@ async fn files_arrive_verified_with_safe_names() {
     assert!(again.recv().await.is_none());
 }
 
-#[tokio::test]
+// Two threads: on one, the phone's 12 MB write could starve the daemon's handshake of the
+// resumed connection (the real daemon is multi-threaded).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn interrupted_transfer_resumes_from_checkpoint() {
     let d = desktop().await;
     let (id, mut p) = paired_phone(&d).await;

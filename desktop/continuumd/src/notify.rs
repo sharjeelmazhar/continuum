@@ -80,9 +80,11 @@ pub struct Notifier {
     live: Mutex<HashMap<String, (u32, u64)>>,
     /// Progress notifications the user dismissed: not shown again for that transfer.
     dismissed: Mutex<std::collections::HashSet<u32>>,
-    /// "device/key" → when the user replied to it from the desktop; the phone app's repost
-    /// (the chat with the reply added) doesn't pop up again.
-    replied: Mutex<HashMap<String, std::time::Instant>>,
+    /// "device/key" → when the user replied to it from the desktop, and the texts its echo may
+    /// show (the text before, the reply): the app's repost of them doesn't pop up again.
+    replied: Mutex<HashMap<String, (std::time::Instant, Vec<String>)>>,
+    /// "device/key" → the text of our popup for it.
+    texts: Mutex<HashMap<String, String>>,
     daemon: Arc<Daemon>,
 }
 
@@ -107,6 +109,7 @@ impl Notifier {
             live: Mutex::new(HashMap::new()),
             dismissed: Mutex::new(Default::default()),
             replied: Mutex::new(HashMap::new()),
+            texts: Mutex::new(HashMap::new()),
             daemon,
         });
         let mut replies = proxy.receive_notification_replied().await?;
@@ -339,7 +342,7 @@ impl Notifier {
         self.daemon.emit(crate::state::Event::Phone {
             device,
             kind: "notif.replied".into(),
-            body: serde_json::json!({ "key": key }).to_string(),
+            body: serde_json::json!({ "key": key, "text": text }).to_string(),
         });
         Ok(())
     }
@@ -427,11 +430,19 @@ impl Notifier {
 
     /// The user answered a phone notification from the desktop: its popup goes away, and so
     /// does the app's repost with the reply in it.
-    pub async fn on_replied(&self, device: &str, key: &str) {
+    pub async fn on_replied(&self, device: &str, key: &str, reply: &str) {
+        let slot = format!("{device}/{key}");
+        let before = locked(&self.texts).get(&slot).cloned().unwrap_or_default();
         {
             let mut r = locked(&self.replied);
-            r.retain(|_, t| t.elapsed() < REPLY_ECHO);
-            r.insert(format!("{device}/{key}"), std::time::Instant::now());
+            r.retain(|_, (t, _)| t.elapsed() < REPLY_ECHO);
+            r.insert(
+                slot,
+                (
+                    std::time::Instant::now(),
+                    vec![before, reply.trim().to_owned()],
+                ),
+            );
         }
         self.on_phone_notification_removed(device, key).await;
     }
@@ -468,7 +479,7 @@ impl Notifier {
         let slot = format!("{device_id}/{}", n.key);
         if locked(&self.replied)
             .get(&slot)
-            .is_some_and(|t| t.elapsed() < REPLY_ECHO)
+            .is_some_and(|(t, echoes)| t.elapsed() < REPLY_ECHO && is_echo(echoes, &n.text))
         {
             return;
         }
@@ -527,6 +538,13 @@ impl Notifier {
                 p.insert(id, (device_id.to_owned(), n.key.clone()));
             }
             tracing::debug!("popup {id} for {slot}");
+            {
+                let mut t = locked(&self.texts);
+                if t.len() > 500 {
+                    t.clear();
+                }
+                t.insert(slot.clone(), n.text.clone());
+            }
             let mut g = locked(&self.phone);
             if g.len() > 500 {
                 g.clear();
@@ -725,8 +743,20 @@ pub(crate) fn file_uri(path: &Path) -> String {
 }
 
 const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
-/// After a reply from the desktop, how long the phone's update of that chat stays quiet.
+/// After a reply from the desktop, how long the phone's repost of that chat (unchanged, or
+/// showing the reply) stays quiet. A new message from the other person always shows. Phones
+/// from 0.5.12 also mark such reposts `own` and clear them themselves.
 const REPLY_ECHO: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// Whether a phone notification's new text only repeats what was there before the reply, or
+/// the reply itself (some apps show "You: reply").
+fn is_echo(echoes: &[String], text: &str) -> bool {
+    let text = text.trim();
+    echoes
+        .iter()
+        .filter(|e| !e.is_empty())
+        .any(|e| text == e || text.ends_with(&format!(": {e}")))
+}
 
 /// "45% · 60 MB of 188 MB · 8.1 MB/s · 15 s left" (speed and time once it's moving).
 fn progress_text(done: u64, total: u64, rate: f64) -> String {
@@ -770,6 +800,18 @@ fn human_size(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_repost_of_the_old_text_or_the_reply_is_an_echo() {
+        let echoes = vec!["Are you coming?".to_owned(), "Yes".to_owned()];
+        assert!(super::is_echo(&echoes, "Are you coming?"));
+        assert!(super::is_echo(&echoes, "Yes"));
+        assert!(super::is_echo(&echoes, "You: Yes"));
+        assert!(!super::is_echo(&echoes, "Great, see you"));
+        assert!(!super::is_echo(&echoes, "Yes please, bring cake"));
+        // Nothing known before (popup never shown): only the reply counts.
+        assert!(!super::is_echo(&[String::new(), "ok".into()], ""));
+    }
+
     use super::*;
 
     #[test]
