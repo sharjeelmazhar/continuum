@@ -44,7 +44,14 @@ Object `/io/github/sharjeelmazhar/Continuum/Daemon`, interface `io.github.sharje
 | `StartPairing() → (s uri, u expires_s)` | method | QR content for the UI |
 | `ConfirmSas(s id, b ok)` | method | user confirmed / rejected the code |
 | `Unpair(s id)`, `Rename(s id, s name)` | method | device management |
-| `SendFiles(s id, as paths)` | method | used by Nautilus and drag-and-drop |
+| `SendFiles(s id, as paths)` | method | used by Nautilus and drag-and-drop; folders go as one .zip each |
+| `Ping(s id, s title, s text, s from, b urgent) → as` | method | notification on the phone(s) (`""` = every connected one); `continuum-ping` |
+| `ReplyToNotification(u notification, s text)` | method | inline reply typed into our desktop notification (GNOME Shell extension; KDE uses `NotificationReplied`) |
+
+Right-click menus: the daemon keeps "Send to <phone>" entries for the connected phones in
+`~/.local/share/nautilus/scripts` (GNOME's desktop icons and Files' Scripts menu) and
+`~/.local/share/kio/servicemenus/continuum-send.desktop` (Dolphin, Plasma desktop), and removes
+them when it stops (`menus.rs`). Files itself also uses the Nautilus extension.
 | `DeviceChanged(s id)`, `PairingRequest(s id, s sas)`, `TransferProgress(s, t, t)` | signal | UI updates |
 
 Plugins add their own interfaces (e.g. `io.github.sharjeelmazhar.Continuum.Clipboard1`) on per-device objects

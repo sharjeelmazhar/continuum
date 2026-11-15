@@ -26,6 +26,7 @@ x11rb = { version = "0.14.0", features = ["xfixes"] }
 x11rb-protocol = "0.14.0"
 zbus = "6.1.0"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+zip = { version = "9.5.1", default-features = false }
 
 [lints]
 workspace = true

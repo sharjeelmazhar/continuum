@@ -280,7 +280,7 @@ pub fn reload(page: &Rc<Messages>, from_scratch: bool) {
     glib::spawn_future_local(async move {
         let result = page
             .ctx
-            .request("sms.threads", serde_json::json!({ "limit": 100 }))
+            .request_patient("sms.threads", serde_json::json!({ "limit": 100 }))
             .await
             .and_then(|v| {
                 serde_json::from_value::<ThreadsReply>(v)
@@ -465,9 +465,14 @@ fn load_conversation(page: &Rc<Messages>, open: Open, scroll: bool) {
     let page = page.clone();
     glib::spawn_future_local(async move {
         let body = serde_json::json!({ "thread": thread, "before": 0, "limit": 100 });
-        let result = page.ctx.request("sms.messages", body).await.and_then(|v| {
-            serde_json::from_value::<MessagesReply>(v).map_err(|e| ReqError::Other(e.to_string()))
-        });
+        let result = page
+            .ctx
+            .request_patient("sms.messages", body)
+            .await
+            .and_then(|v| {
+                serde_json::from_value::<MessagesReply>(v)
+                    .map_err(|e| ReqError::Other(e.to_string()))
+            });
         if page.open.borrow().as_ref().and_then(|o| o.thread) != Some(thread) {
             return;
         }

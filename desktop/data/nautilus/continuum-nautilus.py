@@ -1,12 +1,33 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Continuum: adds "Send to <phone>" to the right-click menu of GNOME Files (Nautilus)."""
+"""Continuum: adds "Send to <phone>" to the right-click menu of GNOME Files (Nautilus), one
+entry per connected phone. Folders are sent as a .zip."""
 
 import gi
 
-try:
-    gi.require_version("Nautilus", "4.0")
-except ValueError:
-    gi.require_version("Nautilus", "3.0")
+
+def _require_nautilus():
+    """Uses whichever extension API this Nautilus has (3.0, 4.0, 4.1, ...): the newest one
+    installed. nautilus-python has usually loaded it already, and asking for that same
+    version again is fine."""
+    try:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from gi.repository import GIRepository
+        found = GIRepository.Repository.get_default().enumerate_versions("Nautilus")
+    except Exception:
+        found = []
+    def key(v):
+        return tuple(int(x) for x in v.split(".") if x.isdigit())
+    for version in sorted(set(found) | {"4.1", "4.0", "3.0"}, key=key, reverse=True):
+        try:
+            gi.require_version("Nautilus", version)
+            return
+        except ValueError:
+            continue
+
+
+_require_nautilus()
 from gi.repository import Gio, GLib, GObject, Nautilus  # noqa: E402
 
 BUS = "io.github.sharjeelmazhar.Continuum.Daemon"
@@ -23,7 +44,7 @@ def _call(method, args, reply_type, timeout_ms):
 class ContinuumMenu(GObject.GObject, Nautilus.MenuProvider):
     def get_file_items(self, *args):
         files = args[-1]  # Nautilus 3 passes (window, files), Nautilus 4 just (files)
-        if not files or any(f.is_directory() for f in files):
+        if not files:
             return []
         paths = [f.get_location().get_path() for f in files]
         if None in paths:  # not local files (e.g. a network share without a path)
@@ -33,7 +54,9 @@ class ContinuumMenu(GObject.GObject, Nautilus.MenuProvider):
         except GLib.Error:
             return []  # Continuum isn't running
         items = []
-        for dev_id, name, kind, _connected, _level, _charging in devices:
+        for dev_id, name, kind, connected, _level, _charging in devices:
+            if not connected:  # only phones that can take the files right now
+                continue
             item = Nautilus.MenuItem(
                 name="Continuum::send-" + dev_id,
                 label="Send to " + name,

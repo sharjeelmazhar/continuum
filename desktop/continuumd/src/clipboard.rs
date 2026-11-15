@@ -68,11 +68,19 @@ impl ClipHub {
     }
 
     /// Files received from a phone: put them on the clipboard, ready to paste anywhere.
-    pub fn files(&self, paths: Vec<PathBuf>) {
+    /// Puts files on the clipboard. With `image`, the last picture among them is offered as
+    /// image data too, for apps that only paste pictures; without it the clipboard looks like
+    /// a copy in Files, so file managers paste every file under its own name (they prefer
+    /// image data and would paste one "Pasted image.png").
+    pub fn files(&self, paths: Vec<PathBuf>, image: bool) {
         if paths.is_empty() {
             return;
         }
-        let image = paths.iter().rev().find_map(|p| image_content(p));
+        let image = if image {
+            paths.iter().rev().find_map(|p| image_content(p))
+        } else {
+            None
+        };
         self.set(Owned::Files { paths, image });
     }
 

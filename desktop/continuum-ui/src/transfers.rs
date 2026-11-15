@@ -1,7 +1,7 @@
 //! The transfers button in the header: shows while files move, with each one's progress,
 //! speed and time left.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
@@ -28,7 +28,8 @@ const POLL: Duration = Duration::from_millis(700);
 pub fn button(ctx: &Rc<Ctx>) -> gtk::MenuButton {
     let label = gtk::Label::builder().css_classes(["numeric"]).build();
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    content.append(&gtk::Image::from_icon_name("folder-download-symbolic"));
+    let up = Rc::new(Cell::new(false));
+    content.append(&arrow(up.clone()));
     content.append(&label);
     let list = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -56,7 +57,7 @@ pub fn button(ctx: &Rc<Ctx>) -> gtk::MenuButton {
             button.set_visible(false);
             return glib::ControlFlow::Continue;
         };
-        let (label, list, speeds) = (label.clone(), list.clone(), speeds.clone());
+        let (label, list, speeds, up) = (label.clone(), list.clone(), speeds.clone(), up.clone());
         glib::spawn_future_local(async move {
             let rows: Vec<Row> = proxy
                 .transfers()
@@ -64,6 +65,7 @@ pub fn button(ctx: &Rc<Ctx>) -> gtk::MenuButton {
                 .ok()
                 .and_then(|j| serde_json::from_str(&j).ok())
                 .unwrap_or_default();
+            up.set(mostly_up(&rows));
             show(&button, &label, &list, &rows, &mut speeds.borrow_mut());
         });
         glib::ControlFlow::Continue
@@ -113,12 +115,99 @@ fn show(
     speeds.retain(|k, _| seen.contains(k));
 }
 
-fn row(r: &Row, rate: f64) -> gtk::Widget {
-    let icon = if r.up {
-        "send-to-symbolic"
-    } else {
-        "folder-download-symbolic"
+/// The header shows an upload arrow while more is going to the phone than coming from it.
+fn mostly_up(rows: &[Row]) -> bool {
+    let left = |up: bool| -> u64 {
+        rows.iter()
+            .filter(|r| r.up == up)
+            .map(|r| r.total.saturating_sub(r.done).max(1))
+            .sum()
     };
+    left(true) > left(false)
+}
+
+/// One sweep of the moving band, in milliseconds.
+const SWEEP_MS: i64 = 1100;
+
+/// An arrow over a tray, drawn in the text colour: up for files going to the phone, down for
+/// files coming from it. A bright band runs along it in the same direction, all the time.
+fn arrow(up: Rc<Cell<bool>>) -> gtk::DrawingArea {
+    let area = gtk::DrawingArea::builder()
+        .content_width(16)
+        .content_height(16)
+        .valign(gtk::Align::Center)
+        .build();
+    area.set_draw_func(move |w, cr, width, height| {
+        let color = w.color();
+        let up = up.get();
+        let s = f64::from(width.min(height)) / 16.0;
+        cr.translate(
+            (f64::from(width) - 16.0 * s) / 2.0,
+            (f64::from(height) - 16.0 * s) / 2.0,
+        );
+        cr.scale(s, s);
+        let path = |cr: &gtk::cairo::Context| {
+            cr.set_line_width(1.7);
+            cr.set_line_cap(gtk::cairo::LineCap::Round);
+            cr.set_line_join(gtk::cairo::LineJoin::Round);
+            // Tray.
+            cr.move_to(2.0, 10.5);
+            cr.line_to(2.0, 14.0);
+            cr.line_to(14.0, 14.0);
+            cr.line_to(14.0, 10.5);
+            if up {
+                cr.move_to(8.0, 11.0);
+                cr.line_to(8.0, 1.8);
+                cr.move_to(4.2, 5.6);
+                cr.line_to(8.0, 1.8);
+                cr.line_to(11.8, 5.6);
+            } else {
+                cr.move_to(8.0, 1.5);
+                cr.line_to(8.0, 10.6);
+                cr.move_to(4.2, 6.8);
+                cr.line_to(8.0, 10.6);
+                cr.line_to(11.8, 6.8);
+            }
+        };
+        let (r, g, b, a) = (
+            f64::from(color.red()),
+            f64::from(color.green()),
+            f64::from(color.blue()),
+            f64::from(color.alpha()),
+        );
+        // The whole arrow, faint.
+        cr.set_source_rgba(r, g, b, a * 0.45);
+        path(cr);
+        let _ = cr.stroke();
+        // The band: full colour, fading out at its edges, moving with the arrow.
+        let t = (glib::monotonic_time() / 1000).rem_euclid(SWEEP_MS) as f64 / SWEEP_MS as f64;
+        let band = 7.0;
+        let travel = 16.0 + band;
+        let top = if up {
+            16.0 - t * travel
+        } else {
+            -band + t * travel
+        };
+        let mask = gtk::cairo::LinearGradient::new(0.0, top, 0.0, top + band);
+        mask.add_color_stop_rgba(0.0, 0.0, 0.0, 0.0, 0.0);
+        mask.add_color_stop_rgba(0.5, 0.0, 0.0, 0.0, 1.0);
+        mask.add_color_stop_rgba(1.0, 0.0, 0.0, 0.0, 0.0);
+        cr.push_group();
+        cr.set_source_rgba(r, g, b, a);
+        path(cr);
+        let _ = cr.stroke();
+        if cr.pop_group_to_source().is_ok() {
+            let _ = cr.mask(&mask);
+        }
+    });
+    area.add_tick_callback(|w, _| {
+        w.queue_draw();
+        glib::ControlFlow::Continue
+    });
+    area
+}
+
+fn row(r: &Row, rate: f64) -> gtk::Widget {
     let title = gtk::Label::builder()
         .label(&r.name)
         .xalign(0.0)
@@ -131,7 +220,7 @@ fn row(r: &Row, rate: f64) -> gtk::Widget {
         .css_classes(["heading"])
         .build();
     let top = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    top.append(&gtk::Image::from_icon_name(icon));
+    top.append(&arrow(Rc::new(Cell::new(r.up))));
     top.append(&title);
     let bar = gtk::ProgressBar::builder()
         .fraction(if r.total == 0 {
@@ -193,5 +282,23 @@ mod tests {
         assert_eq!(time_left(16), "16 s");
         assert_eq!(time_left(125), "2 min 5 s");
         assert_eq!(time_left(3725), "1 h 2 min");
+    }
+
+    fn row(up: bool, total: u64, done: u64) -> Row {
+        Row {
+            name: "f".into(),
+            up,
+            total,
+            done,
+            elapsed_ms: 1,
+        }
+    }
+
+    #[test]
+    fn header_arrow_follows_what_is_left() {
+        assert!(mostly_up(&[row(true, 100, 0)]));
+        assert!(!mostly_up(&[row(false, 100, 0)]));
+        assert!(!mostly_up(&[row(true, 100, 90), row(false, 100, 0)]));
+        assert!(mostly_up(&[row(true, 100, 0), row(false, 100, 90)]));
     }
 }

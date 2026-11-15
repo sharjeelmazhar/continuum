@@ -21,7 +21,7 @@ use tokio::time::timeout;
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, info, warn};
 
-use crate::keepalive::{Keepalive, PROBE_TIMEOUT, Pace, deadline};
+use crate::keepalive::{Keepalive, PROBE_QUIET, PROBE_TIMEOUT, Pace, deadline};
 use crate::state::{Daemon, Event, Live};
 use crate::store::PairedDevice;
 use crate::transfer::Progress;
@@ -188,6 +188,7 @@ async fn handle(
         addr.ip(),
         hello.v
     );
+    tokio::spawn(crate::prefetch::gallery(daemon.clone(), device.id.clone()));
     // Files queued while it was away (or interrupted) go out now.
     for offer in daemon.outbox.pending(&device.id) {
         if !can_receive {
@@ -204,6 +205,14 @@ async fn handle(
     let result = session(&daemon, &device, &mut reader, &tx, &kill, &keepalive).await;
     daemon.disconnected(&device.id, conn);
     info!("{} disconnected", device.name);
+    if result.is_err() {
+        // Lost (not closed on purpose): the phone may sit in a long reconnect wait.
+        tokio::spawn(crate::wake::after_drop(
+            daemon.clone(),
+            device.id.clone(),
+            addr.ip(),
+        ));
+    }
     result
 }
 
@@ -357,14 +366,25 @@ async fn session<R: AsyncRead + Unpin>(
     let mut probe_until: Option<Instant> = None;
     loop {
         let now = Instant::now();
-        if keepalive.take_probe() && pace == Pace::Slow {
+        // The user just asked for something: unless the phone spoke a moment ago, check at
+        // once that it is still there, so a dead link is dropped (and the phone nudged to
+        // reconnect) within seconds instead of at the idle timeout.
+        if keepalive.take_probe() && now.duration_since(last_rx) > PROBE_QUIET {
             let _ = tx.try_send(Message::new(m::PING));
             probe_until.get_or_insert(now + PROBE_TIMEOUT);
             next_ping = now + Pace::Fast.ping_every();
         }
         let want = Pace::choose(keepalive.presence(), daemon.busy(&device.id));
         if want != pace {
-            info!("{}: keepalive {:?} -> {:?}", device.name, pace, want);
+            debug!("{}: keepalive {:?} -> {:?}", device.name, pace, want);
+            if want == Pace::Fast {
+                // Quiet for long at the slow pace is fine: give the phone a probe's time to
+                // answer instead of timing out at once.
+                last_rx = last_rx.max(
+                    now.checked_sub(want.timeout() - PROBE_TIMEOUT)
+                        .unwrap_or(now),
+                );
+            }
             pace = want;
             next_ping = next_ping.min(now + pace.ping_every());
         }

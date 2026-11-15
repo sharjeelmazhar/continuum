@@ -32,3 +32,21 @@ pub async fn announce(daemon: Arc<Daemon>) {
         }
     }
 }
+
+/// Seconds after a lost connection to nudge the phone, until it is back.
+const AFTER_DROP: [u64; 5] = [1, 1, 2, 4, 8];
+
+/// Nudges a phone whose connection was just lost, so it reconnects in a second or two
+/// instead of after its own retry delay.
+pub async fn after_drop(daemon: Arc<Daemon>, id: String, ip: std::net::IpAddr) {
+    let msg = format!("{PREFIX}{}", daemon.identity.device_id());
+    for wait in AFTER_DROP {
+        tokio::time::sleep(Duration::from_secs(wait)).await;
+        if daemon.is_connected(&id) {
+            return;
+        }
+        if let Ok(sock) = UdpSocket::bind(("0.0.0.0", 0)).await {
+            let _ = sock.send_to(msg.as_bytes(), (ip, DEFAULT_PORT)).await;
+        }
+    }
+}

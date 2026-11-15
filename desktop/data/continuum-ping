@@ -1,0 +1,7 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# continuum-ping: show a notification on your phone (every connected phone).
+#   continuum-ping "Needs your password" "The backup is waiting for your sudo password."
+#   continuum-ping --from "Claude Code" --urgent "Attention required" "Please come to the PC."
+# Exits 0 if a phone showed it, 1 if none did. `continuum-ping --help` for all options.
+exec continuumd ping "$@"

@@ -28,6 +28,7 @@ object Channels {
     const val UPDATES = "updates"
     const val FIND = "find"
     const val MIRROR = "mirror"
+    const val PINGS = "computer_pings"
 
     private const val GROUP_FILES = "group_files"
     private const val GROUP_CONNECTION = "group_connection"
@@ -52,6 +53,7 @@ object Channels {
      * its own switch in the "Connection status notification" group.
      */
     val categories = listOf(
+        Category(PINGS, R.string.channel_pings, R.string.channel_pings_desc),
         Category(FILES_RECEIVED, R.string.channel_files_received, R.string.channel_files_received_desc),
         Category(FILES_SENT, R.string.channel_files_sent, R.string.channel_files_sent_desc),
         Category(TRANSFER_PROGRESS, R.string.channel_transfer_progress, R.string.channel_transfer_progress_desc),
@@ -103,6 +105,10 @@ object Channels {
                     setShowBadge(false)
                 },
                 channel(TRANSFER_PROBLEMS, R.string.channel_transfer_problems, R.string.channel_transfer_problems_desc, NotificationManager.IMPORTANCE_DEFAULT, GROUP_FILES),
+                // Pops up as a banner: a program on the computer needs the user.
+                channel(PINGS, R.string.channel_pings, R.string.channel_pings_desc, NotificationManager.IMPORTANCE_HIGH, GROUP_PHONE) {
+                    lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+                },
                 channel(UPDATES, R.string.channel_updates, R.string.channel_updates_desc, NotificationManager.IMPORTANCE_DEFAULT, GROUP_PHONE),
                 channel(FIND, R.string.channel_find, R.string.channel_find_desc, NotificationManager.IMPORTANCE_HIGH, GROUP_PHONE) {
                     setSound(null, null) // Find my phone plays its sound itself, on the alarm stream.

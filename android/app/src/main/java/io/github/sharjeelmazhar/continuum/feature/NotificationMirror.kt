@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.graphics.drawable.toBitmap
 import androidx.core.os.BundleCompat
@@ -116,9 +117,11 @@ class NotificationMirror : NotificationListenerService() {
         val known = shown.put(sbn.key, sbn) != null
         // Nobody connected: just remember it (the snapshot sends it on connect).
         if (NotifBridge.events.subscriptionCount.value == 0) return
-        // An update the phone itself doesn't alert for (e.g. progress) doesn't pop up either.
-        val quiet = known && sbn.notification.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0
-        NotifBridge.events.tryEmit(NotifEvent.Posted(describe(sbn, quiet)))
+        // An update the phone itself doesn't alert for (e.g. progress) doesn't pop up either, nor
+        // a chat whose newest message is the user's own reply (sent from the phone or desktop).
+        val own = known && lastMessageIsMine(sbn.notification)
+        val quiet = own || known && sbn.notification.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0
+        NotifBridge.events.tryEmit(NotifEvent.Posted(describe(sbn, quiet).copy(own = own)))
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
@@ -160,6 +163,15 @@ class NotificationMirror : NotificationListenerService() {
         if (sbn.key.toByteArray().size > Limits.NOTIF_KEY_MAX) return false
         return title(n).isNotBlank() || text(n).isNotBlank()
     }
+
+    /** A messaging notification whose last message was written by the user. */
+    private fun lastMessageIsMine(n: Notification): Boolean = runCatching {
+        val style = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n) ?: return false
+        val last = style.messages.lastOrNull() ?: return false
+        val sender = last.person ?: return true // no sender: the user (Android's convention)
+        val me = style.user
+        (sender.key != null && sender.key == me.key) || (sender.name != null && sender.name.toString() == me.name?.toString())
+    }.getOrDefault(false)
 
     private fun title(n: Notification): String =
         (n.extras.getCharSequence(Notification.EXTRA_TITLE) ?: n.extras.getCharSequence(Notification.EXTRA_TITLE_BIG))?.toString().orEmpty()

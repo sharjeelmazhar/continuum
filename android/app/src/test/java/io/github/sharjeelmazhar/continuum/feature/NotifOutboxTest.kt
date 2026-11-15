@@ -22,6 +22,16 @@ class NotifOutboxTest {
     }
 
     @Test
+    fun aReplyFromThePhoneGoesOutEvenIfTheTextIsTheSame() {
+        // Messages keeps the title and text and only adds "You: …" to the chat.
+        val out = NotifOutbox(iconsOnce = true)
+        out.posted(n("a", "chat", "What time?"))
+        val mine = out.posted(n("a", "chat", "What time?").copy(own = true))
+        assertEquals(true, mine?.own)
+        assertNull(out.posted(n("a", "chat", "What time?").copy(own = true)))
+    }
+
+    @Test
     fun olderComputersAlwaysGetTheIcon() {
         val out = NotifOutbox(iconsOnce = false)
         out.posted(n("a", "chat", "1"))

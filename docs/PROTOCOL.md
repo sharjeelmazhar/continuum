@@ -137,6 +137,16 @@ error. Phones without the cap ignore `token` and send parts.
   taps Stop on the phone or `find.stop {}` arrives; gives up after 60 s.
 - `find.stop {}`.
 
+### Alerts from the computer (cap `ping`, 0.5.11+)
+| Type | Body | Reply |
+|---|---|---|
+| `ping.show` | `req`, `title` (≤ 120 chars), `text` (≤ 2000), `from` (≤ 60, the program asking, e.g. "Claude Code"), `urgent` (bool) | `{}` once shown; `error` if the user switched these alerts off on the phone, or more than 12 arrived in a minute |
+
+The phone shows a heads-up notification on its own channel ("Alerts from your computer"): bold
+`title`, the `text`, and "`from` on <computer name>". Plain text only: control characters are
+dropped and every field is cut on the phone too. On the desktop, `continuum-ping` (or
+`continuumd ping`) sends one to every connected phone.
+
 ### Messages (cap `sms`)
 | Type | Body | Reply |
 |---|---|---|
@@ -154,12 +164,15 @@ as `[MMS]` snippets).
 
 ### Notifications (cap `notif`)
 Phone → desktop, needs notification access on the phone (an explicit system setting):
-- `notif.posted { "key", "pkg", "app", "title", "text", "time" (ms), "icon" (base64 PNG ≤ 96 px, may be ""; to a desktop with the `notif.icons` cap, phones from 0.5.4 send each app's icon once per connection and `""` after that, and the desktop reuses the one it got), "reply" (bool: has a reply field), "actions" ([titles], ≤ 3), "silent" (bool) }`.
+- `notif.posted { "key", "pkg", "app", "title", "text", "time" (ms), "icon" (base64 PNG ≤ 96 px, may be ""; to a desktop with the `notif.icons` cap, phones from 0.5.4 send each app's icon once per connection and `""` after that, and the desktop reuses the one it got), "reply" (bool: has a reply field), "actions" ([titles], ≤ 3), "silent" (bool), "own" (bool, 0.5.11+) }`.
   Sent for every new or updated notification, and for all current ones right after `hello`
   (those with `silent: true`, so the desktop lists them without popping them up). Updates of
   an "alert once" notification are silent too, and the desktop also pops up only notifications
   that are new or whose title or text changed (apps repost unchanged ones). Ongoing,
   group-summary, media and Continuum's own notifications are not sent.
+  `own: true` (and silent): the newest message of a chat notification is the user's own, i.e.
+  they answered it (on the phone, or from the desktop). The desktop closes its copy instead of
+  popping it up again. After a desktop reply the desktop also keeps that chat quiet for 20 s.
 - `notif.removed { "key" }`: dismissed or gone on the phone.
 
 Desktop → phone:

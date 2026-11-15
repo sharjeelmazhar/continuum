@@ -138,7 +138,7 @@ fn open_folder(page: &Rc<Storage>, path: String) {
     glib::spawn_future_local(async move {
         let result = page
             .ctx
-            .request("files.list", serde_json::json!({ "path": path }))
+            .request_patient("files.list", serde_json::json!({ "path": path }))
             .await
             .and_then(|v| {
                 serde_json::from_value::<ListReply>(v).map_err(|e| ReqError::Other(e.to_string()))

@@ -9,6 +9,7 @@ class ChannelsTest {
     private val all = listOf(
         Channels.CONNECTION, Channels.CONNECTION_HIDDEN, Channels.TRANSFER_PROGRESS, Channels.FILES_RECEIVED,
         Channels.FILES_SENT, Channels.TRANSFER_PROBLEMS, Channels.UPDATES, Channels.FIND, Channels.MIRROR,
+        Channels.PINGS,
     )
 
     @Test

@@ -191,6 +191,14 @@ class Features(
                 val messages = sms.messages(r.thread, r.before.coerceAtLeast(0), Limits.limit(r.limit))
                 reply(replyType, SmsMessagesReply.serializer(), SmsMessagesReply(req, messages))
             }
+            FeatureType.PING_SHOW -> {
+                val r = msg.parse(io.github.sharjeelmazhar.continuum.proto.PingShow.serializer())
+                when (ComputerPing.show(context, computerName, r)) {
+                    ComputerPing.Result.SHOWN -> reply(replyType, Ack.serializer(), Ack(req))
+                    ComputerPing.Result.OFF -> replyError(replyType, req, "notifications from the computer are switched off on the phone")
+                    ComputerPing.Result.TOO_MANY -> replyError(replyType, req, "too many notifications in a minute")
+                }
+            }
             FeatureType.SMS_SEND -> {
                 val r = msg.parse(SmsSend.serializer())
                 val address = Limits.smsAddress(r.address) ?: throw BadRequest()

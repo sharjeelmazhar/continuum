@@ -36,6 +36,16 @@ trait Notifications {
 
     fn close_notification(&self, id: u32) -> zbus::Result<()>;
 
+    fn get_capabilities(&self) -> zbus::Result<Vec<String>>;
+
+    /// KDE Plasma: text typed into a notification's inline reply field.
+    #[zbus(signal)]
+    fn notification_replied(&self, id: u32, text: &str) -> zbus::Result<()>;
+
+    /// reason 2 = dismissed by the user.
+    #[zbus(signal)]
+    fn notification_closed(&self, id: u32, reason: u32) -> zbus::Result<()>;
+
     #[zbus(signal)]
     fn action_invoked(&self, id: u32, action_key: &str) -> zbus::Result<()>;
 
@@ -68,8 +78,18 @@ pub struct Notifier {
     /// Live progress notifications we opened for transfers (closed when they end), and the
     /// bytes done at the last update, for the speed.
     live: Mutex<HashMap<String, (u32, u64)>>,
+    /// Progress notifications the user dismissed: not shown again for that transfer.
+    dismissed: Mutex<std::collections::HashSet<u32>>,
+    /// "device/key" → when the user replied to it from the desktop; the phone app's repost
+    /// (the chat with the reply added) doesn't pop up again.
+    replied: Mutex<HashMap<String, std::time::Instant>>,
+    /// The notification server has a reply field of its own (KDE Plasma).
+    inline_reply: bool,
     daemon: Arc<Daemon>,
 }
+
+/// The running notifier, for D-Bus callers (the GNOME Shell extension's inline reply).
+pub static NOTIFIER: std::sync::OnceLock<Arc<Notifier>> = std::sync::OnceLock::new();
 
 fn locked<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -78,6 +98,10 @@ fn locked<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 impl Notifier {
     pub async fn new(conn: &Connection, daemon: Arc<Daemon>) -> zbus::Result<Arc<Self>> {
         let proxy = NotificationsProxy::new(conn).await?;
+        let inline_reply = proxy
+            .get_capabilities()
+            .await
+            .is_ok_and(|c| c.iter().any(|c| c == "inline-reply"));
         let me = Arc::new(Self {
             conn: conn.clone(),
             proxy: proxy.clone(),
@@ -87,7 +111,35 @@ impl Notifier {
             popups: Mutex::new(HashMap::new()),
             tokens: Mutex::new(HashMap::new()),
             live: Mutex::new(HashMap::new()),
+            dismissed: Mutex::new(Default::default()),
+            replied: Mutex::new(HashMap::new()),
+            inline_reply,
             daemon,
+        });
+        let mut replies = proxy.receive_notification_replied().await?;
+        let weak = Arc::downgrade(&me);
+        tokio::spawn(async move {
+            while let Some(signal) = replies.next().await {
+                if let (Ok(args), Some(me)) = (signal.args(), weak.upgrade()) {
+                    let _ = me.reply_to(args.id, args.text).await;
+                }
+            }
+        });
+        let mut closed = proxy.receive_notification_closed().await?;
+        let weak = Arc::downgrade(&me);
+        tokio::spawn(async move {
+            while let Some(signal) = closed.next().await {
+                let (Ok(args), Some(me)) = (signal.args(), weak.upgrade()) else {
+                    continue;
+                };
+                if args.reason == 2 {
+                    let mut d = locked(&me.dismissed);
+                    if d.len() > 200 {
+                        d.clear();
+                    }
+                    d.insert(args.id);
+                }
+            }
         });
         let weak = Arc::downgrade(&me);
         tokio::spawn(async move {
@@ -213,22 +265,30 @@ impl Notifier {
                 format!("Receiving {} from {device}", r.name)
             };
             let body = progress_text(r.done, r.total, rate);
-            let id = self
-                .show_quiet(theirs.unwrap_or(mine), &summary, &body)
-                .await;
-            match (theirs, id) {
-                (Some(_), _) => {}
-                (None, Some(id)) => {
-                    locked(&self.live).insert(key, (id, r.done));
-                }
-                (None, None) => {}
+            let current = theirs.unwrap_or(mine);
+            if current != 0 && locked(&self.dismissed).contains(&current) {
+                // Closed by the user: leave it closed until the transfer ends.
+                locked(&self.live).insert(key, (0, r.done));
+                continue;
+            }
+            // GNOME opens a new notification (new id) when the old one is gone, e.g. after
+            // "Clear": always keep the id it returns, or every update adds another one.
+            let Some(id) = self.show_quiet(current, &summary, &body).await else {
+                continue;
+            };
+            if theirs.is_some() {
+                locked(&self.in_progress).insert(share_key, id);
+                // Owned by the share: it becomes "Sent …"/"Received …", never closed here.
+                locked(&self.live).insert(key, (0, r.done));
+            } else {
+                locked(&self.live).insert(key, (id, r.done));
             }
         }
         let gone: Vec<u32> = {
             let mut live = locked(&self.live);
             let ids = live
                 .iter()
-                .filter(|(k, _)| !seen.contains(k))
+                .filter(|(k, (id, _))| !seen.contains(k) && *id != 0)
                 .map(|(_, (id, _))| *id)
                 .collect();
             live.retain(|k, _| seen.contains(k));
@@ -260,6 +320,28 @@ impl Notifier {
             .unwrap_or(0)
     }
 
+    /// Answers the phone notification behind our popup `id` with `text` (typed into the
+    /// popup itself: KDE's reply field or the GNOME Shell extension's).
+    pub async fn reply_to(&self, id: u32, text: &str) -> Result<(), String> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Err("nothing to send".into());
+        }
+        let (device, key) = locked(&self.popups)
+            .get(&id)
+            .cloned()
+            .ok_or("that notification is gone")?;
+        let text: String = text.chars().take(5000).collect();
+        let body = serde_json::json!({ "key": key, "text": text });
+        self.daemon.command(&device, "notif.reply", body).await?;
+        self.daemon.emit(crate::state::Event::Phone {
+            device,
+            kind: "notif.replied".into(),
+            body: serde_json::json!({ "key": key }).to_string(),
+        });
+        Ok(())
+    }
+
     /// A button on a phone notification's popup: Reply, one of the phone's own buttons, or
     /// the popup itself (opens the Notifications page).
     async fn phone_action(&self, id: u32, action: &str) {
@@ -267,7 +349,7 @@ impl Notifier {
             return;
         };
         let token = locked(&self.tokens).remove(&id);
-        if action == "reply" {
+        if action == "reply" || action == "inline-reply" {
             self.activate_app(
                 "quick-reply",
                 Some(&format!("{device}\n{key}")),
@@ -341,6 +423,17 @@ impl Notifier {
         }
     }
 
+    /// The user answered a phone notification from the desktop: its popup goes away, and so
+    /// does the app's repost with the reply in it.
+    pub async fn on_replied(&self, device: &str, key: &str) {
+        {
+            let mut r = locked(&self.replied);
+            r.retain(|_, t| t.elapsed() < REPLY_ECHO);
+            r.insert(format!("{device}/{key}"), std::time::Instant::now());
+        }
+        self.on_phone_notification_removed(device, key).await;
+    }
+
     /// Closes our popup for a phone notification that went away on the phone.
     pub async fn on_phone_notification_removed(&self, device: &str, key: &str) {
         let id = self
@@ -362,10 +455,21 @@ impl Notifier {
         device: &str,
         n: &PhoneNotification,
     ) {
+        if n.own {
+            // Answered on the phone (or by us): the desktop copy has done its job.
+            self.on_phone_notification_removed(device_id, &n.key).await;
+            return;
+        }
         if n.silent {
             return;
         }
         let slot = format!("{device_id}/{}", n.key);
+        if locked(&self.replied)
+            .get(&slot)
+            .is_some_and(|t| t.elapsed() < REPLY_ECHO)
+        {
+            return;
+        }
         let replaces = self
             .phone
             .lock()
@@ -384,9 +488,15 @@ impl Notifier {
             glib_escape(device),
             glib_escape(&n.text)
         );
-        let hints = HashMap::from([("desktop-entry", Value::from(APP_ID))]);
+        let mut hints = HashMap::from([("desktop-entry", Value::from(APP_ID))]);
         let mut actions = vec!["default".to_owned(), "Open".to_owned()];
-        if n.reply {
+        if n.reply && self.inline_reply {
+            // Plasma shows a reply field right in the notification.
+            actions.extend(["inline-reply".to_owned(), "Reply".to_owned()]);
+            hints.insert("x-kde-reply-placeholder-text", Value::from("Reply…"));
+            hints.insert("x-kde-reply-submit-button-text", Value::from("Send"));
+        } else if n.reply {
+            // GNOME: our Shell extension turns this button into a reply field.
             actions.extend(["reply".to_owned(), "Reply".to_owned()]);
         }
         for (i, title) in n.actions.iter().enumerate() {
@@ -414,6 +524,7 @@ impl Notifier {
                 }
                 p.insert(id, (device_id.to_owned(), n.key.clone()));
             }
+            tracing::debug!("popup {id} for {slot}");
             let mut g = locked(&self.phone);
             if g.len() > 500 {
                 g.clear();
@@ -612,6 +723,8 @@ pub(crate) fn file_uri(path: &Path) -> String {
 }
 
 const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
+/// After a reply from the desktop, how long the phone's update of that chat stays quiet.
+const REPLY_ECHO: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// "45% · 60 MB of 188 MB · 8.1 MB/s · 15 s left" (speed and time once it's moving).
 fn progress_text(done: u64, total: u64, rate: f64) -> String {

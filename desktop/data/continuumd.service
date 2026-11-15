@@ -1,6 +1,8 @@
 [Unit]
 Description=Continuum (phone connection service)
 After=network-online.target
+# Not for the login screen's own session (gdm, sddm, lightdm system users).
+ConditionUser=!@system
 
 [Service]
 Type=dbus

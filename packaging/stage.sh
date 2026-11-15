@@ -14,6 +14,7 @@ put() { install -D -m "${3:-644}" "$1" "$DEST/$2"; }
 
 put "$BIN/continuumd" usr/bin/continuumd 755
 put "$BIN/continuum-ui" usr/bin/continuum-ui 755
+put "$DATA/continuum-ping" usr/bin/continuum-ping 755
 # Continuum, and Phone Mirroring (its own app and dock icon).
 for id in "$APP_ID" "$APP_ID.Mirror"; do
   put "$DATA/$id.desktop" "usr/share/applications/$id.desktop"
@@ -35,6 +36,4 @@ for f in "$DATA/gnome-shell/$EXT"/*; do
   put "$f" "usr/share/gnome-shell/extensions/$EXT/$(basename "$f")"
 done
 put "$DATA/nautilus/continuum-nautilus.py" usr/share/nautilus-python/extensions/continuum-nautilus.py
-sed 's|@BIN@|/usr/bin|' "$DATA/kde/continuum-send.desktop" > "$DEST/.kde"
-put "$DEST/.kde" usr/share/kio/servicemenus/continuum-send.desktop 755 && rm "$DEST/.kde"
 put "$ROOT/LICENSE" usr/share/licenses/continuum/LICENSE

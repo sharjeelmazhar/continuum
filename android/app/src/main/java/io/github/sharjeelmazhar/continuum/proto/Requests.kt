@@ -29,6 +29,8 @@ object FeatureType {
     const val FILES_FETCH = "files.fetch"
     const val FIND_RING = "find.ring"
     const val FIND_STOP = "find.stop"
+    /** Desktop → phone: show a notification from an app on the computer (a request: the reply says it showed). */
+    const val PING_SHOW = "ping.show"
     const val MIRROR_START = "mirror.start"
     const val MIRROR_STOP = "mirror.stop"
     const val MIRROR_INPUT = "mirror.input"
@@ -36,7 +38,7 @@ object FeatureType {
     /** Phone → desktop: open the mirror window (the phone's Quick Settings tile). */
     const val MIRROR_REQUEST = "mirror.request"
 
-    val REQUESTS = setOf(PHOTOS_LIST, PHOTOS_THUMBS, PHOTOS_FETCH, PHOTOS_SEND, SMS_THREADS, SMS_MESSAGES, SMS_SEND, FILES_LIST, FILES_FETCH)
+    val REQUESTS = setOf(PHOTOS_LIST, PHOTOS_THUMBS, PHOTOS_FETCH, PHOTOS_SEND, SMS_THREADS, SMS_MESSAGES, SMS_SEND, FILES_LIST, FILES_FETCH, PING_SHOW)
 
     fun reply(type: String) = "$type.reply"
 }
@@ -129,6 +131,16 @@ data class ErrorReply(val req: Long, val error: String) {
 /** `{ req }`: done (photos.send, sms.send). */
 @Serializable
 data class Ack(val req: Long)
+
+/** `ping.show`: plain text; the phone clamps every field. */
+@Serializable
+data class PingShow(
+    val req: Long = 0,
+    val title: String = "",
+    val text: String = "",
+    val from: String = "",
+    val urgent: Boolean = false,
+)
 
 // ---- Photos ----
 
@@ -251,6 +263,8 @@ data class NotifPosted(
     val reply: Boolean,
     val actions: List<String>,
     val silent: Boolean,
+    /** The newest message in it is the user's own (answered on the phone): nothing to alert. */
+    val own: Boolean = false,
 )
 
 @Serializable

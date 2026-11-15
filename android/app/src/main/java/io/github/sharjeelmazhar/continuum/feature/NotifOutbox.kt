@@ -11,11 +11,11 @@ class NotifOutbox(private val iconsOnce: Boolean) {
     private val sentIcons = HashSet<String>()
     private val last = HashMap<String, Sent>()
 
-    private data class Sent(val title: String, val text: String, val actions: List<String>, val reply: Boolean, val app: String)
+    private data class Sent(val title: String, val text: String, val actions: List<String>, val reply: Boolean, val app: String, val own: Boolean)
 
     /** What to send for [n], or null to send nothing. */
     fun posted(n: NotifPosted): NotifPosted? {
-        val sent = Sent(n.title, n.text, n.actions, n.reply, n.app)
+        val sent = Sent(n.title, n.text, n.actions, n.reply, n.app, n.own)
         if (last[n.key] == sent) return null
         if (last.size >= MAX_KEYS) last.clear()
         last[n.key] = sent

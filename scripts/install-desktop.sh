@@ -26,7 +26,7 @@ put() { # put SRC DEST [MODE]: atomic copy
 
 if [ "${1:-}" = "--uninstall" ]; then
   systemctl --user disable --now continuumd.service 2>/dev/null || true
-  rm -f "$BIN/continuumd" "$BIN/continuum-ui" "$UNITS/continuumd.service" \
+  rm -f "$BIN/continuumd" "$BIN/continuum-ui" "$BIN/continuum-ping" "$UNITS/continuumd.service" \
     "$SHARE/applications/$APP_ID.desktop" "$SHARE/icons/hicolor/scalable/apps/$APP_ID.svg" \
     "$SHARE"/icons/hicolor/*/apps/$APP_ID.png \
     "$SHARE/applications/$APP_ID.Mirror.desktop" "$SHARE"/icons/hicolor/*/apps/$APP_ID.Mirror.png \
@@ -54,6 +54,10 @@ fi
 echo "==> Installing"
 put "$ROOT/desktop/target/release/continuumd" "$BIN/continuumd" 755
 put "$ROOT/desktop/target/release/continuum-ui" "$BIN/continuum-ui" 755
+# continuum-ping calls the continuumd next to it.
+sed "s|^exec continuumd |exec \"$BIN/continuumd\" |" "$DATA/continuum-ping" > "$DATA/.ping.tmp"
+put "$DATA/.ping.tmp" "$BIN/continuum-ping" 755
+rm -f "$DATA/.ping.tmp"
 rm -f "$SHARE/icons/hicolor/scalable/apps/$APP_ID.svg" # old icon (before v0.4)
 # Continuum, and Phone Mirroring (its own app and dock icon).
 for id in "$APP_ID" "$APP_ID.Mirror"; do
@@ -70,9 +74,10 @@ put "$DATA/$APP_ID.Daemon.service" "$SHARE/dbus-1/services/$APP_ID.Daemon.servic
 put "$DATA/continuumd.service" "$UNITS/continuumd.service"
 # "Send to <phone>" in the file manager's right-click menu.
 put "$DATA/nautilus/continuum-nautilus.py" "$SHARE/nautilus-python/extensions/continuum-nautilus.py"
-sed "s|@BIN@|$BIN|" "$DATA/kde/continuum-send.desktop" > "$DATA/kde/.send.tmp"
-put "$DATA/kde/.send.tmp" "$SHARE/kio/servicemenus/continuum-send.desktop" 755
-rm -f "$DATA/kde/.send.tmp"
+# KDE (Dolphin, Plasma desktop) and GNOME's desktop icons get theirs from the daemon, one entry
+# per connected phone; older versions installed a fixed menu here.
+grep -qs "Continuum send menu" "$SHARE/kio/servicemenus/continuum-send.desktop" \
+  || rm -f "$SHARE/kio/servicemenus/continuum-send.desktop"
 if command -v nautilus >/dev/null \
    && ! find /usr/lib /usr/lib64 -name libnautilus-python.so 2>/dev/null | grep -q .; then
   echo "==> Adding Python support to Files (for the Send to phone menu)"

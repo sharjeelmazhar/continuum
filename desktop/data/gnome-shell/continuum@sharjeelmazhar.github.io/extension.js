@@ -12,6 +12,8 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import {QuickMenuToggle, SystemIndicator} from 'resource:///org/gnome/shell/ui/quickSettings.js';
 
+import {InlineReply} from './inlineReply.js';
+
 const APP_ID = 'io.github.sharjeelmazhar.Continuum';
 const APP_PATH = '/io/github/sharjeelmazhar/Continuum';
 const BUS_NAME = 'io.github.sharjeelmazhar.Continuum.Daemon';
@@ -201,6 +203,8 @@ class PhoneIndicator extends SystemIndicator {
 
 export default class ContinuumExtension extends Extension {
     enable() {
+        this._inlineReply = new InlineReply();
+        this._inlineReply.enable();
         this._indicator = new PhoneIndicator(this);
         Main.panel.statusArea.quickSettings.addExternalIndicator(this._indicator);
         // The app saves the phone picked in it; follow it at once.
@@ -224,6 +228,8 @@ export default class ContinuumExtension extends Extension {
     }
 
     disable() {
+        this._inlineReply?.disable();
+        this._inlineReply = null;
         this._monitor?.cancel();
         this._monitor = null;
         Gio.bus_unwatch_name(this._watch);

@@ -65,6 +65,8 @@ pub struct Photos {
     /// Bumped on every reload so answers for an old list are dropped.
     generation: Cell<u64>,
     loading_more: Cell<bool>,
+    /// Showing the list saved last time; the next answer for the first page replaces it.
+    refreshing: Cell<bool>,
     done: Cell<bool>,
     textures: RefCell<HashMap<i64, gdk::Texture>>,
     /// Pictures currently showing a photo, to fill in when its thumbnail arrives.
@@ -93,6 +95,7 @@ pub fn build(ctx: &Rc<Ctx>) -> Rc<Photos> {
         anchor: Cell::new(0),
         generation: Cell::new(0),
         loading_more: Cell::new(false),
+        refreshing: Cell::new(false),
         done: Cell::new(false),
         textures: RefCell::default(),
         bound: RefCell::default(),
@@ -337,7 +340,7 @@ pub fn reload(page: &Rc<Photos>) {
     let device = page.ctx.device().map(|d| d.id).unwrap_or_default();
     if *page.device.borrow() != device {
         page.textures.borrow_mut().clear();
-        *page.device.borrow_mut() = device;
+        *page.device.borrow_mut() = device.clone();
     }
     page.generation.set(page.generation.get() + 1);
     page.subtitle.set_label("");
@@ -347,8 +350,73 @@ pub fn reload(page: &Rc<Photos>) {
     page.requested.borrow_mut().clear();
     page.done.set(false);
     page.loading_more.set(false);
-    page.widget.set_visible_child_name("loading");
+    page.refreshing.set(false);
+    // The newest photos as last seen (saved by the app, or fetched by the service when the
+    // phone connected): shown at once, refreshed from the phone right after.
+    match cached_list(&device) {
+        Some(r) if !r.items.is_empty() => {
+            show_list(page, r, true);
+            page.refreshing.set(true);
+        }
+        _ => page.widget.set_visible_child_name("loading"),
+    }
     load_more(page);
+}
+
+/// The first page of the gallery as saved last time (`gallery/<device>/list.json`, the
+/// phone's own `photos.list` answer).
+fn cached_list(device: &str) -> Option<ListReply> {
+    let bytes = std::fs::read(ctx::cache_dir("gallery", device).join("list.json")).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+fn save_list(device: &str, reply: &serde_json::Value) {
+    let dir = ctx::cache_dir("gallery", device);
+    let tmp = dir.join("list.json.part");
+    if let Ok(bytes) = serde_json::to_vec(reply) {
+        let _ = std::fs::create_dir_all(&dir)
+            .and_then(|_| std::fs::write(&tmp, bytes))
+            .and_then(|_| std::fs::rename(&tmp, dir.join("list.json")));
+    }
+}
+
+/// Puts a page of results on screen: appended, or (`replace`) instead of what is there.
+fn show_list(page: &Rc<Photos>, r: ListReply, replace: bool) {
+    page.done.set(r.items.len() < PAGE);
+    let same = replace
+        && page.store.n_items() as usize == r.items.len()
+        && r.items.iter().enumerate().all(|(i, p)| {
+            page.store
+                .item(i as u32)
+                .and_downcast::<glib::BoxedAnyObject>()
+                .is_some_and(|o| o.borrow::<Photo>().id == p.id)
+        });
+    if !same {
+        let objs: Vec<glib::BoxedAnyObject> =
+            r.items.into_iter().map(glib::BoxedAnyObject::new).collect();
+        if replace {
+            page.store.splice(0, page.store.n_items(), &objs);
+        } else {
+            page.store.extend_from_slice(&objs);
+        }
+    }
+    page.subtitle.set_label(&match r.total {
+        0 => String::new(),
+        1 => "1 item".into(),
+        n => format!("{n} items"),
+    });
+    if page.store.n_items() == 0 {
+        show_status(
+            page,
+            ctx::status_page(
+                "image-x-generic-symbolic",
+                "No Photos Yet",
+                "Photos and videos on your phone show up here.",
+            ),
+        );
+    } else {
+        page.widget.set_visible_child_name("grid");
+    }
 }
 
 fn load_more(page: &Rc<Photos>) {
@@ -357,42 +425,31 @@ fn load_more(page: &Rc<Photos>) {
     }
     page.loading_more.set(true);
     let generation = page.generation.get();
-    let offset = page.store.n_items();
+    let refreshing = page.refreshing.get();
+    let offset = if refreshing { 0 } else { page.store.n_items() };
+    let device = page.device.borrow().clone();
     let page = page.clone();
     glib::spawn_future_local(async move {
         let body = serde_json::json!({ "offset": offset, "limit": PAGE });
-        let result = page.ctx.request("photos.list", body).await;
+        let result = page.ctx.request_patient("photos.list", body).await;
         if page.generation.get() != generation {
             return;
         }
         page.loading_more.set(false);
+        page.refreshing.set(false);
+        if offset == 0
+            && let Ok(v) = &result
+        {
+            save_list(&device, v);
+        }
         let reply = result.and_then(|v| {
             serde_json::from_value::<ListReply>(v).map_err(|e| ReqError::Other(e.to_string()))
         });
         match reply {
-            Ok(r) => {
-                page.done.set(r.items.len() < PAGE);
-                let objs: Vec<glib::BoxedAnyObject> =
-                    r.items.into_iter().map(glib::BoxedAnyObject::new).collect();
-                page.store.extend_from_slice(&objs);
-                page.subtitle.set_label(&match r.total {
-                    0 => String::new(),
-                    1 => "1 item".into(),
-                    n => format!("{n} items"),
-                });
-                if page.store.n_items() == 0 {
-                    show_status(
-                        &page,
-                        ctx::status_page(
-                            "image-x-generic-symbolic",
-                            "No Photos Yet",
-                            "Photos and videos on your phone show up here.",
-                        ),
-                    );
-                } else {
-                    page.widget.set_visible_child_name("grid");
-                }
-            }
+            Ok(r) => show_list(&page, r, refreshing),
+            // The saved list stays up while the phone is away.
+            Err(ReqError::Offline) if refreshing => {}
+            Err(e) if refreshing => page.ctx.toast(&e.text()),
             Err(e) if offset == 0 => show_status(&page, ctx::error_page(&e, "Gallery")),
             Err(e) => page.ctx.toast(&e.text()),
         }
@@ -446,7 +503,7 @@ fn fetch_thumbs(page: &Rc<Photos>) {
                 break;
             }
             let body = serde_json::json!({ "ids": ids, "size": THUMB_PX });
-            let reply = page.ctx.request("photos.thumbs", body).await;
+            let reply = page.ctx.request_patient("photos.thumbs", body).await;
             if page.generation.get() != generation {
                 continue;
             }

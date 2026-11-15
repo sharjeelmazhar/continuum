@@ -102,12 +102,75 @@ impl Api {
 
     /// Sends files (absolute paths) to a paired device; queued if it isn't connected.
     /// Returns the transfer id.
+    /// Folders go as a .zip each, made in the background (the id is then "").
     async fn send_files(&self, id: &str, paths: Vec<String>) -> zbus::fdo::Result<String> {
-        let paths = paths.into_iter().map(Into::into).collect();
-        self.daemon
-            .send_files(id, paths)
+        let paths: Vec<std::path::PathBuf> = paths.into_iter().map(Into::into).collect();
+        if !paths.iter().any(|p| p.is_dir()) {
+            return self
+                .daemon
+                .send_files(id, paths)
+                .await
+                .map_err(zbus::fdo::Error::Failed);
+        }
+        let name = self
+            .daemon
+            .peer(id)
+            .map(|p| p.0)
+            .ok_or_else(|| zbus::fdo::Error::Failed("that device isn't paired".into()))?;
+        let (daemon, id) = (self.daemon.clone(), id.to_owned());
+        self.rt.spawn(async move {
+            let root = crate::folders::outgoing_dir();
+            let zipped =
+                tokio::task::spawn_blocking(move || crate::folders::expand(paths, &root)).await;
+            let result = match zipped {
+                Ok(Ok(paths)) => daemon.send_files(&id, paths).await.map(drop),
+                Ok(Err(e)) => Err(format!("couldn't pack the folder: {e}")),
+                Err(e) => Err(e.to_string()),
+            };
+            if let Err(reason) = result {
+                daemon.emit(Event::Transfer(crate::transfer::Progress::SendFailed {
+                    device: name,
+                    reason,
+                }));
+            }
+        });
+        Ok(String::new())
+    }
+
+    /// Shows a notification on a phone ("" = every connected phone that can): a bold `title`,
+    /// a short explanation, and who sent it (`from`, e.g. "Claude Code"). Plain text. Returns
+    /// the names of the phones that showed it; fails if none did.
+    async fn ping(
+        &self,
+        id: &str,
+        title: &str,
+        text: &str,
+        from: &str,
+        urgent: bool,
+    ) -> zbus::fdo::Result<Vec<String>> {
+        let (daemon, id) = (self.daemon.clone(), id.to_owned());
+        let body = serde_json::json!({
+            "title": clamp(title, 120),
+            "text": clamp(text, 2000),
+            "from": clamp(from, 60),
+            "urgent": urgent,
+        });
+        self.on_tokio(async move { daemon.ping(&id, body).await })
             .await
-            .map_err(zbus::fdo::Error::Failed)
+    }
+
+    /// Replies to the phone notification behind one of our desktop notifications (its id from
+    /// org.freedesktop.Notifications), with text typed into the notification itself. Used by
+    /// the GNOME Shell extension; the notification closes.
+    async fn reply_to_notification(&self, notification: u32, text: &str) -> zbus::fdo::Result<()> {
+        let text = text.to_owned();
+        self.on_tokio(async move {
+            let n = crate::notify::NOTIFIER
+                .get()
+                .ok_or("desktop notifications are unavailable")?;
+            n.reply_to(notification, &text).await
+        })
+        .await
     }
 
     /// Asks a phone for data (`photos.list`, `sms.threads`, `sms.send`, …; see PROTOCOL.md).
@@ -199,10 +262,22 @@ impl Api {
                 body: serde_json::json!({ "key": key }).to_string(),
             });
         }
+        let replied = (kind == "notif.reply")
+            .then(|| serde_json::Value::get(&body, "key").and_then(|k| k.as_str()))
+            .flatten()
+            .map(str::to_owned);
         self.daemon
             .command(id, kind, body)
             .await
-            .map_err(zbus::fdo::Error::Failed)
+            .map_err(zbus::fdo::Error::Failed)?;
+        if let Some(key) = replied {
+            self.daemon.emit(Event::Phone {
+                device: id.to_owned(),
+                kind: "notif.replied".into(),
+                body: serde_json::json!({ "key": key }).to_string(),
+            });
+        }
+        Ok(())
     }
 
     /// Starts mirroring the phone's screen. Returns a socket that delivers the stream: frames of
@@ -244,7 +319,7 @@ impl Api {
         if files.is_empty() {
             return Err(zbus::fdo::Error::InvalidArgs("no files".into()));
         }
-        self.daemon.clip.files(files);
+        self.daemon.clip.files(files, false);
         Ok(())
     }
 
@@ -316,6 +391,9 @@ pub async fn run(daemon: Arc<Daemon>) -> zbus::Result<connection::Connection> {
         .await
         .map_err(|e| tracing::warn!("desktop notifications unavailable: {e}"))
         .ok();
+    if let Some(n) = &notifier {
+        let _ = crate::notify::NOTIFIER.set(n.clone());
+    }
     tokio::spawn(async move {
         loop {
             let res = match events.recv().await {
@@ -326,7 +404,9 @@ pub async fn run(daemon: Arc<Daemon>) -> zbus::Result<connection::Connection> {
                 Ok(Event::Transfer(p)) => {
                     // Files from a phone are ready to paste right away (screenshots → chat).
                     if let crate::transfer::Progress::Finished { saved, .. } = &p {
-                        names.clip.files(saved.clone());
+                        // One picture (a screenshot) also goes as image data for chat apps; several
+                        // stay plain files so file managers paste them all.
+                        names.clip.files(saved.clone(), saved.len() == 1);
                     }
                     if let Some(n) = &notifier {
                         n.on_transfer(&p).await;
@@ -344,6 +424,10 @@ pub async fn run(daemon: Arc<Daemon>) -> zbus::Result<connection::Connection> {
                             && let Ok(k) = serde_json::from_str::<NotifKey>(&body)
                         {
                             n.on_phone_notification_removed(&device, &k.key).await;
+                        } else if kind == "notif.replied"
+                            && let Ok(k) = serde_json::from_str::<NotifKey>(&body)
+                        {
+                            n.on_replied(&device, &k.key).await;
                         }
                     }
                     Api::phone_event(&emitter, &device, &kind, &body).await
@@ -356,6 +440,11 @@ pub async fn run(daemon: Arc<Daemon>) -> zbus::Result<connection::Connection> {
         }
     });
     Ok(conn)
+}
+
+/// At most `max` characters.
+fn clamp(s: &str, max: usize) -> String {
+    s.chars().take(max).collect()
 }
 
 /// Device ids are hex; anything else never reaches a path.

@@ -32,6 +32,7 @@ fi
 %license /usr/share/licenses/continuum/LICENSE
 /usr/bin/continuumd
 /usr/bin/continuum-ui
+/usr/bin/continuum-ping
 /usr/share/applications/io.github.sharjeelmazhar.Continuum.desktop
 /usr/share/icons/hicolor/*/apps/io.github.sharjeelmazhar.Continuum.png
 /usr/share/applications/io.github.sharjeelmazhar.Continuum.Mirror.desktop
@@ -43,4 +44,3 @@ fi
 /usr/lib/systemd/user/continuumd-update.service
 /usr/share/gnome-shell/extensions/continuum@sharjeelmazhar.github.io
 /usr/share/nautilus-python/extensions/continuum-nautilus.py
-/usr/share/kio/servicemenus/continuum-send.desktop

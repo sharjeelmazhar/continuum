@@ -89,6 +89,34 @@ impl Ctx {
         serde_json::from_str(&reply).map_err(|e| ReqError::Other(e.to_string()))
     }
 
+    /// Like [`request`](Self::request), for requests that only read: if the phone's link is
+    /// being re-established (a dead connection was just dropped, or the service is starting),
+    /// waits up to 15 s for it to come back and asks once more, instead of failing.
+    pub async fn request_patient(&self, kind: &str, body: Value) -> Result<Value, ReqError> {
+        match self.request(kind, body.clone()).await {
+            Err(ReqError::Offline) | Err(ReqError::Other(_)) if self.wait_connected().await => {
+                self.request(kind, body).await
+            }
+            r => r,
+        }
+    }
+
+    /// Waits until the selected phone is connected (true), up to 15 s.
+    async fn wait_connected(&self) -> bool {
+        let Some(id) = self.device().map(|d| d.id) else {
+            return false;
+        };
+        for _ in 0..60 {
+            glib::timeout_future(std::time::Duration::from_millis(250)).await;
+            match self.device() {
+                Some(d) if d.id != id => return false,
+                Some(d) if d.connected => return true,
+                _ => {}
+            }
+        }
+        false
+    }
+
     pub async fn fetch_photo(&self, photo: i64) -> Result<PathBuf, ReqError> {
         let (Some(p), Some(d)) = (self.proxy(), self.device()) else {
             return Err(ReqError::Offline);

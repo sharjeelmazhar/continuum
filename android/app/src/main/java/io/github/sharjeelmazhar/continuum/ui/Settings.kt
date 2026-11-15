@@ -20,6 +20,7 @@ import androidx.compose.material.icons.outlined.ScreenShare
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.NotificationImportant
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.PhoneInTalk
 import androidx.compose.material.icons.outlined.SwapVert
@@ -257,6 +258,7 @@ private fun channelIcon(id: String): ImageVector = when (id) {
     Channels.UPDATES -> Icons.Outlined.SystemUpdate
     Channels.FIND -> Icons.Outlined.PhoneInTalk
     Channels.MIRROR -> Icons.Outlined.ScreenShare
+    Channels.PINGS -> Icons.Outlined.NotificationImportant
     else -> Icons.Outlined.Notifications
 }
 

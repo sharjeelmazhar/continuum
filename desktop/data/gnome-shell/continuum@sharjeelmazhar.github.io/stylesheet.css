@@ -2,3 +2,16 @@
 .continuum-battery {
   font-feature-settings: "tnum";
 }
+
+/* Reply field in a phone notification (banner and the date/time menu). */
+.continuum-reply {
+  spacing: 6px;
+}
+.continuum-reply-entry {
+  min-height: 32px;
+  border-radius: 999px;
+  padding: 0 12px;
+}
+.continuum-reply-send {
+  min-width: 72px;
+}

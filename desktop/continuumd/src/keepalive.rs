@@ -15,6 +15,8 @@ pub const SLOW_TIMEOUT: Duration = Duration::from_secs(75);
 /// When the user acts on the desktop at the slow pace, the phone must answer an immediate ping
 /// this quickly (a dead phone is still noticed at once).
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(4);
+/// A user action probes the link only if the phone has been quiet at least this long.
+pub const PROBE_QUIET: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pace {

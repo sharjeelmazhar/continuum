@@ -152,6 +152,12 @@ impl Requests {
         })
     }
 
+    /// The connection to `device` dropped: everything waiting on it fails now ("the phone
+    /// disconnected") instead of at its timeout. Partial downloads stay for resuming.
+    pub fn fail_device(&self, device: &str) {
+        self.lock().retain(|_, p| p.device() != device);
+    }
+
     pub fn cancel(&self, req: u32) {
         if let Some(Pending::Fetch {
             download: Some(d), ..
@@ -649,6 +655,7 @@ mod tests {
             reply: false,
             actions: vec![],
             silent: false,
+            own: false,
         };
         assert!(n.posted("p", mk("a", "1")));
         assert!(!n.posted("p", mk("a", "1")));
@@ -678,6 +685,7 @@ mod tests {
             reply: false,
             actions: vec![],
             silent: false,
+            own: false,
         };
         let mut first = mk("aWNvbg==");
         n.fill_icon(&mut first);

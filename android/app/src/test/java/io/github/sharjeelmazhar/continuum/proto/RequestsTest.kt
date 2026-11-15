@@ -64,7 +64,7 @@ class RequestsTest {
         assertEquals(setOf("id", "address", "body", "date", "out", "status"), keys(WireJson.encodeToJsonElement(SmsMessage.serializer(), m).jsonObject))
         val n = NotifPosted("k", "p", "App", "t", "x", 1, "", true, listOf("Mark read"), false)
         assertEquals(
-            setOf("key", "pkg", "app", "title", "text", "time", "icon", "reply", "actions", "silent"),
+            setOf("key", "pkg", "app", "title", "text", "time", "icon", "reply", "actions", "silent", "own"),
             keys(WireJson.encodeToJsonElement(NotifPosted.serializer(), n).jsonObject),
         )
         // Round trip.

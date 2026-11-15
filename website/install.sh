@@ -57,7 +57,7 @@ if [ -e "$HOME/.local/bin/continuumd" ] || [ -e "$HOME/.config/systemd/user/cont
   say "Removing the older copy in your home folder (your pairing is kept)"
   systemctl --user disable --now continuumd.service 2>/dev/null || true
   D=${XDG_DATA_HOME:-$HOME/.local/share}
-  rm -f "$HOME/.local/bin/continuumd" "$HOME/.local/bin/continuum-ui" "$HOME/.config/systemd/user/continuumd.service" \
+  rm -f "$HOME/.local/bin/continuumd" "$HOME/.local/bin/continuum-ui" "$HOME/.local/bin/continuum-ping" "$HOME/.config/systemd/user/continuumd.service" \
     "$D/applications/io.github.sharjeelmazhar.Continuum.desktop" "$D"/icons/hicolor/*/apps/io.github.sharjeelmazhar.Continuum.png \
     "$D/dbus-1/services/io.github.sharjeelmazhar.Continuum.Daemon.service" \
     "$D/nautilus-python/extensions/continuum-nautilus.py" "$D/kio/servicemenus/continuum-send.desktop"

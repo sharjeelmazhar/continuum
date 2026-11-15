@@ -45,6 +45,7 @@ pub const REQUESTS: &[(&str, &str)] = &[
     ("sms.threads", CAP_SMS),
     ("sms.messages", CAP_SMS),
     ("sms.send", CAP_SMS),
+    ("ping.show", CAP_PING),
 ];
 
 /// Fire-and-forget messages the desktop may send, with the capability each needs.
@@ -91,6 +92,8 @@ pub const CAP_FILES: &str = "files";
 /// Downloads can stream raw on a data connection (`*.fetch` with a `token`).
 pub const CAP_FETCH_RAW: &str = "fetch.raw";
 pub const CAP_FIND: &str = "find";
+/// The phone shows notifications from programs on the computer (`ping.show`).
+pub const CAP_PING: &str = "ping";
 /// The phone can mirror its screen (`mirror.*`, see PROTOCOL.md).
 pub const CAP_MIRROR: &str = "mirror";
 /// The desktop shows mirroring: it takes heartbeats (zero-length frames) and `mirror.request`.
@@ -333,6 +336,9 @@ pub struct PhoneNotification {
     pub actions: Vec<String>,
     #[serde(default)]
     pub silent: bool,
+    /// The newest message is the user's own reply (answered on the phone): our popup closes.
+    #[serde(default)]
+    pub own: bool,
 }
 
 impl PhoneNotification {
@@ -446,6 +452,7 @@ mod tests {
             reply: true,
             actions: vec!["a".into(); 5],
             silent: false,
+            own: false,
         };
         let s = n.clone().sanitized().unwrap();
         assert!(s.title.len() <= 512 && s.title.chars().all(|c| c == 'é'));

@@ -136,6 +136,10 @@
     <string name="feature_notifs_hint">Switch greyed out? Tap App info › ⋮ (top right) › “Allow restricted settings”, then try again.</string>
     <string name="notif_listener_label">Continuum: show notifications on your computer</string>
     <string name="channel_find">Find my phone</string>
+    <string name="channel_pings">Alerts from your computer</string>
+    <string name="channel_pings_desc">When a program on your computer needs you, like “Needs your password” or “Download finished”.</string>
+    <string name="ping_default_title">Your computer needs you</string>
+    <string name="ping_from">%1$s on %2$s</string>
     <string name="find_ringing">Ringing from %1$s</string>
     <string name="find_ringing_body">Your computer is looking for this phone.</string>
     <string name="find_stop">Stop</string>

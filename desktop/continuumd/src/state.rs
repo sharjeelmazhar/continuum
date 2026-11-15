@@ -287,11 +287,16 @@ impl Daemon {
             .collect()
     }
 
+    pub fn is_connected(&self, id: &str) -> bool {
+        self.lock().live.contains_key(id)
+    }
+
     pub fn disconnected(&self, id: &str, conn: u64) {
         let mut g = self.lock();
         if g.live.get(id).is_some_and(|l| l.conn == conn) {
             g.live.remove(id);
             drop(g);
+            self.requests.fail_device(id);
             self.emit(Event::DevicesChanged);
         }
     }
@@ -402,6 +407,36 @@ impl Daemon {
         match reply.body.get("error").and_then(|e| e.as_str()) {
             Some(e) => Err(e.to_owned()),
             None => Ok(reply.body),
+        }
+    }
+
+    /// `ping.show` to one phone, or ("" ) to every connected phone that can show it.
+    pub async fn ping(&self, id: &str, body: serde_json::Value) -> Result<Vec<String>, String> {
+        let targets: Vec<(String, String)> = if id.is_empty() {
+            self.list()
+                .into_iter()
+                .filter(|s| s.connected)
+                .map(|s| (s.device.id, s.device.name))
+                .collect()
+        } else {
+            let name = self.peer(id).ok_or("that device isn't paired")?.0;
+            vec![(id.to_owned(), name)]
+        };
+        if targets.is_empty() {
+            return Err("no phone is connected".into());
+        }
+        let mut shown = Vec::new();
+        let mut errors = Vec::new();
+        for (id, name) in targets {
+            match self.request(&id, "ping.show", body.clone()).await {
+                Ok(_) => shown.push(name),
+                Err(e) => errors.push(format!("{name}: {e}")),
+            }
+        }
+        if shown.is_empty() {
+            Err(errors.join("; "))
+        } else {
+            Ok(shown)
         }
     }
 
