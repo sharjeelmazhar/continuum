@@ -3,7 +3,9 @@
 > Read this first in every session. Update it before ending a session.
 
 ## Current
-- **Milestone:** v0.5.12 (15 November 2026): a reply from the computer clears the phone's copy
+- **Milestone:** v0.5.13 (27 November 2026): cleared transfer notifications come back (one, while
+  the transfer runs), real speed (last 3 s) on computer and phone, re-pairing with a computer that
+  still knows the phone, no share target for a replaced computer. Before that v0.5.12 (15 November 2026): a reply from the computer clears the phone's copy
   too; content-based reply echo (a quick answer still pops up); resume-race fix. Before that v0.5.11: instant start at login (no greeter daemon, gallery
   preload, 4 s dead-link detection + wake nudge, patient UI retries), right-click "Send to <phone>"
   in Files (Nautilus 4.1 fix), GNOME desktop (DING scripts), Dolphin/Plasma (daemon-managed service
@@ -19,14 +21,10 @@
   key env vars (see CLAUDE.local.md); deb: first 41 lines of packaging/build-packages.sh.
 - **Distro test (resumable):** serve a local site first (`/data2/vms/continuum-test/site`, built with packaging/build-packages.sh + build-repos.sh + website/install.sh; `python3 -m http.server 8000 --bind 192.168.122.1 -d /data2/vms/continuum-test/site`), then `VM_DIR=/data2/vms KEEP=1 SITE=http://192.168.122.1:8000 scripts/test-distros.sh`; after release, without SITE (fedora, arch, ubuntu GNOME VMs; reruns skip finished steps; results in /data2/vms/continuum-test/<distro>/result.txt).
 - **Notification test (VMs):** `VM_DIR=… ADB="… -s <serial>" scripts/test-notifications-vm.sh ubuntu|fedora` (VM running, emulator on adb; machine-specific values in CLAUDE.local.md). It pairs the emulator with the VM, replacing its pairing: pair it back with this PC afterwards.
-- **Next task:** owner confirms 0.5.12 on the Redmi (updates via the in-app updater): replying
-  from the PC clears WhatsApp's phone notification. Already confirmed on the Redmi with real
-  WhatsApp (0.5.11): typing while mirroring (empty box, held Backspace, drafts, fast typing, emoji),
-  replies from PC and phone close the PC copy, 5-message burst = one popup, phone-ping, Send to.
-  Phone → PC auto-copy isn't detected on the Android 17 emulator (its Copy toolbar and
-  ClipboardOverlay report no labels to accessibility; only window titles would show it, which needs
-  canRetrieveWindowContent: owner's decision). Site URL: the repo is `continuum` (lowercase), so
-  `/Continuum` 404s; renaming the repo would break existing apt/dnf sources (owner's decision).
+- **Next task:** owner updates the Redmi (in-app updater) and this PC to 0.5.13, then clears a
+  transfer's notification on both during a big transfer (comes back as one, live speed). Earlier
+  open owner decisions: phone → PC auto-copy on the Android 17 emulator (canRetrieveWindowContent),
+  site URL case (`/Continuum` 404s; renaming the repo breaks apt/dnf sources).
 - **Mirroring facts (for debugging):** phone → desktop stream is length-prefixed H.264 on a data
   connection (docs/PROTOCOL.md "Screen mirroring"). Desktop debug: `CONTINUUM_MIRROR_DEBUG=1
   continuum-ui --mirror <id>` (fps, Mbit/s, skipped, and why a stream ended). Phone debug:
@@ -69,6 +67,7 @@
 | M11 | Hardening and release | ☐ |
 
 ## Log (newest first)
+- 27 November 2026: v0.5.13 released (APK, bundle, deb/rpm/Arch, apt repo, website). CI first failed on cargo fmt (fixed); the Release job hit Maven Central HTTP 429 once and passed on rerun.
 - 27 November 2026: Transfer notifications for production. Cleared progress (GNOME date menu "Clear", one notification's close, "Clear all"; KDE/any server) comes back within ~1 s as one new notification while the transfer runs (was: hidden for good); ids the server closed are tracked so a gone one is never "replaced". Real speed: the daemon measures each transfer over the last 3 s against the clock (activity.rs `Speed`, `rate` in Transfers JSON), so resumed bytes don't count, stalls show no speed, bursts don't jump; notification and app button use it; "finishing" at 100 %; no time left beyond 99 h. Android: same 3 s SpeedMeter, notification refreshed twice a second by a poster (stalls show, a swiped/cleared one comes back). Found and fixed: a phone the computer still remembers couldn't pair again (paired elsewhere in between: daemon expected hello and dropped the pairing request silently); a replaced computer's "Send to" stayed in the share sheet. Tests: fake GNOME notification server on a private D-Bus (tests/notifications.rs, fails on the old code), session test for re-pairing, Speed/SpeedMeter unit tests; scripts/test-notifications-vm.sh on Ubuntu 26.04 and Fedora 45 GNOME VMs with the emulator (real Clear button via a test-only unsafe-mode extension, 32 Mbit/s tc both ways, shares through Files → Share): 29/29 each; daemon speed vs bytes moved over the same 3 s: mean ratio 1.000-1.003, every sample within 25 %. Android 17 emulator: shade "Clear all" during a transfer, progress back at once, 3.8 MB/s on a 4 MB/s link.
 - 15 November 2026: Mirroring typing (owner's Bug.webm from 4 November, WhatsApp "MessageI also…"): an empty field reports its hint as text with cursor -1 and no ACTION_SET_SELECTION, so reallyHolds() kept it. Now a field without cursor movement whose text is its own hint, or a short single line with cursor -1..1, counts as empty (TextEdit.emptyBehindText). Also node.refresh() before every edit: a held Backspace read stale text and deleted one character. Verified with a test app that mimics WhatsApp's field (hint reported as text, flag off, with/without hintText) through the real mirror.input path on the emulator: empty fields, drafts kept, held Backspace x13, fast one-key typing, Backspace past empty. KDE Plasma 6.8.2 VM (continuum-kde, /data2/vms/continuum-test/kde): Dolphin + desktop Send to menus (top level, spaces, zip, folder, multi) and inline reply (popup and history) pass unchanged; capabilities now asked per notification.
 - 15 November 2026: v0.5.12. Tested on the owner's Redmi with real WhatsApp (messages from a second number via WhatsApp Web): typing suite passes (an earlier "lost letters" result was the test FIFO dropping writes), PC and phone replies delivered and close the PC copy, burst of 5 = one popup updated in place. New: after a PC reply the phone cancels the app's notification when its repost shows the reply (own) or after 3 s if unchanged; newer incoming messages keep it (ReplyCleanup, 15 s window). Desktop echo guard was 20 s for anything from the chat, which hid a quick real answer; now only reposts whose text is unchanged or is the reply (is_echo). Transfer: the active mark is freed before share.result, so an immediate resume isn't refused. Session test `interrupted_transfer_resumes_from_checkpoint` flaked 1/15 on one tokio thread (phone's 12 MB write starved the daemon's handshake): runs on 2 threads now (0/40). Emulator (Android 17, test chat app): all three clear cases pass. Xiaomi: new APKs can't be adb-installed without "Install via USB"; installing from the file manager works. `adb shell monkey` turns auto-rotate on: never use it on real phones.
