@@ -15,8 +15,8 @@ use continuumd::notify::Notifier;
 use continuumd::state::Daemon;
 use continuumd::store::Store;
 use continuumd::transfer::Progress;
-use zbus::object_server::SignalEmitter;
 use zbus::OwnedVariant as OwnedValue;
+use zbus::object_server::SignalEmitter;
 use zbus::{Connection, connection, interface};
 
 const PATH: &str = "/org/freedesktop/Notifications";
@@ -111,7 +111,9 @@ fn private_bus() -> Option<Bus> {
         .spawn()
         .ok()?;
     let mut line = String::new();
-    BufReader::new(child.stdout.take()?).read_line(&mut line).ok()?;
+    BufReader::new(child.stdout.take()?)
+        .read_line(&mut line)
+        .ok()?;
     Some(Bus {
         child,
         address: line.trim().to_owned(),
@@ -301,7 +303,10 @@ async fn cleared_progress_comes_back_once_with_real_speed() {
     let h = Arc::new(ACTIVITY.start(&phone.id, "photo.jpg", false, 50_000_000, 0));
     let fed = feed(h.clone(), 5_000_000);
     eventually("share shows progress", || {
-        server.notes().get(&popup).is_some_and(|n| n.body.contains('%'))
+        server
+            .notes()
+            .get(&popup)
+            .is_some_and(|n| n.body.contains('%'))
     })
     .await;
     server.user_clears(Some(popup)).await;

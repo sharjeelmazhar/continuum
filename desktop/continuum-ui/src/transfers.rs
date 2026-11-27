@@ -70,12 +70,7 @@ pub fn button(ctx: &Rc<Ctx>) -> gtk::MenuButton {
     button
 }
 
-fn show(
-    button: &gtk::MenuButton,
-    label: &gtk::Label,
-    list: &gtk::Box,
-    rows: &[Row],
-) {
+fn show(button: &gtk::MenuButton, label: &gtk::Label, list: &gtk::Box, rows: &[Row]) {
     button.set_visible(!rows.is_empty());
     if rows.is_empty() {
         if let Some(p) = button.popover() {
@@ -283,7 +278,10 @@ mod tests {
         let mut r = row(true, 100_000_000, 40_000_000);
         assert_eq!(detail(&r), "To phone · 40.0 MB of 100.0 MB");
         r.rate = 6_000_000;
-        assert_eq!(detail(&r), "To phone · 40.0 MB of 100.0 MB · 6.0 MB/s · 10 s left");
+        assert_eq!(
+            detail(&r),
+            "To phone · 40.0 MB of 100.0 MB · 6.0 MB/s · 10 s left"
+        );
         r.done = r.total;
         assert_eq!(detail(&r), "To phone · 100.0 MB of 100.0 MB · finishing");
     }
