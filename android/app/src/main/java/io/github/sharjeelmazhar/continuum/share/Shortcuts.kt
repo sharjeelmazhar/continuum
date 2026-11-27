@@ -28,7 +28,14 @@ object Shortcuts {
             .setLongLived(true)
             .setRank(0)
             .build()
-        runCatching { ShortcutManagerCompat.pushDynamicShortcut(context, shortcut) }
+        runCatching {
+            // One computer at a time: a computer this phone was paired with before (replaced by a
+            // new pairing) must not stay in the share sheet, where it would send to the new one.
+            val flags = ShortcutManagerCompat.FLAG_MATCH_DYNAMIC or ShortcutManagerCompat.FLAG_MATCH_CACHED
+            val stale = ShortcutManagerCompat.getShortcuts(context, flags).map { it.id }.filter { it != pc.id }
+            if (stale.isNotEmpty()) ShortcutManagerCompat.removeLongLivedShortcuts(context, stale)
+            ShortcutManagerCompat.pushDynamicShortcut(context, shortcut)
+        }
     }
 
     fun reportUsed(context: Context, id: String) {

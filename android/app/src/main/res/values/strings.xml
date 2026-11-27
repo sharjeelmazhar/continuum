@@ -72,6 +72,7 @@
     <string name="send_failed">Couldn\'t send to %1$s</string>
     <string name="progress_of">%1$s of %2$s</string>
     <string name="per_second">%1$s/s</string>
+    <string name="finishing">finishing</string>
     <string name="left_seconds">%1$d s left</string>
     <string name="left_minutes">%1$d min %2$d s left</string>
     <string name="left_hours">%1$d h %2$d min left</string>

@@ -24,7 +24,9 @@ import io.github.sharjeelmazhar.continuum.proto.ClipboardPart
 import android.content.ClipboardManager
 import android.text.format.Formatter
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.contentOrNull
@@ -509,13 +511,15 @@ class ContinuumService : Service() {
                     return
                 }
                 val ok = reply.body(ShareAccept.serializer())
-                val meter = Meter(job.totalBytes, ok.offsets.sum())
                 val title = if (job.files.size == 1) getString(R.string.sending_one, job.files[0].name, pc.name)
                 else resources.getQuantityString(R.plurals.sending_many, job.files.size, job.files.size, pc.name)
-                TransferLocks.held(this) {
-                    FileSender.stream(this, s.socket.inetAddress.hostAddress!!, s.socket.port, Crypto.unhex(pc.fingerprint)!!, job, ok.token, ok.offsets) { sent ->
-                        if (meter.due()) nm.notify(notifId, progressNotification(title, meter, sent, upload = true))
+                val poster = ProgressPoster(notifId, title, job.totalBytes, ok.offsets.sum(), upload = true)
+                try {
+                    TransferLocks.held(this) {
+                        FileSender.stream(this, s.socket.inetAddress.hostAddress!!, s.socket.port, Crypto.unhex(pc.fingerprint)!!, job, ok.token, ok.offsets, poster::update)
                     }
+                } finally {
+                    poster.stop()
                 }
                 val r = withTimeout(120_000) { result.await() }
                 if (r.ok) {
@@ -546,46 +550,53 @@ class ContinuumService : Service() {
     private suspend fun sendDownload(s: Session, pc: PairedComputer, out: io.github.sharjeelmazhar.continuum.feature.Outgoing, token: String) {
         val nm = getSystemService(NotificationManager::class.java)
         val notifId = token.hashCode()
-        val meter = Meter(out.size, 0)
         val title = getString(R.string.sending_one, out.name, pc.name)
+        val poster = ProgressPoster(notifId, title, out.size, 0, upload = true)
         try {
             withContext(Dispatchers.IO) {
-                TransferLocks.held(this@ContinuumService) { FileSender.streamRaw(s.socket.inetAddress.hostAddress!!, s.socket.port, Crypto.unhex(pc.fingerprint)!!, token, out.input, out.size) { sent ->
-                    if (meter.due()) nm.notify(notifId, progressNotification(title, meter, sent, upload = true))
-                } }
+                TransferLocks.held(this@ContinuumService) {
+                    FileSender.streamRaw(s.socket.inetAddress.hostAddress!!, s.socket.port, Crypto.unhex(pc.fingerprint)!!, token, out.input, out.size, poster::update)
+                }
             }
         } finally {
+            poster.stop()
             nm.cancel(notifId)
         }
     }
 
-    /** Tracks speed for progress notifications and limits updates to a few per second. */
-    private class Meter(val total: Long, private val startBytes: Long) {
-        private val started = System.nanoTime()
-        private var last = 0L
-
-        fun due(): Boolean {
-            val now = System.nanoTime()
-            if (now - last < 300_000_000L) return false
-            last = now
-            return true
+    /**
+     * Keeps a transfer's progress notification up to date twice a second from the bytes the
+     * transfer reports: the speed of the last few seconds (it drops to nothing when the transfer
+     * stalls, even with no callbacks), and the notification comes back if the user swipes it
+     * away (Android 14+ lets them) while the transfer runs. [stop] before posting the result.
+     */
+    private inner class ProgressPoster(private val notifId: Int, private val title: String, total: Long, start: Long, private val upload: Boolean) {
+        private val meter = SpeedMeter(total, start)
+        private val done = AtomicLong(start)
+        private val nm = getSystemService(NotificationManager::class.java)
+        private val job = scope.launch {
+            while (isActive) {
+                nm.notify(notifId, progressNotification(title, meter, done.get(), upload))
+                delay(500)
+            }
         }
 
-        fun bytesPerSecond(done: Long): Long {
-            val secs = (System.nanoTime() - started) / 1e9
-            return if (secs < 0.2) 0 else ((done - startBytes) / secs).toLong()
-        }
+        fun update(bytes: Long) = done.set(bytes)
+
+        suspend fun stop() = job.cancelAndJoin()
     }
 
-    /** "35 MB of 120 MB · 11 MB/s" with a real progress bar. */
-    private fun progressNotification(title: String, meter: Meter, done: Long, upload: Boolean): Notification {
-        val pct = if (meter.total > 0) (done * 1000 / meter.total).toInt() else 0
+    /** "35 MB of 120 MB · 11 MB/s · 8 s left" with a real progress bar. */
+    private fun progressNotification(title: String, meter: SpeedMeter, done: Long, upload: Boolean): Notification {
+        val pct = if (meter.total > 0) (done.coerceIn(0, meter.total) * 1000.0 / meter.total).toInt() else 0
         val speed = meter.bytesPerSecond(done)
         var text = getString(R.string.progress_of, Formatter.formatShortFileSize(this, done), Formatter.formatShortFileSize(this, meter.total))
-        if (speed > 0) {
+        if (meter.total > 0 && done >= meter.total) {
+            text += " · " + getString(R.string.finishing)
+        } else if (speed > 0) {
             text += " · " + getString(R.string.per_second, Formatter.formatShortFileSize(this, speed))
-            val left = (meter.total - done).coerceAtLeast(0) / speed
-            text += " · " + timeLeft(left)
+            val left = (meter.total - done + speed - 1) / speed
+            if (left < 100 * 3600) text += " · " + timeLeft(left)
         }
         return NotificationCompat.Builder(this, Channels.forTransfer(TransferEvent.Progress))
             .setSmallIcon(if (upload) android.R.drawable.stat_sys_upload else android.R.drawable.stat_sys_download)
@@ -631,15 +642,18 @@ class ContinuumService : Service() {
         val token = Crypto.hex(ByteArray(16).also { java.security.SecureRandom().nextBytes(it) })
         s.send(Envelope.of(MessageType.SHARE_ACCEPT, ShareAccept.serializer(), ShareAccept(offer.transferId, token, offsets)))
         val total = offer.files.sumOf { it.size }
-        val meter = Meter(total, offsets.sum())
         val title = if (offer.files.size == 1) getString(R.string.receiving_one, offer.files[0].name, pc.name)
         else resources.getQuantityString(R.plurals.receiving_many, offer.files.size, offer.files.size, pc.name)
-        nm.notify(notifId, progressNotification(title, meter, offsets.sum(), upload = false))
-        val result = runCatching {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) throw IOException("needs Android 10")
-            TransferLocks.held(this) { receiver.receive(s.socket.inetAddress.hostAddress!!, s.socket.port, Crypto.unhex(pc.fingerprint)!!, offer, token, offsets) { done ->
-                if (meter.due()) nm.notify(notifId, progressNotification(title, meter, done, upload = false))
-            } }
+        val poster = ProgressPoster(notifId, title, total, offsets.sum(), upload = false)
+        val result = try {
+            runCatching {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) throw IOException("needs Android 10")
+                TransferLocks.held(this) {
+                    receiver.receive(s.socket.inetAddress.hostAddress!!, s.socket.port, Crypto.unhex(pc.fingerprint)!!, offer, token, offsets, poster::update)
+                }
+            }
+        } finally {
+            poster.stop()
         }
         val report = result.fold(
             { saved -> ShareResult(offer.transferId, true, saved.map { it.name }) },

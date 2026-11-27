@@ -135,14 +135,22 @@ async fn handle(
             };
             let (tx, rx) = mpsc::channel(64);
             tokio::spawn(write_loop(wr, rx));
-            (device, reader, tx, Some(first))
+            if first.kind == m::PAIR_REQUEST {
+                // Paired with another computer in between, now back with a new code: pair again
+                // (same one-time secret and proof as a first pairing).
+                let device = pair(&daemon, first, &tx, fp, addr.ip()).await?;
+                (device, reader, tx, None)
+            } else {
+                (device, reader, tx, Some(first))
+            }
         }
         None => {
             let (rd, wr) = tokio::io::split(stream);
             let mut reader = Reader::new(rd);
             let (tx, rx) = mpsc::channel(64);
             tokio::spawn(write_loop(wr, rx));
-            let device = pair(&daemon, &mut reader, &tx, fp, addr.ip()).await?;
+            let msg = reader.next(PAIR_REQUEST_TIMEOUT).await?;
+            let device = pair(&daemon, msg, &tx, fp, addr.ip()).await?;
             (device, reader, tx, None)
         }
     };
@@ -295,14 +303,13 @@ async fn data_connection<S: AsyncRead + AsyncWrite + Unpin>(
     result
 }
 
-async fn pair<R: AsyncRead + Unpin>(
+async fn pair(
     daemon: &Daemon,
-    reader: &mut Reader<R>,
+    msg: Message,
     tx: &mpsc::Sender<Message>,
     fp: Fingerprint,
     ip: IpAddr,
 ) -> Result<PairedDevice, String> {
-    let msg = reader.next(PAIR_REQUEST_TIMEOUT).await?;
     let reject = |reason: &str| {
         Message::with_body(
             m::PAIR_REJECT,

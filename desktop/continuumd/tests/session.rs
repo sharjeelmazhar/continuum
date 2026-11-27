@@ -188,6 +188,36 @@ async fn pair_report_battery_then_reconnect_without_pairing() {
 }
 
 #[tokio::test]
+async fn phone_paired_elsewhere_in_between_can_pair_again() {
+    // Paired with this computer, then with another one (this computer still lists the phone),
+    // now back with a new code from this computer: it must pair again, not be dropped.
+    let d = desktop().await;
+    let phone_id = Identity::generate().unwrap();
+    let uri = d.daemon.start_pairing(vec![]);
+    let mut p = Phone::connect(&phone_id, &d).await;
+    assert_eq!(p.pair(&phone_id, &uri).await.kind, m::PAIR_ACCEPT);
+    drop(p);
+
+    // Pairing closed: refused with a reason (not a silent drop), still paired as before.
+    let mut p = Phone::connect(&phone_id, &d).await;
+    assert_eq!(p.pair(&phone_id, &uri).await.kind, m::PAIR_REJECT);
+    drop(p);
+
+    // A new code, but the phone proves an old one: refused.
+    d.daemon.start_pairing(vec![]);
+    let mut p = Phone::connect(&phone_id, &d).await;
+    assert_eq!(p.pair(&phone_id, &uri).await.kind, m::PAIR_REJECT);
+    drop(p);
+
+    // The right new code: paired again, then the session runs.
+    let fresh = d.daemon.start_pairing(vec![]);
+    let mut p = Phone::connect(&phone_id, &d).await;
+    assert_eq!(p.pair(&phone_id, &fresh).await.kind, m::PAIR_ACCEPT);
+    assert_eq!(p.hello(&phone_id).await.name, "Test Desktop");
+    eventually(|| d.daemon.list().len() == 1 && d.daemon.list()[0].connected).await;
+}
+
+#[tokio::test]
 async fn secret_is_single_use() {
     let d = desktop().await;
     let uri = d.daemon.start_pairing(vec![]);

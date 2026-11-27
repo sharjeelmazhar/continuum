@@ -75,11 +75,12 @@ pub struct Notifier {
     /// Popup → (device id, phone notification key), for its Reply and action buttons.
     popups: Mutex<HashMap<u32, (String, String)>>,
     tokens: Mutex<HashMap<u32, String>>,
-    /// Live progress notifications we opened for transfers (closed when they end), and the
-    /// bytes done at the last update, for the speed.
-    live: Mutex<HashMap<String, (u32, u64)>>,
-    /// Progress notifications the user dismissed: not shown again for that transfer.
-    dismissed: Mutex<std::collections::HashSet<u32>>,
+    /// Live progress notifications we opened for transfers (closed when they end); 0 while a
+    /// share's own notification shows the progress.
+    live: Mutex<HashMap<String, u32>>,
+    /// Notifications the server closed (the user cleared them, "Clear all", expired): a running
+    /// transfer's progress comes back as one new notification instead of replacing a gone one.
+    closed: Mutex<std::collections::HashSet<u32>>,
     /// "device/key" → when the user replied to it from the desktop, and the texts its echo may
     /// show (the text before, the reply): the app's repost of them doesn't pop up again.
     replied: Mutex<HashMap<String, (std::time::Instant, Vec<String>)>>,
@@ -107,7 +108,7 @@ impl Notifier {
             popups: Mutex::new(HashMap::new()),
             tokens: Mutex::new(HashMap::new()),
             live: Mutex::new(HashMap::new()),
-            dismissed: Mutex::new(Default::default()),
+            closed: Mutex::new(Default::default()),
             replied: Mutex::new(HashMap::new()),
             texts: Mutex::new(HashMap::new()),
             daemon,
@@ -128,13 +129,11 @@ impl Notifier {
                 let (Ok(args), Some(me)) = (signal.args(), weak.upgrade()) else {
                     continue;
                 };
-                if args.reason == 2 {
-                    let mut d = locked(&me.dismissed);
-                    if d.len() > 200 {
-                        d.clear();
-                    }
-                    d.insert(args.id);
+                let mut c = locked(&me.closed);
+                if c.len() > 500 {
+                    c.clear();
                 }
+                c.insert(args.id);
             }
         });
         let weak = Arc::downgrade(&me);
@@ -229,8 +228,9 @@ impl Notifier {
     }
 
     /// Keeps one quiet notification per running transfer (in the notification list, no popup)
-    /// up to date: "45% · 60 MB of 188 MB · 8.1 MB/s · 15 s left".
-    async fn update_progress(&self) {
+    /// up to date: "45% · 60 MB of 188 MB · 8.1 MB/s · 15 s left". Cleared by the user, it
+    /// comes back with the next update while the transfer runs (one notification, never more).
+    pub(crate) async fn update_progress(&self) {
         let rows = crate::activity::ACTIVITY.list();
         if rows.is_empty() && locked(&self.live).is_empty() {
             return;
@@ -252,40 +252,38 @@ impl Notifier {
             };
             let key = format!("{}:{}:{}", r.up, r.device, r.name);
             seen.push(key.clone());
-            let (mine, last) = locked(&self.live).get(&key).copied().unwrap_or((0, r.done));
+            let mine = locked(&self.live).get(&key).copied().unwrap_or(0);
             let theirs = locked(&self.in_progress).get(&share_key).copied();
-            let rate = (r.done.saturating_sub(last)) as f64 / PROGRESS_EVERY.as_secs_f64();
             let summary = if r.up {
                 format!("Sending {} to {device}", r.name)
             } else {
                 format!("Receiving {} from {device}", r.name)
             };
-            let body = progress_text(r.done, r.total, rate);
-            let current = theirs.unwrap_or(mine);
-            if current != 0 && locked(&self.dismissed).contains(&current) {
-                // Closed by the user: leave it closed until the transfer ends.
-                locked(&self.live).insert(key, (0, r.done));
-                continue;
+            let body = progress_text(r.done, r.total, r.rate);
+            let mut current = theirs.unwrap_or(mine);
+            if current != 0 && locked(&self.closed).remove(&current) {
+                // Gone from the screen: show it again as a new one.
+                current = 0;
             }
-            // GNOME opens a new notification (new id) when the old one is gone, e.g. after
-            // "Clear": always keep the id it returns, or every update adds another one.
+            // Always keep the id the server returns: it opens a new notification (new id) when
+            // the old one is gone, and replacing a gone id again would add one every update.
             let Some(id) = self.show_quiet(current, &summary, &body).await else {
                 continue;
             };
             if theirs.is_some() {
                 locked(&self.in_progress).insert(share_key, id);
                 // Owned by the share: it becomes "Sent …"/"Received …", never closed here.
-                locked(&self.live).insert(key, (0, r.done));
+                locked(&self.live).insert(key, 0);
             } else {
-                locked(&self.live).insert(key, (id, r.done));
+                locked(&self.live).insert(key, id);
             }
         }
         let gone: Vec<u32> = {
             let mut live = locked(&self.live);
             let ids = live
                 .iter()
-                .filter(|(k, (id, _))| !seen.contains(k) && *id != 0)
-                .map(|(_, (id, _))| *id)
+                .filter(|(k, id)| !seen.contains(k) && **id != 0)
+                .map(|(_, id)| *id)
                 .collect();
             live.retain(|k, _| seen.contains(k));
             ids
@@ -758,17 +756,22 @@ fn is_echo(echoes: &[String], text: &str) -> bool {
         .any(|e| text == e || text.ends_with(&format!(": {e}")))
 }
 
-/// "45% · 60 MB of 188 MB · 8.1 MB/s · 15 s left" (speed and time once it's moving).
-fn progress_text(done: u64, total: u64, rate: f64) -> String {
-    let pct = (done * 100).checked_div(total).unwrap_or(0).min(100);
+/// "45% · 60 MB of 188 MB · 8.1 MB/s · 15 s left": the speed of the last few seconds and the
+/// time left at that speed, once it can be measured.
+pub(crate) fn progress_text(done: u64, total: u64, rate: u64) -> String {
+    let pct = (u128::from(done) * 100)
+        .checked_div(u128::from(total))
+        .unwrap_or(0)
+        .min(100);
     let mut s = format!("{pct}% · {} of {}", human_size(done), human_size(total));
-    if rate >= 1.0 {
-        let left = total.saturating_sub(done) as f64 / rate;
-        s.push_str(&format!(
-            " · {}/s · {} left",
-            human_size(rate as u64),
-            time_left(left as u64)
-        ));
+    if total > 0 && done >= total {
+        s.push_str(" · finishing");
+    } else if rate > 0 {
+        let left = total.saturating_sub(done).div_ceil(rate);
+        s.push_str(&format!(" · {}/s", human_size(rate)));
+        if left < 100 * 3600 {
+            s.push_str(&format!(" · {} left", time_left(left)));
+        }
     }
     s
 }
@@ -823,5 +826,29 @@ mod tests {
         assert_eq!(human_size(512), "512 bytes");
         assert_eq!(human_size(1_500_000), "1.5 MB");
         assert_eq!(human_size(4_200_000_000), "4.2 GB");
+    }
+
+    #[test]
+    fn progress_bodies() {
+        assert_eq!(progress_text(0, 0, 0), "0% · 0 bytes of 0 bytes");
+        assert_eq!(
+            progress_text(60_000_000, 188_000_000, 8_100_000),
+            "31% · 60.0 MB of 188.0 MB · 8.1 MB/s · 16 s left"
+        );
+        // Not measured yet or stalled: no speed, no made-up time.
+        assert_eq!(
+            progress_text(60_000_000, 188_000_000, 0),
+            "31% · 60.0 MB of 188.0 MB"
+        );
+        // All bytes there, being checked.
+        assert_eq!(
+            progress_text(5_000, 5_000, 0),
+            "100% · 5.0 KB of 5.0 KB · finishing"
+        );
+        // Huge sizes don't overflow.
+        assert!(progress_text(u64::MAX / 2, u64::MAX, 1).starts_with("49% · "));
+        // A crawl doesn't promise days: speed only.
+        assert!(progress_text(0, 1_000_000_000, 10).ends_with("10 bytes/s"));
+        assert!(progress_text(1, 7_200_000_000, 1_000_000).ends_with("2 h 0 min left"));
     }
 }

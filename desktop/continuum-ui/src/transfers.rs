@@ -1,8 +1,7 @@
 //! The transfers button in the header: shows while files move, with each one's progress,
 //! speed and time left.
 
-use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -17,11 +16,10 @@ struct Row {
     up: bool,
     total: u64,
     done: u64,
-    elapsed_ms: u64,
+    /// Bytes per second over the last few seconds, measured by the daemon.
+    #[serde(default)]
+    rate: u64,
 }
-
-/// Speed per transfer, smoothed between polls: (bytes done, smoothed bytes per second).
-type Speeds = HashMap<String, (u64, f64)>;
 
 const POLL: Duration = Duration::from_millis(700);
 
@@ -47,7 +45,6 @@ pub fn button(ctx: &Rc<Ctx>) -> gtk::MenuButton {
         .visible(false)
         .build();
 
-    let speeds: Rc<RefCell<Speeds>> = Rc::default();
     let (ctx, weak) = (ctx.clone(), button.downgrade());
     glib::timeout_add_local(POLL, move || {
         let Some(button) = weak.upgrade() else {
@@ -57,7 +54,7 @@ pub fn button(ctx: &Rc<Ctx>) -> gtk::MenuButton {
             button.set_visible(false);
             return glib::ControlFlow::Continue;
         };
-        let (label, list, speeds, up) = (label.clone(), list.clone(), speeds.clone(), up.clone());
+        let (label, list, up) = (label.clone(), list.clone(), up.clone());
         glib::spawn_future_local(async move {
             let rows: Vec<Row> = proxy
                 .transfers()
@@ -66,7 +63,7 @@ pub fn button(ctx: &Rc<Ctx>) -> gtk::MenuButton {
                 .and_then(|j| serde_json::from_str(&j).ok())
                 .unwrap_or_default();
             up.set(mostly_up(&rows));
-            show(&button, &label, &list, &rows, &mut speeds.borrow_mut());
+            show(&button, &label, &list, &rows);
         });
         glib::ControlFlow::Continue
     });
@@ -78,11 +75,9 @@ fn show(
     label: &gtk::Label,
     list: &gtk::Box,
     rows: &[Row],
-    speeds: &mut Speeds,
 ) {
     button.set_visible(!rows.is_empty());
     if rows.is_empty() {
-        speeds.clear();
         if let Some(p) = button.popover() {
             p.popdown();
         }
@@ -94,25 +89,9 @@ fn show(
     label.set_label(&format!("{}%", percent(done, total)));
 
     crate::ctx::clear_box(list);
-    let mut seen = Vec::new();
     for r in rows {
-        let key = format!("{}{}", r.up, r.name);
-        let rate = {
-            let entry = speeds.entry(key.clone()).or_insert((r.done, 0.0));
-            let now = (r.done.saturating_sub(entry.0)) as f64 / POLL.as_secs_f64();
-            // First sample: the average so far; then smooth so the number doesn't jump.
-            entry.1 = if entry.1 == 0.0 {
-                r.done as f64 / (r.elapsed_ms.max(1) as f64 / 1000.0)
-            } else {
-                entry.1 * 0.7 + now * 0.3
-            };
-            entry.0 = r.done;
-            entry.1
-        };
-        seen.push(key);
-        list.append(&row(r, rate));
+        list.append(&row(r));
     }
-    speeds.retain(|k, _| seen.contains(k));
 }
 
 /// The header shows an upload arrow while more is going to the phone than coming from it.
@@ -207,7 +186,7 @@ fn arrow(up: Rc<Cell<bool>>) -> gtk::DrawingArea {
     area
 }
 
-fn row(r: &Row, rate: f64) -> gtk::Widget {
+fn row(r: &Row) -> gtk::Widget {
     let title = gtk::Label::builder()
         .label(&r.name)
         .xalign(0.0)
@@ -230,7 +209,7 @@ fn row(r: &Row, rate: f64) -> gtk::Widget {
         })
         .build();
     let detail = gtk::Label::builder()
-        .label(detail(r, rate))
+        .label(detail(r))
         .xalign(0.0)
         .wrap(true)
         .max_width_chars(40)
@@ -248,17 +227,21 @@ fn percent(done: u64, total: u64) -> u64 {
 }
 
 /// "To phone · 1.2 GB of 2.1 GB · 57.3 MB/s · 16 s left".
-fn detail(r: &Row, rate: f64) -> String {
+fn detail(r: &Row) -> String {
     let way = if r.up { "To phone" } else { "From phone" };
     let mut s = format!(
         "{way} · {} of {}",
         glib::format_size(r.done),
         glib::format_size(r.total)
     );
-    if rate > 1.0 {
-        s.push_str(&format!(" · {}/s", glib::format_size(rate as u64)));
-        let left = r.total.saturating_sub(r.done) as f64 / rate;
-        s.push_str(&format!(" · {} left", time_left(left as u64)));
+    if r.total > 0 && r.done >= r.total {
+        s.push_str(" · finishing");
+    } else if r.rate > 0 {
+        s.push_str(&format!(" · {}/s", glib::format_size(r.rate)));
+        let left = r.total.saturating_sub(r.done).div_ceil(r.rate);
+        if left < 100 * 3600 {
+            s.push_str(&format!(" · {} left", time_left(left)));
+        }
     }
     s
 }
@@ -290,8 +273,19 @@ mod tests {
             up,
             total,
             done,
-            elapsed_ms: 1,
+            rate: 0,
         }
+    }
+
+    #[test]
+    fn detail_uses_the_measured_speed() {
+        let detail = |r: &Row| detail(r).replace('\u{a0}', " ");
+        let mut r = row(true, 100_000_000, 40_000_000);
+        assert_eq!(detail(&r), "To phone · 40.0 MB of 100.0 MB");
+        r.rate = 6_000_000;
+        assert_eq!(detail(&r), "To phone · 40.0 MB of 100.0 MB · 6.0 MB/s · 10 s left");
+        r.done = r.total;
+        assert_eq!(detail(&r), "To phone · 100.0 MB of 100.0 MB · finishing");
     }
 
     #[test]
